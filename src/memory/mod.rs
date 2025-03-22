@@ -1,26 +1,38 @@
-pub struct Memory {
+pub struct Memory<T: Sized + Copy> {
     size: usize,
-    data: Box<[u8]>
+    data: Vec<T>,
 }
 
-impl Memory {
-    pub fn new(size: usize) -> Self {
+impl<T: Sized + Copy> Memory<T> {
+    pub fn new(size: usize, default: T) -> Self {
         Self {
             size,
-            data: vec![0; size].into_boxed_slice()
+            data: vec![default; size],
         }
     }
 
-    pub fn get_size(self: &Self) -> usize {
+    pub fn get_size(&self) -> usize {
         self.data.len()
     }
 
-    pub fn read(self: &Self, address: usize) -> u8 {
-        self.data[address]
+    pub fn read(&self, address: usize) -> &T {
+        &self.data[address]
     }
 
-    pub fn write(self: &mut Self, address: usize, byte: u8) {
-        self.data[address] = byte
+    pub fn read_n(&self, address: usize, n: usize) -> &[T] {
+        &self.data[address..address + n]
+    }
+
+    pub fn write(&mut self, address: usize, data: T) {
+        self.data[address] = data;
+    }
+
+    pub fn write_n(&mut self, address: usize, data: &[T]) {
+        self.data[address..address + data.len()].copy_from_slice(data);
+    }
+
+    pub fn write_vec(&mut self, address: usize, data: Vec<T>) {
+        self.data.splice(address..address + data.len(), data);
     }
 
 }
