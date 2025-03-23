@@ -1,4 +1,4 @@
-use crate::memory::memory_trait::MemoryTrait;
+use super::memory_trait::MemoryTrait;
 
 pub struct StackMemory<T: Sized + Copy, const N: usize> {
     data: [T; N], // Fixed-size array allocated on the stack
