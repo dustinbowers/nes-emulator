@@ -1,7 +1,7 @@
 pub trait MemoryTrait<T: Sized + Copy> {
     fn new(size: usize, default: T) -> Self
-        where
-            Self: Sized;
+    where
+        Self: Sized;
 
     fn get_size(&self) -> usize;
     fn read(&self, address: usize) -> &T;

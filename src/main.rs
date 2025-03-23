@@ -1,32 +1,30 @@
-mod memory;
 mod bus;
 mod cpu;
+mod memory;
 
 use bus::Bus;
 use cpu::CPU;
 use memory::heap_memory::HeapMemory;
 use memory::memory_trait::MemoryTrait;
-use memory::stack_memory::StackMemory;
 
 fn main() {
     // Create HeapMemory for the ROM
     let heap_mem = HeapMemory::new(256, 0u8); // 256-byte memory initialized to 0
 
-    // Create StackMemory for the cpu RAM
-    let mut stack_mem = StackMemory::<u8, 256>::new(256, 0u8);
-
-    // Create a Bus instance
+    // Create the Bus
     let mut bus = Bus::new(heap_mem);
 
-    // Store some values
+    // Store a value through the bus
     bus.store_byte(0x10, 42);
-    stack_mem.write_n(0x10, &[1, 3, 3, 7]);
 
-    // Fetch the values
+    // Fetch the value
     let value = bus.fetch_byte(0x10);
     println!("Fetched value from bus heap at $10: {}", value);
-    println!("Fetched 10 values from stack starting at $0D: {:?}", stack_mem.read_n(0x0D, 10));
+    assert_eq!(value, 42);
 
-
-    let cpu = CPU::new(bus);
+    let mut cpu = CPU::new(bus);
+    cpu.store_byte(0x10, 84);
+    let value = cpu.fetch_byte(0x10);
+    println!("Fetched value from cpu at $10: {}", value);
+    assert_eq!(value, 84);
 }
