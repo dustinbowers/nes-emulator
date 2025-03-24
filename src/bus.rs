@@ -4,21 +4,28 @@ use crate::memory::memory_trait::MemoryTrait;
 const ROM_SIZE: usize = 1<<16;
 pub struct Bus {
     memory: HeapMemory<u8>,
+    pub(crate) cycles: usize,
 }
 
 impl Bus {
     pub fn new() -> Self {
         Self {
-            memory: HeapMemory::new(ROM_SIZE, 0u8)
+            memory: HeapMemory::new(ROM_SIZE, 0u8),
+            cycles: 0,
         }
     }
 
     pub fn tick(&mut self, cycles: usize) {
-        println!("Bus::tick({})", cycles);
+        // println!("Bus::tick({})", cycles);
+        self.cycles += cycles;
     }
 
     pub fn fetch_byte(&mut self, address: u16) -> u8 {
         *self.memory.read(address as usize)
+    }
+
+    pub fn fetch_bytes(&mut self, address: u16, size: u8) -> &[u8] {
+        self.memory.read_n(address as usize, size as usize)
     }
 
     pub fn store_byte(&mut self, address: u16, value: u8) {

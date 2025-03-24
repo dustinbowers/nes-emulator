@@ -2,12 +2,28 @@ use crate::{opcodes, Bus};
 use bitflags::bitflags;
 use std::collections::HashMap;
 
+const DEBUG: bool = true;
+
 const CPU_RAM_SIZE: usize = 2048;
 const CPU_PC_RESET: u16 = 0x8000;
 const CPU_STACK_RESET: u8 = 0x00FD;
 const CPU_STACK_BASE: u16 = (CPU_STACK_RESET as u16) + 0x2;
 
 bitflags! {
+    /* https://www.nesdev.org/wiki/Status_flags
+            7  bit  0
+        ---- ----
+        NV1B DIZC
+        |||| ||||
+        |||| |||+- Carry
+        |||| ||+-- Zero
+        |||| |+--- Interrupt Disable
+        |||| +---- Decimal
+        |||+------ (No CPU effect; see: the B flag)
+        ||+------- (No CPU effect; always pushed as 1)
+        |+-------- Overflow
+        +--------- Negative
+     */
     pub struct Flags: u8 {
         const CARRY             = 1<<0;
         const ZERO              = 1<<1;
@@ -48,7 +64,7 @@ pub struct CPU {
 
 impl CPU {
     pub fn new(bus: Bus) -> Self {
-         Self {
+        Self {
             bus,
             register_a: 0,
             register_x: 0,
@@ -95,16 +111,62 @@ impl CPU {
             self.extra_cycles = 0;
             let code = self.fetch_byte(self.program_counter);
             self.program_counter += 1;
-            let opcode = *opcodes.get(&code).expect("");
+            let opcode = *opcodes
+                .get(&code)
+                .expect(&format!("Unknown opcode: {:#x}", &code));
             let curr_program_counter = self.program_counter;
 
+            if DEBUG {
+                println!(
+                    "PC:{:#x} SP:{:#x} A:{:#x} X:{:#x} Y:{:#x} - Opcode: {} {:x?}",
+                    self.program_counter,
+                    self.stack_pointer,
+                    self.register_a,
+                    self.register_x,
+                    self.register_y,
+                    opcode.name,
+                    self.bus.fetch_bytes(self.program_counter-1, opcode.size)
+                )
+            }
+
             match code {
+                0x00 => return, // BRK
+                0xEA => {}, // NOP
+
                 0xA9 | 0xA5 | 0xB5 | 0xAD | 0xBD | 0xB9 | 0xA1 | 0xB1 => {
                     // LDA
                     self.lda(opcode);
                 }
+                0xA2 | 0xA6 | 0xB6 | 0xAE | 0xBE => {
+                    // LDX
+                    self.ldx(opcode);
+                }
+                0xA0 | 0xA4 | 0xB4 | 0xAC | 0xBC => {
+                    // LDY
+                    self.ldy(opcode);
+                }
+                0x85 | 0x95 | 0x8D | 0x9D | 0x99 | 0x81 | 0x91 => {
+                    // STA
+                    self.sta(opcode);
+                }
+                0x86 | 0x96 | 0x8e => {
+                    // STX
+                    self.stx(opcode);
+                }
+                0x84 | 0x94 | 0x8c => {
+                    // STY
+                    self.sty(opcode);
+                }
                 0xAA => self.tax(), // TAX
-                0x00 => return,     // BRK
+
+                0xE8 => self.inx(), // INX
+                0xC8 => self.iny(), // INY
+
+                0xCA => self.dex(), // DEX
+                0x88 => self.dey(), // DEY
+                0x48 => self.pha(), // PHA
+                0x68 => self.pla(), // PLA
+
                 _ => todo!(),
             }
 
@@ -161,7 +223,7 @@ impl CPU {
                 let addr = dynamic_base.wrapping_add(self.register_y as u16);
                 (addr, is_boundary_crossed(dynamic_base, addr))
             }
-            _ => unimplemented!("Unimplemented addressing mode")
+            _ => unimplemented!("Unimplemented addressing mode"),
         }
     }
 
@@ -175,21 +237,109 @@ impl CPU {
         self.update_zero_and_negative_flags(value);
     }
 
+    fn set_register_y(&mut self, value: u8) {
+        self.register_y = value;
+        self.update_zero_and_negative_flags(value);
+    }
+
+    fn stack_push(&mut self, value: u8) {
+        self.bus.store_byte(CPU_STACK_BASE + self.stack_pointer as u16, value);
+        self.stack_pointer = self.stack_pointer.wrapping_sub(1);
+    }
+
+    fn stack_pop(&mut self) -> u8 {
+        self.stack_pointer = self.stack_pointer.wrapping_add(1);
+        self.bus.fetch_byte(CPU_STACK_BASE + self.stack_pointer as u16)
+    }
+
+    fn update_zero_and_negative_flags(&mut self, result: u8) {
+        self.status.set(Flags::ZERO, result == 0);
+        self.status.set(Flags::NEGATIVE, result & 0b1000_0000 != 0);
+    }
+
     fn lda(&mut self, opcode: &opcodes::Opcode) {
         let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
         self.extra_cycles += boundary_cross as u8; // boundary_cross adds 1 extra cycle
-        let param = self.fetch_byte(address);
 
+        let param = self.fetch_byte(address);
         self.set_register_a(param);
+    }
+
+    fn ldx(&mut self, opcode: &opcodes::Opcode) {
+        let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
+        self.extra_cycles += boundary_cross as u8; // boundary_cross adds 1 extra cycle
+
+        let param = self.fetch_byte(address);
+        self.set_register_x(param);
+    }
+
+    fn ldy(&mut self, opcode: &opcodes::Opcode) {
+        let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
+        self.extra_cycles += boundary_cross as u8; // boundary_cross adds 1 extra cycle
+
+        let param = self.fetch_byte(address);
+        self.set_register_y(param);
+    }
+
+    fn sta(&mut self, opcode: &opcodes::Opcode) {
+        let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
+        self.bus.store_byte(address, self.register_a);
+    }
+
+    fn stx(&mut self, opcode: &opcodes::Opcode) {
+        let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
+        self.bus.store_byte(address, self.register_x);
+    }
+
+    fn sty(&mut self, opcode: &opcodes::Opcode) {
+        let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
+        self.bus.store_byte(address, self.register_y);
     }
 
     fn tax(&mut self) {
         self.set_register_x(self.register_a);
     }
 
-    fn update_zero_and_negative_flags(&mut self, result: u8) {
-        self.status.set(Flags::ZERO, result == 0);
-        self.status.set(Flags::NEGATIVE, result & 0b1000_0000 != 0);
+    fn inx(&mut self) {
+        self.register_x = self.register_x.wrapping_add(1);
+        self.update_zero_and_negative_flags(self.register_x);
+    }
+
+    fn iny(&mut self) {
+        self.register_y = self.register_y.wrapping_add(1);
+        self.update_zero_and_negative_flags(self.register_y);
+    }
+
+    fn dex(&mut self) {
+        self.register_x = self.register_x.wrapping_sub(1);
+        self.update_zero_and_negative_flags(self.register_x);
+    }
+
+    fn dey(&mut self) {
+        self.register_y = self.register_y.wrapping_sub(1);
+        self.update_zero_and_negative_flags(self.register_y);
+    }
+
+    fn pha(&mut self) { // Push register_a onto the stack
+        self.stack_push(self.register_a)
+    }
+
+    fn pla(&mut self) { // Pop stack into register_a
+        let value = self.stack_pop();
+        self.set_register_a(value);
+    }
+
+    fn php(&mut self) { // Push processor_status onto the stack
+        // https://www.nesdev.org/wiki/Status_flags
+        // says that B flag is pushed as 1, but not affected on the CPU
+        let mut status_copy = Flags::from_bits_truncate(self.status.bits());
+        status_copy.insert(Flags::BREAK);
+        self.stack_push(status_copy.bits())
+    }
+
+    fn plp(&mut self) { // Pop stack into processor_status
+        self.status = Flags::from_bits_truncate(self.stack_pop());
+        self.status.insert(Flags::BREAK2); // This flag is supposed to always be 1 on CPU
     }
 }
 
@@ -282,6 +432,26 @@ mod test {
         cpu.run();
         assert_eq!(cpu.register_a, 0x42);
         assert_eq!(cpu.register_x, 0x0F);
+        assert_eq!(cpu.status.contains(Flags::ZERO), false);
+        assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
+    }
+
+    #[test]
+    fn test_0xb5_lda_absolute_load_data() {
+        let mut cpu = init_cpu();
+        let program = &[
+            0xAD, // LDA absolute (5 cycles)
+            0xEF, //
+            0xBE, // Loading from little endian $EFBE which will actually be $BEEF
+            0xAA, // TAX (1 cycle)
+            0x00, // BRK
+        ];
+        cpu.load(program);
+        cpu.bus.store_byte(0xBEEF, 0x42);
+        cpu.run();
+        assert_eq!(cpu.register_a, 0x42);
+        assert_eq!(cpu.register_x, 0x42);
+        assert_eq!(cpu.bus.cycles, 5 + 1);
         assert_eq!(cpu.status.contains(Flags::ZERO), false);
         assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
     }
