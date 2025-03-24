@@ -125,38 +125,14 @@ impl CPU {
                     self.register_x,
                     self.register_y,
                     opcode.name,
-                    self.bus.fetch_bytes(self.program_counter-1, opcode.size)
+                    self.bus.fetch_bytes(self.program_counter - 1, opcode.size)
                 )
             }
 
             match code {
                 0x00 => return, // BRK
-                0xEA => {}, // NOP
+                0xEA => {}      // NOP
 
-                0xA9 | 0xA5 | 0xB5 | 0xAD | 0xBD | 0xB9 | 0xA1 | 0xB1 => {
-                    // LDA
-                    self.lda(opcode);
-                }
-                0xA2 | 0xA6 | 0xB6 | 0xAE | 0xBE => {
-                    // LDX
-                    self.ldx(opcode);
-                }
-                0xA0 | 0xA4 | 0xB4 | 0xAC | 0xBC => {
-                    // LDY
-                    self.ldy(opcode);
-                }
-                0x85 | 0x95 | 0x8D | 0x9D | 0x99 | 0x81 | 0x91 => {
-                    // STA
-                    self.sta(opcode);
-                }
-                0x86 | 0x96 | 0x8e => {
-                    // STX
-                    self.stx(opcode);
-                }
-                0x84 | 0x94 | 0x8c => {
-                    // STY
-                    self.sty(opcode);
-                }
                 0xAA => self.tax(), // TAX
 
                 0xE8 => self.inx(), // INX
@@ -164,8 +140,58 @@ impl CPU {
 
                 0xCA => self.dex(), // DEX
                 0x88 => self.dey(), // DEY
+
                 0x48 => self.pha(), // PHA
                 0x68 => self.pla(), // PLA
+
+                0xA9 | 0xA5 | 0xB5 | 0xAD | 0xBD | 0xB9 | 0xA1 | 0xB1 => {
+                    self.lda(opcode); // LDA
+                }
+                0xA2 | 0xA6 | 0xB6 | 0xAE | 0xBE => {
+                    self.ldx(opcode); // LDX
+                }
+                0xA0 | 0xA4 | 0xB4 | 0xAC | 0xBC => {
+                    self.ldy(opcode); // LDY
+                }
+                0x85 | 0x95 | 0x8D | 0x9D | 0x99 | 0x81 | 0x91 => {
+                    self.sta(opcode); // STA
+                }
+                0x86 | 0x96 | 0x8e => {
+                    self.stx(opcode); // STX
+                }
+                0x84 | 0x94 | 0x8c => {
+                    self.sty(opcode); // STY
+                }
+                0x0A | 0x06 | 0x16 | 0x0E | 0x1E => {
+                    self.asl(opcode); // ASL
+                }
+                0x4A | 0x46 | 0x56 | 0x4E | 0x5E => {
+                    self.lsr(opcode); // LSR
+                }
+                0x2A | 0x26 | 0x36 | 0x2E | 0x3E => {
+                    self.rol(opcode); // ROL
+                }
+                0x6A | 0x66 | 0x76 | 0x6E | 0x73 => {
+                    self.ror(opcode); // ROR
+                }
+                0xE6 | 0xF6 | 0xEE | 0xFE => {
+                    self.inc(opcode); // INC
+                }
+                0xC6 | 0xD6 | 0xCE | 0xDE => {
+                    self.dec(opcode); // DEC
+                }
+                0xC9 | 0xC5 | 0xD5 | 0xCD | 0xDD | 0xD9 | 0xC1 | 0xD1 => {
+                    self.cmp(opcode); // CMP
+                }
+                0xE0 | 0xE4 | 0xEC => {
+                    self.cpx(opcode); // CPX
+                }
+                0xC0 | 0xC4 | 0xCC => {
+                    self.cpy(opcode); // CPY
+                }
+                0x69 | 0x65 | 0x75 | 0x6D | 0x7D | 0x79 | 0x61 | 0x71 => {
+                    self.adc(opcode); // ADC
+                }
 
                 _ => todo!(),
             }
@@ -227,6 +253,8 @@ impl CPU {
         }
     }
 
+    // Utility functions
+    /////////////////////
     fn set_register_a(&mut self, value: u8) {
         self.register_a = value;
         self.update_zero_and_negative_flags(value);
@@ -243,13 +271,15 @@ impl CPU {
     }
 
     fn stack_push(&mut self, value: u8) {
-        self.bus.store_byte(CPU_STACK_BASE + self.stack_pointer as u16, value);
+        self.bus
+            .store_byte(CPU_STACK_BASE + self.stack_pointer as u16, value);
         self.stack_pointer = self.stack_pointer.wrapping_sub(1);
     }
 
     fn stack_pop(&mut self) -> u8 {
         self.stack_pointer = self.stack_pointer.wrapping_add(1);
-        self.bus.fetch_byte(CPU_STACK_BASE + self.stack_pointer as u16)
+        self.bus
+            .fetch_byte(CPU_STACK_BASE + self.stack_pointer as u16)
     }
 
     fn update_zero_and_negative_flags(&mut self, result: u8) {
@@ -257,6 +287,8 @@ impl CPU {
         self.status.set(Flags::NEGATIVE, result & 0b1000_0000 != 0);
     }
 
+    // Opcodes
+    /////////////
     fn lda(&mut self, opcode: &opcodes::Opcode) {
         let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
         self.extra_cycles += boundary_cross as u8; // boundary_cross adds 1 extra cycle
@@ -320,16 +352,19 @@ impl CPU {
         self.update_zero_and_negative_flags(self.register_y);
     }
 
-    fn pha(&mut self) { // Push register_a onto the stack
+    fn pha(&mut self) {
+        // Push register_a onto the stack
         self.stack_push(self.register_a)
     }
 
-    fn pla(&mut self) { // Pop stack into register_a
+    fn pla(&mut self) {
+        // Pop stack into register_a
         let value = self.stack_pop();
         self.set_register_a(value);
     }
 
-    fn php(&mut self) { // Push processor_status onto the stack
+    fn php(&mut self) {
+        // Push processor_status onto the stack
         // https://www.nesdev.org/wiki/Status_flags
         // says that B flag is pushed as 1, but not affected on the CPU
         let mut status_copy = Flags::from_bits_truncate(self.status.bits());
@@ -337,10 +372,129 @@ impl CPU {
         self.stack_push(status_copy.bits())
     }
 
-    fn plp(&mut self) { // Pop stack into processor_status
+    fn plp(&mut self) {
+        // Pop stack into processor_status
         self.status = Flags::from_bits_truncate(self.stack_pop());
         self.status.insert(Flags::BREAK2); // This flag is supposed to always be 1 on CPU
     }
+
+    fn asl(&mut self, opcode: &opcodes::Opcode) {
+        // Arithmetic Shift Left into carry
+        let (address, _) = self.get_parameter_address(&opcode.mode);
+        let mut value = self.bus.fetch_byte(address);
+        let carry = value & 0b1000_0000 != 0;
+        value <<= 1;
+        self.bus.store_byte(address, value);
+        self.status.set(Flags::CARRY, carry);
+        self.update_zero_and_negative_flags(value);
+    }
+
+    fn lsr(&mut self, opcode: &opcodes::Opcode) {
+        // Logical Shift Right into carry
+        let (address, _) = self.get_parameter_address(&opcode.mode);
+        let mut value = self.bus.fetch_byte(address);
+        let carry = value & 0b1 != 0;
+        value >>= 1;
+        self.bus.store_byte(address, value);
+        self.status.set(Flags::CARRY, carry);
+        self.update_zero_and_negative_flags(value);
+    }
+
+    fn rol(&mut self, opcode: &opcodes::Opcode) {
+        // Rotate Left through carry flag
+        let (address, _) = self.get_parameter_address(&opcode.mode);
+        let mut value = self.bus.fetch_byte(address);
+        let prev_carry = self.status.contains(Flags::CARRY);
+        let new_carry = value & 0b1000_0000 != 0;
+        value <<= 1;
+        if prev_carry {
+            value |= 1;
+        }
+        self.bus.store_byte(address, value);
+        self.status.set(Flags::CARRY, new_carry);
+    }
+
+    fn ror(&mut self, opcode: &opcodes::Opcode) {
+        // Rotate Right through carry flag
+        let (address, _) = self.get_parameter_address(&opcode.mode);
+        let mut value = self.bus.fetch_byte(address);
+        let prev_carry = self.status.contains(Flags::CARRY);
+        let new_carry = value & 0b0000_0001 != 0;
+        value >>= 1;
+        if prev_carry {
+            value |= 0b1000_0000;
+        }
+        self.bus.store_byte(address, value);
+        self.status.set(Flags::CARRY, new_carry);
+    }
+
+    fn inc(&mut self, opcode: &opcodes::Opcode) {
+        // Increment value at Memory
+        let (address, _) = self.get_parameter_address(&opcode.mode);
+        let mut value = self.bus.fetch_byte(address);
+        value = value.wrapping_add(1);
+        self.bus.store_byte(address, value);
+        self.update_zero_and_negative_flags(value);
+    }
+
+    fn dec(&mut self, opcode: &opcodes::Opcode) {
+        // Decrement value at Memory
+        let (address, _) = self.get_parameter_address(&opcode.mode);
+        let mut value = self.bus.fetch_byte(address);
+        value = value.wrapping_sub(1);
+        self.bus.store_byte(address, value);
+        self.update_zero_and_negative_flags(value);
+    }
+
+    fn compare(&mut self, opcode: &opcodes::Opcode, compare_value: u8) {
+        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
+        let value = self.bus.fetch_byte(address);
+        self.status.set(Flags::CARRY, compare_value >= value);
+        self.update_zero_and_negative_flags(compare_value.wrapping_sub(value));
+        self.extra_cycles += boundary_crossed as u8;
+    }
+
+    fn cmp(&mut self, opcode: &opcodes::Opcode) {
+        // Compare A register
+        self.compare(opcode, self.register_a);
+    }
+
+    fn cpx(&mut self, opcode: &opcodes::Opcode) {
+        // Compare X Register
+        self.compare(opcode, self.register_x);
+    }
+
+    fn cpy(&mut self, opcode: &opcodes::Opcode) {
+        // Compare Y Register
+        self.compare(opcode, self.register_y);
+    }
+
+    fn add_to_register_a(&mut self, value: u8) {
+        // TODO: Test this...
+        let curr_carry = self.status.contains(Flags::CARRY) as u8;
+        let result = self.register_a.wrapping_add(value + curr_carry);
+
+        // Method: OVERFLOW if the sign of the inputs are the same,
+        //         and do not match the sign of the result
+        // Reasoning: A signed overflow MUST have occurred in these cases:
+        //              * Positive + Positive = Negative OR
+        //              * Negative + Negative = Positive
+        // Boolean logic: (!((register_a ^ value) & 0x80) && ((register_a ^ result) & 0x80))
+        // See: https://forums.nesdev.org/viewtopic.php?t=6331
+        let signed_overflow = !((self.register_a ^ value) & 0x80 != 0) && ((self.register_a ^ result) & 0x80 != 0);
+        self.status.set(Flags::OVERFLOW, signed_overflow);
+
+        self.set_register_a(result);
+    }
+
+    fn adc(&mut self, opcode: &opcodes::Opcode) {
+        // Add with Carry
+        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
+        let value = self.bus.fetch_byte(address);
+        self.add_to_register_a(value);
+        self.extra_cycles += boundary_crossed as u8;
+    }
+
 }
 
 fn is_boundary_crossed(addr1: u16, addr2: u16) -> bool {
