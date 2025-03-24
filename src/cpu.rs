@@ -143,6 +143,8 @@ impl CPU {
 
                 0x48 => self.pha(), // PHA
                 0x68 => self.pla(), // PLA
+                0x08 => self.php(), // PHP
+                0x28 => self.plp(), // PLP
 
                 0xA9 | 0xA5 | 0xB5 | 0xAD | 0xBD | 0xB9 | 0xA1 | 0xB1 => {
                     self.lda(opcode); // LDA
