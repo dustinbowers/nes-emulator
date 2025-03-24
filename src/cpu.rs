@@ -207,6 +207,22 @@ mod test {
     }
 
     #[test]
+    fn test_0xaa_tax() {
+        let mut cpu = init_cpu();
+        let program = &[
+            0xa9, // LDA immediate
+            0x42, //    with $0F
+            0xAA, // TAX
+            0x00, // BRK
+        ];
+        cpu.load(program);
+        cpu.run();
+        assert_eq!(cpu.register_x, 0x42);
+        assert_eq!(cpu.status.contains(Flags::ZERO), false);
+        assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
+    }
+
+    #[test]
     fn test_0xa9_lda_immediate_load_data() {
         let mut cpu = init_cpu();
         let program = &[
@@ -232,5 +248,41 @@ mod test {
         cpu.load(program);
         cpu.run();
         assert_eq!(cpu.status.contains(Flags::ZERO), true);
+    }
+
+    #[test]
+    fn test_0xa5_lda_zero_page_load_data() {
+        let mut cpu = init_cpu();
+        let program = &[
+            0xa5, // LDA ZeroPage
+            0x05, //    with $05
+            0x00, // BRK
+        ];
+        cpu.load(program);
+        cpu.bus.store_byte(0x05, 0x42);
+        cpu.run();
+        assert_eq!(cpu.register_a, 0x42);
+        assert_eq!(cpu.status.contains(Flags::ZERO), false);
+        assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
+    }
+
+    #[test]
+    fn test_0xa5_lda_zero_page_x_load_data() {
+        let mut cpu = init_cpu();
+        let program = &[
+            0xa9, // LDA immediate
+            0x0F, //    with $0F
+            0xAA, // TAX
+            0xB5, // LDA ZeroPageX
+            0x80, //    with $80        - X = $0F, loading A with data from $8F = 0x42
+            0x00, // BRK
+        ];
+        cpu.load(program);
+        cpu.bus.store_byte(0x8F, 0x42);
+        cpu.run();
+        assert_eq!(cpu.register_a, 0x42);
+        assert_eq!(cpu.register_x, 0x0F);
+        assert_eq!(cpu.status.contains(Flags::ZERO), false);
+        assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
     }
 }

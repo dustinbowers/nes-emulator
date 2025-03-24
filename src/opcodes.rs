@@ -34,6 +34,8 @@ const OPCODES: &[Opcode] = &[
     Opcode::new(0xB9, "LDA", 3, 4, AddressingMode::AbsoluteY), // cycles +1 if page crossed
     Opcode::new(0xA1, "LDA", 2, 6, AddressingMode::IndirectX),
     Opcode::new(0xB1, "LDA", 2, 5, AddressingMode::IndirectY), // cycles + 1 if page crossed
+
+    Opcode::new(0xAA, "TAX", 1, 2, AddressingMode::None),
 ];
 
 pub static OPCODES_MAP: Lazy<HashMap<u8, &Opcode>> = Lazy::new(|| {
