@@ -5,7 +5,6 @@ mod opcodes;
 
 use bus::Bus;
 use cpu::CPU;
-use memory::memory_trait::MemoryTrait;
 
 fn main() {
     // Create the Bus
