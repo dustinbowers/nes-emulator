@@ -13,20 +13,24 @@ impl Bus {
         }
     }
 
-    pub fn fetch_byte(&self, address: usize) -> u8 {
-        *self.memory.read(address)
+    pub fn tick(&mut self, cycles: usize) {
+        println!("Bus::tick({})", cycles);
     }
 
-    pub fn store_byte(&mut self, address: usize, value: u8) {
-        self.memory.write(address, value);
+    pub fn fetch_byte(&mut self, address: u16) -> u8 {
+        *self.memory.read(address as usize)
     }
 
-    pub fn store_bytes(&mut self, address: usize, values: &[u8]) {
-        self.memory.write_n(address, values);
+    pub fn store_byte(&mut self, address: u16, value: u8) {
+        self.memory.write(address as usize, value);
     }
 
-    pub fn store_byte_vec(&mut self, address: usize, values: Vec<u8>) {
-        self.memory.write_n(address, &values.into_boxed_slice())
+    pub fn store_bytes(&mut self, address: u16, values: &[u8]) {
+        self.memory.write_n(address as usize, values);
+    }
+
+    pub fn store_byte_vec(&mut self, address: u16, values: Vec<u8>) {
+        self.memory.write_n(address as usize, &values.into_boxed_slice())
     }
 }
 
@@ -41,19 +45,5 @@ mod tests {
         // Store a byte and verify retrieval
         bus.store_byte(5, 42);
         assert_eq!(bus.fetch_byte(5), 42);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_bus_fetch_out_of_bounds() {
-        let bus = Bus::new();
-        let _ = bus.fetch_byte(ROM_SIZE+1); // Should panic (out-of-bounds)
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_bus_store_out_of_bounds() {
-        let mut bus = Bus::new();
-        bus.store_byte(ROM_SIZE+1, 100); // Should panic (out-of-bounds)
     }
 }
