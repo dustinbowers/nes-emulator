@@ -1,6 +1,7 @@
 use crate::{opcodes, Bus};
 use bitflags::bitflags;
 use std::collections::HashMap;
+use std::future::Future;
 
 const DEBUG: bool = true;
 const CPU_PC_RESET: u16 = 0x8000;
@@ -104,13 +105,14 @@ impl CPU {
         self.bus.store_byte(address, value);
     }
 
-    pub fn run(&mut self) {
-        self.run_with_callback(|_| {});
+    pub async fn run(&mut self) {
+        self.run_with_callback(|_| async {}).await;
     }
 
-    pub fn run_with_callback<F>(&mut self, mut callback: F)
+    pub async fn run_with_callback<F, Fut>(&mut self, mut callback: F)
         where
-            F: FnMut(&mut CPU),
+            F: FnMut(&mut CPU) -> Fut,
+            Fut: Future<Output = ()>,
     {
         let ref opcodes: HashMap<u8, &'static opcodes::Opcode> = *opcodes::OPCODES_MAP;
 
@@ -780,8 +782,8 @@ mod test {
         CPU::new(bus)
     }
 
-    #[test]
-    fn test_0xaa_tax() {
+    #[async_std::test]
+    async fn test_0xaa_tax() {
         let program = &[
             0xa9, // LDA immediate
             0x42, //    with $0F
@@ -790,14 +792,14 @@ mod test {
         ];
         let mut cpu = init_cpu();
         cpu.load(program);
-        cpu.run();
+        cpu.run().await;
         assert_eq!(cpu.register_x, 0x42);
         assert_eq!(cpu.status.contains(Flags::ZERO), false);
         assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
     }
 
-    #[test]
-    fn test_0xa9_lda_immediate_load_data() {
+    #[async_std::test]
+    async fn test_0xa9_lda_immediate_load_data() {
         let program = &[
             0xa9, // LDA immediate
             0x05, //    with $05
@@ -805,14 +807,14 @@ mod test {
         ];
         let mut cpu = init_cpu();
         cpu.load(program);
-        cpu.run();
+        cpu.run().await;
         assert_eq!(cpu.register_a, 0x05);
         assert_eq!(cpu.status.contains(Flags::ZERO), false);
         assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
     }
 
-    #[test]
-    fn test_0xa9_lda_zero_flag() {
+    #[async_std::test]
+    async fn test_0xa9_lda_zero_flag() {
         let program = &[
             0xa9, // LDA immediate
             0x00, //    with $0
@@ -820,12 +822,12 @@ mod test {
         ];
         let mut cpu = init_cpu();
         cpu.load(program);
-        cpu.run();
+        cpu.run().await;
         assert_eq!(cpu.status.contains(Flags::ZERO), true);
     }
 
-    #[test]
-    fn test_0xa5_lda_zero_page_load_data() {
+    #[async_std::test]
+    async fn test_0xa5_lda_zero_page_load_data() {
         let program = &[
             0xa5, // LDA ZeroPage
             0x05, //    with $05
@@ -834,14 +836,14 @@ mod test {
         let mut cpu = init_cpu();
         cpu.load(program);
         cpu.bus.store_byte(0x05, 0x42);
-        cpu.run();
+        cpu.run().await;
         assert_eq!(cpu.register_a, 0x42);
         assert_eq!(cpu.status.contains(Flags::ZERO), false);
         assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
     }
 
-    #[test]
-    fn test_0xa5_lda_zero_page_x_load_data() {
+    #[async_std::test]
+    async fn test_0xa5_lda_zero_page_x_load_data() {
         let program = &[
             0xa9, // LDA immediate
             0x0F, //    with $0F
@@ -853,15 +855,15 @@ mod test {
         let mut cpu = init_cpu();
         cpu.load(program);
         cpu.bus.store_byte(0x8F, 0x42);
-        cpu.run();
+        cpu.run().await;
         assert_eq!(cpu.register_a, 0x42);
         assert_eq!(cpu.register_x, 0x0F);
         assert_eq!(cpu.status.contains(Flags::ZERO), false);
         assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
     }
 
-    #[test]
-    fn test_0xb5_lda_absolute_load_data() {
+    #[async_std::test]
+    async fn test_0xb5_lda_absolute_load_data() {
         let program = &[
             0xAD, // LDA absolute (5 cycles)
             0xEF, //
@@ -872,7 +874,7 @@ mod test {
         let mut cpu = init_cpu();
         cpu.load(program);
         cpu.bus.store_byte(0xBEEF, 0x42);
-        cpu.run();
+        cpu.run().await;
         assert_eq!(cpu.register_a, 0x42);
         assert_eq!(cpu.register_x, 0x42);
         assert_eq!(cpu.bus.cycles, 5 + 1);
@@ -880,8 +882,8 @@ mod test {
         assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
     }
 
-    #[test]
-    fn test_set_flags() {
+    #[async_std::test]
+    async fn test_set_flags() {
         let program = &[
             0x38, // SEC
             0x78, // SEI
@@ -890,14 +892,14 @@ mod test {
         ];
         let mut cpu = init_cpu();
         cpu.load(program);
-        cpu.run();
+        cpu.run().await;
         assert_eq!(cpu.status.contains(Flags::CARRY), true);
         assert_eq!(cpu.status.contains(Flags::INTERRUPT_DISABLE), true);
         assert_eq!(cpu.status.contains(Flags::DECIMAL_MODE), true);
     }
 
-    #[test]
-    fn test_set_and_clear_flags() {
+    #[async_std::test]
+    async fn test_set_and_clear_flags() {
         let program = &[
             0x38, // SEC
             0x78, // SEI
@@ -909,14 +911,14 @@ mod test {
         ];
         let mut cpu = init_cpu();
         cpu.load(program);
-        cpu.run();
+        cpu.run().await;
         assert_eq!(cpu.status.contains(Flags::CARRY), false);
         assert_eq!(cpu.status.contains(Flags::INTERRUPT_DISABLE), false);
         assert_eq!(cpu.status.contains(Flags::DECIMAL_MODE), false);
     }
 
-    #[test]
-    fn test_adc_without_carry() {
+    #[async_std::test]
+    async fn test_adc_without_carry() {
         let program = &[
             0xA9, // LDA
             0x10, //   with 0x10
@@ -926,14 +928,14 @@ mod test {
         ];
         let mut cpu = init_cpu();
         cpu.load(program);
-        cpu.run();
+        cpu.run().await;
         assert_eq!(cpu.register_a, 0x17);
         assert_eq!(cpu.status.contains(Flags::CARRY), false);
         assert_eq!(cpu.status.contains(Flags::OVERFLOW), false);
     }
 
-    #[test]
-    fn test_adc_with_overflow() {
+    #[async_std::test]
+    async fn test_adc_with_overflow() {
         let program = &[
             0xA9, // LDA
             0x7F, //   with 0x7F
@@ -943,14 +945,14 @@ mod test {
         ];
         let mut cpu = init_cpu();
         cpu.load(program);
-        cpu.run();
+        cpu.run().await;
         assert_eq!(cpu.status.contains(Flags::CARRY), false);
         assert_eq!(cpu.status.contains(Flags::OVERFLOW), true);
         assert_eq!(cpu.register_a, 0x8E);
     }
 
-    #[test]
-    fn test_adc_with_carry() {
+    #[async_std::test]
+    async fn test_adc_with_carry() {
         let program = &[
             0xA9, // LDA
             0xFF, //   with 0xFF
@@ -960,14 +962,14 @@ mod test {
         ];
         let mut cpu = init_cpu();
         cpu.load(program);
-        cpu.run();
+        cpu.run().await;
         assert_eq!(cpu.status.contains(Flags::CARRY), true);
         assert_eq!(cpu.status.contains(Flags::OVERFLOW), false);
         assert_eq!(cpu.register_a, 0x0E);
     }
 
-    #[test]
-    fn test_sbc_without_borrow() {
+    #[async_std::test]
+    async fn test_sbc_without_borrow() {
         let program = &[
             0xA9, // LDA
             0xFF, //   with 0xFF
@@ -978,15 +980,15 @@ mod test {
         ];
         let mut cpu = init_cpu();
         cpu.load(program);
-        cpu.run();
+        cpu.run().await;
         // Note: In SBC, the "CARRY" flag becomes a "BORROW" flag which is complement
         assert_eq!(cpu.status.contains(Flags::CARRY), true);
         assert_eq!(cpu.status.contains(Flags::OVERFLOW), false);
         assert_eq!(cpu.register_a, 0xF0);
     }
 
-    #[test]
-    fn test_sbc_with_borrow() {
+    #[async_std::test]
+    async fn test_sbc_with_borrow() {
         let program = &[
             0xA9, // LDA
             0x00, //   with 0x00
@@ -997,7 +999,7 @@ mod test {
         ];
         let mut cpu = init_cpu();
         cpu.load(program);
-        cpu.run();
+        cpu.run().await;
         assert_eq!(cpu.status.contains(Flags::CARRY), false);
         assert_eq!(cpu.status.contains(Flags::OVERFLOW), false);
         assert_eq!(cpu.register_a, 0xFF);

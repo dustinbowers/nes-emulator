@@ -44,7 +44,9 @@ static snake_game: &[u8; 309] = &[
 0xea, 0xca, 0xd0, 0xfb, 0x60
 ];
 
-fn main() {
+// #[async_std::main]
+#[macroquad::main(window_conf)]
+async fn main() {
 
     // Create the Bus
     let mut bus = Bus::new();
@@ -53,7 +55,13 @@ fn main() {
     let mut cpu = CPU::new(bus);
 
     cpu.load(snake_game);
-    cpu.run_with_callback(move |cpu| {
-        // TODO
-    });
+    loop {
+        clear_background(LIGHTGRAY);
+        next_frame().await;
+    }
+    cpu.run_with_callback(|cpu| async move {
+        clear_background(LIGHTGRAY);
+        next_frame().await;
+    }).await;
+
 }
