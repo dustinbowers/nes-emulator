@@ -134,6 +134,19 @@ impl CPU {
                 0xEA => {}      // NOP
 
                 0xAA => self.tax(), // TAX
+                0xA8 => self.tay(), // TAY
+                0xBA => self.tsx(), // TSX
+                0x8A => self.txa(), // TXA
+                0x9A => self.txs(), // TXS
+                0x98 => self.tya(), // TYA
+
+                0xD8 => self.cld(), // CLD
+                0x58 => self.cli(), // CLI
+                0xB8 => self.clv(), // CLV
+                0x18 => self.clc(), // CLC
+                0x38 => self.sec(), // SEC
+                0x78 => self.sei(), // SEI
+                0xF8 => self.sed(), // SED
 
                 0xE8 => self.inx(), // INX
                 0xC8 => self.iny(), // INY
@@ -193,6 +206,15 @@ impl CPU {
                 }
                 0x69 | 0x65 | 0x75 | 0x6D | 0x7D | 0x79 | 0x61 | 0x71 => {
                     self.adc(opcode); // ADC
+                }
+                0xE9 | 0xE5 | 0xF5 | 0xED | 0xFD | 0xF9 | 0xE1 | 0xF1 => {
+                    self.sbc(opcode); // SBC
+                }
+                0x29 | 0x25 | 0x35 | 0x2D | 0x3D | 0x39 | 0x21 | 0x31 => {
+                    self.and(opcode); // AND
+                }
+                0x49 | 0x45 | 0x55 | 0x4D | 0x5D | 0x59 | 0x41 | 0x51 => {
+                    self.eor(opcode); // EOR
                 }
 
                 _ => todo!(),
@@ -332,6 +354,54 @@ impl CPU {
 
     fn tax(&mut self) {
         self.set_register_x(self.register_a);
+    }
+
+    fn tay(&mut self) {
+        self.set_register_y(self.register_a);
+    }
+
+    fn tsx(&mut self) {
+        self.set_register_x(self.stack_pointer);
+    }
+
+    fn txa(&mut self) {
+        self.set_register_a(self.register_x);
+    }
+
+    fn txs(&mut self) {
+        self.stack_pointer = self.register_x;
+    }
+
+    fn tya(&mut self) {
+        self.set_register_a(self.register_y);
+    }
+
+    fn cld(&mut self) {
+        self.status.remove(Flags::DECIMAL_MODE);
+    }
+
+    fn cli(&mut self) {
+        self.status.remove(Flags::INTERRUPT_DISABLE);
+    }
+
+    fn clv(&mut self) {
+        self.status.remove(Flags::OVERFLOW);
+    }
+
+    fn clc(&mut self) {
+        self.status.remove(Flags::CARRY);
+    }
+
+    fn sec(&mut self) {
+        self.status.insert(Flags::CARRY);
+    }
+
+    fn sei(&mut self) {
+        self.status.insert(Flags::INTERRUPT_DISABLE);
+    }
+
+    fn sed(&mut self) {
+        self.status.insert(Flags::DECIMAL_MODE);
     }
 
     fn inx(&mut self) {
@@ -489,6 +559,10 @@ impl CPU {
         self.set_register_a(result);
     }
 
+    fn sub_from_register_a(&mut self, data: u8) {
+        self.add_to_register_a(!data);
+    }
+
     fn adc(&mut self, opcode: &opcodes::Opcode) {
         // Add with Carry
         let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
@@ -496,6 +570,39 @@ impl CPU {
         self.add_to_register_a(value);
         self.extra_cycles += boundary_crossed as u8;
     }
+
+    fn sbc(&mut self, opcode: &opcodes::Opcode) {
+        // Subtract with Carry
+        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
+        let value = self.bus.fetch_byte(address);
+        self.sub_from_register_a(value);
+        self.extra_cycles += boundary_crossed as u8;
+    }
+
+    fn and(&mut self, opcode: &opcodes::Opcode) {
+        // Logical AND on accumulator
+        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
+        let value = self.bus.fetch_byte(address);
+        self.set_register_a(self.register_a & value);
+        self.extra_cycles += boundary_crossed as u8;
+    }
+
+    fn eor(&mut self, opcode: &opcodes::Opcode) {
+        // Logical Exclusive OR on accumulator
+        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
+        let value = self.bus.fetch_byte(address);
+        self.set_register_a(self.register_a ^ value);
+        self.extra_cycles += boundary_crossed as u8;
+    }
+
+    fn ora(&mut self, opcode: &opcodes::Opcode) {
+        // Logical OR on accumulator
+        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
+        let value = self.bus.fetch_byte(address);
+        self.set_register_a(self.register_a | value);
+        self.extra_cycles += boundary_crossed as u8;
+    }
+
 
 }
 
@@ -610,5 +717,40 @@ mod test {
         assert_eq!(cpu.bus.cycles, 5 + 1);
         assert_eq!(cpu.status.contains(Flags::ZERO), false);
         assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
+    }
+
+    #[test]
+    fn test_set_flags() {
+        let mut cpu = init_cpu();
+        let program = &[
+            0x38, // SEC
+            0x78, // SEI
+            0xF8, // SED
+            0x00, // BRK
+        ];
+        cpu.load(program);
+        cpu.run();
+        assert_eq!(cpu.status.contains(Flags::CARRY), true);
+        assert_eq!(cpu.status.contains(Flags::INTERRUPT_DISABLE), true);
+        assert_eq!(cpu.status.contains(Flags::DECIMAL_MODE), true);
+    }
+
+    #[test]
+    fn test_set_and_clear_flags() {
+        let mut cpu = init_cpu();
+        let program = &[
+            0x38, // SEC
+            0x78, // SEI
+            0xF8, // SED
+            0x18, // CLC
+            0x58, // CLI
+            0xD8, // CLD
+            0x00, // BRK
+        ];
+        cpu.load(program);
+        cpu.run();
+        assert_eq!(cpu.status.contains(Flags::CARRY), false);
+        assert_eq!(cpu.status.contains(Flags::INTERRUPT_DISABLE), false);
+        assert_eq!(cpu.status.contains(Flags::DECIMAL_MODE), false);
     }
 }

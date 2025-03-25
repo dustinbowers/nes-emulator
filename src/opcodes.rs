@@ -27,7 +27,22 @@ const OPCODES: &[Opcode] = &[
     Opcode::new(0x00, "BRK", 1, 7, AddressingMode::None),
     Opcode::new(0xEA, "NOP", 1, 2, AddressingMode::None),
 
+    // Transfers
     Opcode::new(0xAA, "TAX", 1, 2, AddressingMode::None),
+    Opcode::new(0xA8, "TAY", 1, 2, AddressingMode::None),
+    Opcode::new(0x8A, "TXA", 1, 2, AddressingMode::None),
+    Opcode::new(0x98, "TYA", 1, 2, AddressingMode::None),
+    Opcode::new(0xBA, "TSX", 1, 2, AddressingMode::None),
+    Opcode::new(0x9A, "TXS", 1, 2, AddressingMode::None),
+
+    // Flags
+    Opcode::new(0xF8, "SED", 1, 2, AddressingMode::None),
+    Opcode::new(0x78, "SEI", 1, 2, AddressingMode::None),
+    Opcode::new(0x38, "SEC", 1, 2, AddressingMode::None),
+    Opcode::new(0xD8, "CLD", 1, 2, AddressingMode::None),
+    Opcode::new(0x58, "CLI", 1, 2, AddressingMode::None),
+    Opcode::new(0x18, "CLC", 1, 2, AddressingMode::None),
+    Opcode::new(0xB8, "CLV", 1, 2, AddressingMode::None),
 
     // Loads
     Opcode::new(0xA9, "LDA", 2, 2, AddressingMode::Immediate),
@@ -145,6 +160,43 @@ const OPCODES: &[Opcode] = &[
     Opcode::new(0x79, "ADC", 3, 4, AddressingMode::AbsoluteY), // cycles +1 if page crossed
     Opcode::new(0x61, "ADC", 2, 6, AddressingMode::IndirectX),
     Opcode::new(0x71, "ADC", 2, 5, AddressingMode::IndirectY), // cycles +1 if page crossed
+
+    Opcode::new(0xE9, "SBC", 2, 2, AddressingMode::Immediate),
+    Opcode::new(0xE5, "SBC", 2, 3, AddressingMode::ZeroPage),
+    Opcode::new(0xF5, "SBC", 2, 4, AddressingMode::ZeroPageX),
+    Opcode::new(0xED, "SBC", 3, 4, AddressingMode::Absolute),
+    Opcode::new(0xFD, "SBC", 3, 4, AddressingMode::AbsoluteX), // cycles +1 if page crossed
+    Opcode::new(0xF9, "SBC", 3, 4, AddressingMode::AbsoluteY), // cycles +1 if page crossed
+    Opcode::new(0xE1, "SBC", 2, 6, AddressingMode::IndirectX),
+    Opcode::new(0xF1, "SBC", 2, 5, AddressingMode::IndirectY), // cycles +1 if page crossed
+
+    // Bitwise
+    Opcode::new(0x29, "AND", 2, 2, AddressingMode::Immediate),
+    Opcode::new(0x25, "AND", 2, 3, AddressingMode::ZeroPage),
+    Opcode::new(0x35, "AND", 2, 4, AddressingMode::ZeroPageX),
+    Opcode::new(0x2D, "AND", 3, 4, AddressingMode::Absolute),
+    Opcode::new(0x3D, "AND", 3, 4, AddressingMode::AbsoluteX), // cycles +1 if page crossed
+    Opcode::new(0x39, "AND", 3, 4, AddressingMode::AbsoluteY), // cycles +1 if page crossed
+    Opcode::new(0x21, "AND", 2, 6, AddressingMode::IndirectX),
+    Opcode::new(0x31, "AND", 2, 5, AddressingMode::IndirectY), // cycles +1 if page crossed
+
+    Opcode::new(0x49, "EOR", 2, 2, AddressingMode::Immediate),
+    Opcode::new(0x45, "EOR", 2, 3, AddressingMode::ZeroPage),
+    Opcode::new(0x55, "EOR", 2, 4, AddressingMode::ZeroPageX),
+    Opcode::new(0x4D, "EOR", 3, 4, AddressingMode::Absolute),
+    Opcode::new(0x5D, "EOR", 3, 4, AddressingMode::AbsoluteX), // cycles +1 if page crossed
+    Opcode::new(0x59, "EOR", 3, 4, AddressingMode::AbsoluteY), // cycles +1 if page crossed
+    Opcode::new(0x41, "EOR", 2, 6, AddressingMode::IndirectX),
+    Opcode::new(0x51, "EOR", 2, 5, AddressingMode::IndirectY), // cycles +1 if page crossed
+
+    Opcode::new(0x09, "ORA", 2, 2, AddressingMode::Immediate),
+    Opcode::new(0x05, "ORA", 2, 3, AddressingMode::ZeroPage),
+    Opcode::new(0x15, "ORA", 2, 4, AddressingMode::ZeroPageX),
+    Opcode::new(0x0D, "ORA", 3, 4, AddressingMode::Absolute),
+    Opcode::new(0x1D, "ORA", 3, 4, AddressingMode::AbsoluteX), // cycles +1 if page crossed
+    Opcode::new(0x19, "ORA", 3, 4, AddressingMode::AbsoluteY), // cycles +1 if page crossed
+    Opcode::new(0x01, "ORA", 2, 6, AddressingMode::IndirectX),
+    Opcode::new(0x11, "ORA", 2, 5, AddressingMode::IndirectY), // cycles +1 if page crossed
 ];
 
 pub static OPCODES_MAP: Lazy<HashMap<u8, &Opcode>> = Lazy::new(|| {
