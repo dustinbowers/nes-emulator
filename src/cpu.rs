@@ -105,9 +105,18 @@ impl CPU {
     }
 
     pub fn run(&mut self) {
+        self.run_with_callback(|_| {});
+    }
+
+    pub fn run_with_callback<F>(&mut self, mut callback: F)
+        where
+            F: FnMut(&mut CPU),
+    {
         let ref opcodes: HashMap<u8, &'static opcodes::Opcode> = *opcodes::OPCODES_MAP;
 
         loop {
+            callback(self);
+
             self.extra_cycles = 0;
             let code = self.fetch_byte(self.program_counter);
             self.program_counter += 1;
