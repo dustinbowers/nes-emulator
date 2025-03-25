@@ -1,6 +1,7 @@
 use crate::{opcodes, Bus};
 use bitflags::bitflags;
 use std::collections::HashMap;
+use crate::opcodes::Opcode;
 
 const DEBUG: bool = true;
 
@@ -46,8 +47,9 @@ pub enum AddressingMode {
     AbsoluteY,
     IndirectX,
     IndirectY,
-    None,
     Indirect,
+    Relative,
+    None,
 }
 
 pub struct CPU {
@@ -137,8 +139,8 @@ impl CPU {
                 0x4C => self.jmp(opcode), // JMP Absolute
                 0x6C => self.jmp(opcode), // JMP Indirect (with 6502 bug)
                 0x20 => self.jsr(opcode), // JSR
-                0x60 => self.rts(), // RTS
-                0x40 => self.rti(), // RTI
+                0x60 => self.rts(),       // RTS
+                0x40 => self.rti(),       // RTI
 
                 0xAA => self.tax(), // TAX
                 0xA8 => self.tay(), // TAY
@@ -155,14 +157,14 @@ impl CPU {
                 0x78 => self.sei(), // SEI
                 0xF8 => self.sed(), // SED
 
-                // 0xD0 => self.bne(), // BNE
-                // 0x70 => self.bvs(), // BVE
-                // 0x50 => self.bvc(), // BVC
-                // 0x30 => self.bmi(), // BMI
-                // 0xF0 => self.beq(), // BEQ
-                // 0xB0 => self.bcs(), // BCS
-                // 0x90 => self.bcc(), // BCC
-                // 0x10 => self.bpl(), // BPL
+                0xD0 => self.bne(opcode), // BNE
+                0x70 => self.bvs(opcode), // BVE
+                0x50 => self.bvc(opcode), // BVC
+                0x30 => self.bmi(opcode), // BMI
+                0xF0 => self.beq(opcode), // BEQ
+                0xB0 => self.bcs(opcode), // BCS
+                0x90 => self.bcc(opcode), // BCC
+                0x10 => self.bpl(opcode), // BPL
 
                 0xE8 => self.inx(), // INX
                 0xC8 => self.iny(), // INY
@@ -174,6 +176,8 @@ impl CPU {
                 0x68 => self.pla(), // PLA
                 0x08 => self.php(), // PHP
                 0x28 => self.plp(), // PLP
+
+                0x24 => self.bit(opcode), // BIT
 
                 0xA9 | 0xA5 | 0xB5 | 0xAD | 0xBD | 0xB9 | 0xA1 | 0xB1 => {
                     self.lda(opcode); // LDA
@@ -233,6 +237,8 @@ impl CPU {
                     self.eor(opcode); // EOR
                 }
 
+                // TODO: Implement unofficial 6502 opcodes
+                
                 _ => todo!(),
             }
 
@@ -249,6 +255,8 @@ impl CPU {
         }
     }
 
+    // Utility functions
+    /////////////////////
     fn get_parameter_address(&mut self, mode: &AddressingMode) -> (u16, bool) {
         match mode {
             AddressingMode::Absolute => (self.fetch_u16(self.program_counter), false),
@@ -292,10 +300,10 @@ impl CPU {
             AddressingMode::Indirect => {
                 // Note: JMP is the only opcode to use this AddressingMode
                 /* NOTE:
-                   An original 6502 has does not correctly fetch the target address if the indirect vector falls
-                   on a page boundary (e.g. $xxFF where xx is any value from $00 to $FF). In this case fetches
-                   the LSB from $xxFF as expected but takes the MSB from $xx00.
-                 */
+                  An original 6502 has does not correctly fetch the target address if the indirect vector falls
+                  on a page boundary (e.g. $xxFF where xx is any value from $00 to $FF). In this case fetches
+                  the LSB from $xxFF as expected but takes the MSB from $xx00.
+                */
                 let indirect_vec = self.fetch_u16(self.program_counter);
                 let address = if indirect_vec & 0x00FF == 0x00FF {
                     let lo = self.fetch_byte(indirect_vec) as u16;
@@ -306,12 +314,21 @@ impl CPU {
                 };
                 (address, false)
             }
+            AddressingMode::Relative => {
+                let base = self.fetch_byte(self.program_counter) as u16;
+                let address = if base & 0b1000_0000 == 0 {
+                    // Positive signed offset
+                    self.program_counter.wrapping_add(base & 0b0111_1111)
+                } else {
+                    // Negative signed offset
+                    self.program_counter.wrapping_sub(base & 0b0111_1111)
+                };
+                (address, is_boundary_crossed(self.program_counter, address))
+            }
             _ => unimplemented!("Unimplemented addressing mode"),
         }
     }
 
-    // Utility functions
-    /////////////////////
     fn set_register_a(&mut self, value: u8) {
         self.register_a = value;
         self.update_zero_and_negative_flags(value);
@@ -355,6 +372,47 @@ impl CPU {
     fn update_zero_and_negative_flags(&mut self, result: u8) {
         self.status.set(Flags::ZERO, result == 0);
         self.status.set(Flags::NEGATIVE, result & 0b1000_0000 != 0);
+    }
+
+    fn add_to_register_a(&mut self, value: u8) {
+        // TODO: Test this...
+        let curr_carry = self.status.contains(Flags::CARRY) as u8;
+        let result = self.register_a.wrapping_add(value + curr_carry);
+
+        // Method: OVERFLOW if the sign of the inputs are the same,
+        //         and do not match the sign of the result
+        // Reasoning: A signed overflow MUST have occurred in these cases:
+        //              * Positive + Positive = Negative OR
+        //              * Negative + Negative = Positive
+        // Boolean logic: (!((register_a ^ value) & 0x80) && ((register_a ^ result) & 0x80))
+        // See: https://forums.nesdev.org/viewtopic.php?t=6331
+        let signed_overflow =
+            !((self.register_a ^ value) & 0x80 != 0) && ((self.register_a ^ result) & 0x80 != 0);
+        self.status.set(Flags::OVERFLOW, signed_overflow);
+
+        self.set_register_a(result);
+    }
+
+    fn sub_from_register_a(&mut self, data: u8) {
+        self.add_to_register_a(!data);
+    }
+
+    fn compare(&mut self, opcode: &opcodes::Opcode, compare_value: u8) {
+        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
+        let value = self.bus.fetch_byte(address);
+        self.status.set(Flags::CARRY, compare_value >= value);
+        self.update_zero_and_negative_flags(compare_value.wrapping_sub(value));
+        self.extra_cycles += boundary_crossed as u8;
+    }
+
+    fn branch(&mut self, opcode: &opcodes::Opcode, condition: bool) {
+        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
+        let mut cycles = boundary_crossed as u8;
+        if condition {
+            self.program_counter = address;
+            cycles += 1;
+        }
+        self.extra_cycles += cycles;
     }
 
     // Opcodes
@@ -564,14 +622,6 @@ impl CPU {
         self.update_zero_and_negative_flags(value);
     }
 
-    fn compare(&mut self, opcode: &opcodes::Opcode, compare_value: u8) {
-        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let value = self.bus.fetch_byte(address);
-        self.status.set(Flags::CARRY, compare_value >= value);
-        self.update_zero_and_negative_flags(compare_value.wrapping_sub(value));
-        self.extra_cycles += boundary_crossed as u8;
-    }
-
     fn cmp(&mut self, opcode: &opcodes::Opcode) {
         // Compare A register
         self.compare(opcode, self.register_a);
@@ -585,28 +635,6 @@ impl CPU {
     fn cpy(&mut self, opcode: &opcodes::Opcode) {
         // Compare Y Register
         self.compare(opcode, self.register_y);
-    }
-
-    fn add_to_register_a(&mut self, value: u8) {
-        // TODO: Test this...
-        let curr_carry = self.status.contains(Flags::CARRY) as u8;
-        let result = self.register_a.wrapping_add(value + curr_carry);
-
-        // Method: OVERFLOW if the sign of the inputs are the same,
-        //         and do not match the sign of the result
-        // Reasoning: A signed overflow MUST have occurred in these cases:
-        //              * Positive + Positive = Negative OR
-        //              * Negative + Negative = Positive
-        // Boolean logic: (!((register_a ^ value) & 0x80) && ((register_a ^ result) & 0x80))
-        // See: https://forums.nesdev.org/viewtopic.php?t=6331
-        let signed_overflow = !((self.register_a ^ value) & 0x80 != 0) && ((self.register_a ^ result) & 0x80 != 0);
-        self.status.set(Flags::OVERFLOW, signed_overflow);
-
-        self.set_register_a(result);
-    }
-
-    fn sub_from_register_a(&mut self, data: u8) {
-        self.add_to_register_a(!data);
     }
 
     fn adc(&mut self, opcode: &opcodes::Opcode) {
@@ -676,6 +704,54 @@ impl CPU {
         self.program_counter = return_address;
     }
 
+    fn bne(&mut self, opcode: &opcodes::Opcode) {
+        // Branch if ZERO is clear
+        self.branch(opcode, self.status.contains(Flags::ZERO) == false)
+    }
+
+    fn bvs(&mut self, opcode: &opcodes::Opcode) {
+        // Branch if OVERFLOW is set
+        self.branch(opcode, self.status.contains(Flags::OVERFLOW))
+    }
+    fn bvc(&mut self, opcode: &opcodes::Opcode) {
+        // Branch if OVERFLOW is clear
+        self.branch(opcode, self.status.contains(Flags::OVERFLOW) == false)
+    }
+
+    fn bmi(&mut self, opcode: &opcodes::Opcode) {
+        // Branch if NEGATIVE is set
+        self.branch(opcode, self.status.contains(Flags::NEGATIVE))
+    }
+
+    fn beq(&mut self, opcode: &opcodes::Opcode) {
+        // Branch if ZERO is set
+        self.branch(opcode, self.status.contains(Flags::ZERO))
+    }
+
+    fn bcs(&mut self, opcode: &opcodes::Opcode) {
+        // Branch if CARRY is set
+        self.branch(opcode, self.status.contains(Flags::CARRY))
+    }
+
+    fn bcc(&mut self, opcode: &opcodes::Opcode) {
+        // Branch if CARRY is clear
+        self.branch(opcode, self.status.contains(Flags::CARRY) == false)
+    }
+
+    fn bpl(&mut self, opcode: &opcodes::Opcode) {
+        // Branch if NEGATIVE is clear
+        self.branch(opcode, self.status.contains(Flags::NEGATIVE) == false)
+    }
+
+    fn bit(&mut self, opcode: &opcodes::Opcode) {
+        // Bit Test
+        let (address, _) = self.get_parameter_address(&opcode.mode);
+        let mut value = self.bus.fetch_byte(address);
+        value &= self.register_a;
+        self.status.set(Flags::ZERO, value == 0);
+        self.status.set(Flags::NEGATIVE, value & 1<<7 != 0);
+        self.status.set(Flags::OVERFLOW, value & 1<<6 != 0);
+    }
 }
 
 fn is_boundary_crossed(addr1: u16, addr2: u16) -> bool {

@@ -207,15 +207,19 @@ const OPCODES: &[Opcode] = &[
 
     Opcode::new(0x40, "RTI", 1, 6, AddressingMode::None),
 
-    // TODO: Branches
-    // Opcode::new(0xD0, "BNE", 2, 2, AddressingMode::None), // cycles +1 if branch succeeds, +2 if to a new page
-    // Opcode::new(0x70, "BVS", 2, 2, AddressingMode::None), // ..
-    // Opcode::new(0x50, "BVC", 2, 2, AddressingMode::None), // ..
-    // Opcode::new(0x30, "BMI", 2, 2, AddressingMode::None), // ..
-    // Opcode::new(0xF0, "BEQ", 2, 2, AddressingMode::None), // ..
-    // Opcode::new(0xB0, "BCS", 2, 2, AddressingMode::None), // ..
-    // Opcode::new(0x90, "BCC", 2, 2, AddressingMode::None), // ..
-    // Opcode::new(0x10, "BPL", 2, 2, AddressingMode::None), // ..
+    // Branches
+    Opcode::new(0xD0, "BNE", 2, 2, AddressingMode::Relative), // cycles +1 if branch succeeds, +2 if to a new page
+    Opcode::new(0x70, "BVS", 2, 2, AddressingMode::Relative), // ..
+    Opcode::new(0x50, "BVC", 2, 2, AddressingMode::Relative), // ..
+    Opcode::new(0x30, "BMI", 2, 2, AddressingMode::Relative), // ..
+    Opcode::new(0xF0, "BEQ", 2, 2, AddressingMode::Relative), // ..
+    Opcode::new(0xB0, "BCS", 2, 2, AddressingMode::Relative), // ..
+    Opcode::new(0x90, "BCC", 2, 2, AddressingMode::Relative), // ..
+    Opcode::new(0x10, "BPL", 2, 2, AddressingMode::Relative), // ..
+
+    // Bit Test
+    Opcode::new(0x24, "BIT", 2, 3, AddressingMode::ZeroPage),
+    Opcode::new(0x2c, "BIT", 3, 4, AddressingMode::Absolute),
 
 ];
 
