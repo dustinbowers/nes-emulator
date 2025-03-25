@@ -11,7 +11,13 @@ pub struct Opcode {
 }
 
 impl Opcode {
-    pub const fn new(value: u8, name: &'static str, size: u8, cycles: u8, mode: AddressingMode) -> Self {
+    pub const fn new(
+        value: u8,
+        name: &'static str,
+        size: u8,
+        cycles: u8,
+        mode: AddressingMode,
+    ) -> Self {
         Self {
             value,
             name,
@@ -151,7 +157,7 @@ const OPCODES: &[Opcode] = &[
     Opcode::new(0xC4, "CPY", 2, 3, AddressingMode::ZeroPage),
     Opcode::new(0xCC, "CPY", 3, 4, AddressingMode::Absolute),
 
-    // Maths
+    // Addition/Subtraction
     Opcode::new(0x69, "ADC", 2, 2, AddressingMode::Immediate),
     Opcode::new(0x65, "ADC", 2, 3, AddressingMode::ZeroPage),
     Opcode::new(0x75, "ADC", 2, 4, AddressingMode::ZeroPageX),

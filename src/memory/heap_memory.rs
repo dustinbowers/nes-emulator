@@ -1,14 +1,12 @@
 use super::memory_trait::MemoryTrait;
 
 pub struct HeapMemory<T: Sized + Copy> {
-    size: usize,
     data: Vec<T>,
 }
 
 impl<T: Sized + Copy> MemoryTrait<T> for HeapMemory<T> {
     fn new(size: usize, default: T) -> Self {
         Self {
-            size,
             data: vec![default; size],
         }
     }

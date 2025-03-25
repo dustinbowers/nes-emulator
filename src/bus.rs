@@ -1,7 +1,7 @@
 use crate::memory::heap_memory::HeapMemory;
 use crate::memory::memory_trait::MemoryTrait;
 
-const ROM_SIZE: usize = 1<<16;
+const ROM_SIZE: usize = 1 << 16;
 pub struct Bus {
     memory: HeapMemory<u8>,
     pub(crate) cycles: usize,
@@ -37,7 +37,8 @@ impl Bus {
     }
 
     pub fn store_byte_vec(&mut self, address: u16, values: Vec<u8>) {
-        self.memory.write_n(address as usize, &values.into_boxed_slice())
+        self.memory
+            .write_n(address as usize, &values.into_boxed_slice())
     }
 }
 

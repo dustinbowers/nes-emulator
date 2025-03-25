@@ -1,11 +1,8 @@
 use crate::{opcodes, Bus};
 use bitflags::bitflags;
 use std::collections::HashMap;
-use crate::opcodes::Opcode;
 
 const DEBUG: bool = true;
-
-const CPU_RAM_SIZE: usize = 2048;
 const CPU_PC_RESET: u16 = 0x8000;
 const CPU_STACK_RESET: u8 = 0x00FD;
 const CPU_STACK_BASE: u16 = (CPU_STACK_RESET as u16) + 0x2;
@@ -121,14 +118,15 @@ impl CPU {
 
             if DEBUG {
                 println!(
-                    "PC:{:#x} SP:{:#x} A:{:#x} X:{:#x} Y:{:#x} - Opcode: {} {:x?}",
+                    "PC:${:02X} SP:${:02X} A:${:02X} X:${:02X} Y:${:02X}\tOpcode: (${:02X}) {} {:02X?}",
                     self.program_counter,
                     self.stack_pointer,
                     self.register_a,
                     self.register_x,
                     self.register_y,
+                    self.bus.fetch_byte(self.program_counter - 1),
                     opcode.name,
-                    self.bus.fetch_bytes(self.program_counter - 1, opcode.size)
+                    self.bus.fetch_bytes(self.program_counter, opcode.size - 1)
                 )
             }
 
@@ -236,9 +234,11 @@ impl CPU {
                 0x49 | 0x45 | 0x55 | 0x4D | 0x5D | 0x59 | 0x41 | 0x51 => {
                     self.eor(opcode); // EOR
                 }
+                0x09 | 0x05 | 0x15 | 0x0D | 0x1D | 0x19 | 0x01 | 0x11 => {
+                    self.ora(opcode); // ORA
+                }
 
                 // TODO: Implement unofficial 6502 opcodes
-                
                 _ => todo!(),
             }
 
@@ -375,7 +375,6 @@ impl CPU {
     }
 
     fn add_to_register_a(&mut self, value: u8) {
-        // TODO: Test this...
         let curr_carry = self.status.contains(Flags::CARRY) as u8;
         let result = self.register_a.wrapping_add(value + curr_carry);
 
@@ -390,7 +389,12 @@ impl CPU {
             !((self.register_a ^ value) & 0x80 != 0) && ((self.register_a ^ result) & 0x80 != 0);
         self.status.set(Flags::OVERFLOW, signed_overflow);
 
-        self.set_register_a(result);
+        // TODO: Rewrite carry detection more elegantly
+        let sum_u16 = self.register_a as u16 + value as u16;
+        self.status.set(Flags::CARRY, sum_u16 & 0xFF00 != 0);
+
+        self.status.set(Flags::NEGATIVE, result & 0b1000_0000 != 0);
+        self.register_a = result;
     }
 
     fn sub_from_register_a(&mut self, data: u8) {
@@ -442,17 +446,17 @@ impl CPU {
     }
 
     fn sta(&mut self, opcode: &opcodes::Opcode) {
-        let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
+        let (address, _) = self.get_parameter_address(&opcode.mode);
         self.bus.store_byte(address, self.register_a);
     }
 
     fn stx(&mut self, opcode: &opcodes::Opcode) {
-        let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
+        let (address, _) = self.get_parameter_address(&opcode.mode);
         self.bus.store_byte(address, self.register_x);
     }
 
     fn sty(&mut self, opcode: &opcodes::Opcode) {
-        let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
+        let (address, _) = self.get_parameter_address(&opcode.mode);
         self.bus.store_byte(address, self.register_y);
     }
 
@@ -678,7 +682,7 @@ impl CPU {
     }
 
     fn jmp(&mut self, opcode: &opcodes::Opcode) {
-        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
+        let (address, _) = self.get_parameter_address(&opcode.mode);
         self.program_counter = address;
     }
 
@@ -749,8 +753,8 @@ impl CPU {
         let mut value = self.bus.fetch_byte(address);
         value &= self.register_a;
         self.status.set(Flags::ZERO, value == 0);
-        self.status.set(Flags::NEGATIVE, value & 1<<7 != 0);
-        self.status.set(Flags::OVERFLOW, value & 1<<6 != 0);
+        self.status.set(Flags::NEGATIVE, value & 1 << 7 != 0);
+        self.status.set(Flags::OVERFLOW, value & 1 << 6 != 0);
     }
 }
 
@@ -769,13 +773,13 @@ mod test {
 
     #[test]
     fn test_0xaa_tax() {
-        let mut cpu = init_cpu();
         let program = &[
             0xa9, // LDA immediate
             0x42, //    with $0F
             0xAA, // TAX
             0x00, // BRK
         ];
+        let mut cpu = init_cpu();
         cpu.load(program);
         cpu.run();
         assert_eq!(cpu.register_x, 0x42);
@@ -785,12 +789,12 @@ mod test {
 
     #[test]
     fn test_0xa9_lda_immediate_load_data() {
-        let mut cpu = init_cpu();
         let program = &[
             0xa9, // LDA immediate
             0x05, //    with $05
             0x00, // BRK
         ];
+        let mut cpu = init_cpu();
         cpu.load(program);
         cpu.run();
         assert_eq!(cpu.register_a, 0x05);
@@ -800,12 +804,12 @@ mod test {
 
     #[test]
     fn test_0xa9_lda_zero_flag() {
-        let mut cpu = init_cpu();
         let program = &[
             0xa9, // LDA immediate
             0x00, //    with $0
             0x00, // BRK
         ];
+        let mut cpu = init_cpu();
         cpu.load(program);
         cpu.run();
         assert_eq!(cpu.status.contains(Flags::ZERO), true);
@@ -813,12 +817,12 @@ mod test {
 
     #[test]
     fn test_0xa5_lda_zero_page_load_data() {
-        let mut cpu = init_cpu();
         let program = &[
             0xa5, // LDA ZeroPage
             0x05, //    with $05
             0x00, // BRK
         ];
+        let mut cpu = init_cpu();
         cpu.load(program);
         cpu.bus.store_byte(0x05, 0x42);
         cpu.run();
@@ -829,7 +833,6 @@ mod test {
 
     #[test]
     fn test_0xa5_lda_zero_page_x_load_data() {
-        let mut cpu = init_cpu();
         let program = &[
             0xa9, // LDA immediate
             0x0F, //    with $0F
@@ -838,6 +841,7 @@ mod test {
             0x80, //    with $80        - X = $0F, loading A with data from $8F = 0x42
             0x00, // BRK
         ];
+        let mut cpu = init_cpu();
         cpu.load(program);
         cpu.bus.store_byte(0x8F, 0x42);
         cpu.run();
@@ -849,7 +853,6 @@ mod test {
 
     #[test]
     fn test_0xb5_lda_absolute_load_data() {
-        let mut cpu = init_cpu();
         let program = &[
             0xAD, // LDA absolute (5 cycles)
             0xEF, //
@@ -857,6 +860,7 @@ mod test {
             0xAA, // TAX (1 cycle)
             0x00, // BRK
         ];
+        let mut cpu = init_cpu();
         cpu.load(program);
         cpu.bus.store_byte(0xBEEF, 0x42);
         cpu.run();
@@ -869,13 +873,13 @@ mod test {
 
     #[test]
     fn test_set_flags() {
-        let mut cpu = init_cpu();
         let program = &[
             0x38, // SEC
             0x78, // SEI
             0xF8, // SED
             0x00, // BRK
         ];
+        let mut cpu = init_cpu();
         cpu.load(program);
         cpu.run();
         assert_eq!(cpu.status.contains(Flags::CARRY), true);
@@ -885,7 +889,6 @@ mod test {
 
     #[test]
     fn test_set_and_clear_flags() {
-        let mut cpu = init_cpu();
         let program = &[
             0x38, // SEC
             0x78, // SEI
@@ -895,10 +898,99 @@ mod test {
             0xD8, // CLD
             0x00, // BRK
         ];
+        let mut cpu = init_cpu();
         cpu.load(program);
         cpu.run();
         assert_eq!(cpu.status.contains(Flags::CARRY), false);
         assert_eq!(cpu.status.contains(Flags::INTERRUPT_DISABLE), false);
         assert_eq!(cpu.status.contains(Flags::DECIMAL_MODE), false);
+    }
+
+    #[test]
+    fn test_adc_without_carry() {
+        let program = &[
+            0xA9, // LDA
+            0x10, //   with 0x10
+            0x69, // ADC
+            0x07, //   with 0x07
+            0x00, // BRK
+        ];
+        let mut cpu = init_cpu();
+        cpu.load(program);
+        cpu.run();
+        assert_eq!(cpu.register_a, 0x17);
+        assert_eq!(cpu.status.contains(Flags::CARRY), false);
+        assert_eq!(cpu.status.contains(Flags::OVERFLOW), false);
+    }
+
+    #[test]
+    fn test_adc_with_overflow() {
+        let program = &[
+            0xA9, // LDA
+            0x7F, //   with 0x7F
+            0x69, // ADC
+            0x0F, //   with 0x0F
+            0x00, // BRK
+        ];
+        let mut cpu = init_cpu();
+        cpu.load(program);
+        cpu.run();
+        assert_eq!(cpu.status.contains(Flags::CARRY), false);
+        assert_eq!(cpu.status.contains(Flags::OVERFLOW), true);
+        assert_eq!(cpu.register_a, 0x8E);
+    }
+
+    #[test]
+    fn test_adc_with_carry() {
+        let program = &[
+            0xA9, // LDA
+            0xFF, //   with 0xFF
+            0x69, // ADC
+            0x0F, //   with 0x01
+            0x00, // BRK
+        ];
+        let mut cpu = init_cpu();
+        cpu.load(program);
+        cpu.run();
+        assert_eq!(cpu.status.contains(Flags::CARRY), true);
+        assert_eq!(cpu.status.contains(Flags::OVERFLOW), false);
+        assert_eq!(cpu.register_a, 0x0E);
+    }
+
+    #[test]
+    fn test_sbc_without_borrow() {
+        let program = &[
+            0xA9, // LDA
+            0xFF, //   with 0xFF
+            0x38, // SEC
+            0xE9, // SBC
+            0x0F, //   with 0x0F
+            0x00, // BRK
+        ];
+        let mut cpu = init_cpu();
+        cpu.load(program);
+        cpu.run();
+        // Note: In SBC, the "CARRY" flag becomes a "BORROW" flag which is complement
+        assert_eq!(cpu.status.contains(Flags::CARRY), true);
+        assert_eq!(cpu.status.contains(Flags::OVERFLOW), false);
+        assert_eq!(cpu.register_a, 0xF0);
+    }
+
+    #[test]
+    fn test_sbc_with_borrow() {
+        let program = &[
+            0xA9, // LDA
+            0x00, //   with 0x00
+            0x38, // SEC -- Note: it's standard to SEC before any SBC (complement of carry acts as borrow flag)
+            0xE9, // SBC
+            0x01, //   with 0x01
+            0x00, // BRK
+        ];
+        let mut cpu = init_cpu();
+        cpu.load(program);
+        cpu.run();
+        assert_eq!(cpu.status.contains(Flags::CARRY), false);
+        assert_eq!(cpu.status.contains(Flags::OVERFLOW), false);
+        assert_eq!(cpu.register_a, 0xFF);
     }
 }
