@@ -47,6 +47,7 @@ pub enum AddressingMode {
     IndirectX,
     IndirectY,
     None,
+    Indirect,
 }
 
 pub struct CPU {
@@ -133,6 +134,12 @@ impl CPU {
                 0x00 => return, // BRK
                 0xEA => {}      // NOP
 
+                0x4C => self.jmp(opcode), // JMP Absolute
+                0x6C => self.jmp(opcode), // JMP Indirect (with 6502 bug)
+                0x20 => self.jsr(opcode), // JSR
+                0x60 => self.rts(), // RTS
+                0x40 => self.rti(), // RTI
+
                 0xAA => self.tax(), // TAX
                 0xA8 => self.tay(), // TAY
                 0xBA => self.tsx(), // TSX
@@ -147,6 +154,15 @@ impl CPU {
                 0x38 => self.sec(), // SEC
                 0x78 => self.sei(), // SEI
                 0xF8 => self.sed(), // SED
+
+                // 0xD0 => self.bne(), // BNE
+                // 0x70 => self.bvs(), // BVE
+                // 0x50 => self.bvc(), // BVC
+                // 0x30 => self.bmi(), // BMI
+                // 0xF0 => self.beq(), // BEQ
+                // 0xB0 => self.bcs(), // BCS
+                // 0x90 => self.bcc(), // BCC
+                // 0x10 => self.bpl(), // BPL
 
                 0xE8 => self.inx(), // INX
                 0xC8 => self.iny(), // INY
@@ -273,6 +289,23 @@ impl CPU {
                 let addr = dynamic_base.wrapping_add(self.register_y as u16);
                 (addr, is_boundary_crossed(dynamic_base, addr))
             }
+            AddressingMode::Indirect => {
+                // Note: JMP is the only opcode to use this AddressingMode
+                /* NOTE:
+                   An original 6502 has does not correctly fetch the target address if the indirect vector falls
+                   on a page boundary (e.g. $xxFF where xx is any value from $00 to $FF). In this case fetches
+                   the LSB from $xxFF as expected but takes the MSB from $xx00.
+                 */
+                let indirect_vec = self.fetch_u16(self.program_counter);
+                let address = if indirect_vec & 0x00FF == 0x00FF {
+                    let lo = self.fetch_byte(indirect_vec) as u16;
+                    let hi = self.fetch_byte(indirect_vec & 0xFF00) as u16;
+                    (hi << 2) | lo
+                } else {
+                    indirect_vec
+                };
+                (address, false)
+            }
             _ => unimplemented!("Unimplemented addressing mode"),
         }
     }
@@ -295,15 +328,28 @@ impl CPU {
     }
 
     fn stack_push(&mut self, value: u8) {
-        self.bus
-            .store_byte(CPU_STACK_BASE + self.stack_pointer as u16, value);
+        let address = CPU_STACK_BASE + self.stack_pointer as u16;
+        self.bus.store_byte(address, value);
         self.stack_pointer = self.stack_pointer.wrapping_sub(1);
+    }
+
+    fn stack_push_u16(&mut self, value: u16) {
+        let hi = (value >> 8) as u8;
+        let lo = value as u8;
+        self.stack_push(hi);
+        self.stack_push(lo);
     }
 
     fn stack_pop(&mut self) -> u8 {
         self.stack_pointer = self.stack_pointer.wrapping_add(1);
         self.bus
             .fetch_byte(CPU_STACK_BASE + self.stack_pointer as u16)
+    }
+
+    fn stack_pop_u16(&mut self) -> u16 {
+        let lo = self.stack_pop() as u16;
+        let hi = self.stack_pop() as u16;
+        hi << 8 | lo
     }
 
     fn update_zero_and_negative_flags(&mut self, result: u8) {
@@ -603,6 +649,32 @@ impl CPU {
         self.extra_cycles += boundary_crossed as u8;
     }
 
+    fn jmp(&mut self, opcode: &opcodes::Opcode) {
+        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
+        self.program_counter = address;
+    }
+
+    fn jsr(&mut self, opcode: &opcodes::Opcode) {
+        // Jump to Subroutine
+        let (jump_address, _) = self.get_parameter_address(&opcode.mode);
+        let return_address = self.program_counter + 1;
+        self.stack_push_u16(return_address);
+        self.program_counter = jump_address;
+    }
+
+    fn rts(&mut self) {
+        // Return from Subroutine
+        let return_address_minus_one = self.stack_pop_u16();
+        self.program_counter = return_address_minus_one + 1;
+    }
+
+    fn rti(&mut self) {
+        // Return from Interrupt
+        // NOTE: Note that unlike RTS, the return address on the stack is the actual address rather than the address-1
+        self.plp(); // pop stack into status flags
+        let return_address = self.stack_pop_u16();
+        self.program_counter = return_address;
+    }
 
 }
 
