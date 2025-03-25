@@ -44,8 +44,8 @@ pub enum AddressingMode {
     AbsoluteY,
     IndirectX,
     IndirectY,
-    Indirect,
-    Relative,
+    Indirect, // Only JMP supports this mode
+    Relative, // The branch instructions exclusively use this mode
     None,
 }
 
@@ -70,7 +70,7 @@ impl CPU {
             register_x: 0,
             register_y: 0,
             stack_pointer: 0,
-            status: Flags::from_bits_truncate(0b0000_0010),
+            status: Flags::from_bits_truncate(0b0010_0010),
             program_counter: CPU_PC_RESET,
             extra_cycles: 0,
         }
@@ -81,7 +81,7 @@ impl CPU {
         self.register_x = 0;
         self.register_y = 0;
         self.program_counter = CPU_PC_RESET;
-        self.status = Flags::from_bits_truncate(0b0000_0010);
+        self.status = Flags::from_bits_truncate(0b0010_0010);
         self.extra_cycles = 0;
     }
 

@@ -16,7 +16,6 @@ impl Bus {
     }
 
     pub fn tick(&mut self, cycles: usize) {
-        // println!("Bus::tick({})", cycles);
         self.cycles += cycles;
     }
 
