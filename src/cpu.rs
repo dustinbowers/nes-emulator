@@ -53,11 +53,11 @@ pub enum AddressingMode {
 pub struct CPU {
     bus: Bus,
 
-    register_a: u8,
-    register_x: u8,
-    register_y: u8,
-    stack_pointer: u8,
-    status: Flags,
+    pub register_a: u8,
+    pub register_x: u8,
+    pub register_y: u8,
+    pub stack_pointer: u8,
+    pub status: Flags,
     pub program_counter: u16,
 
     extra_cycles: u8,
@@ -140,7 +140,8 @@ impl CPU {
 
         if DEBUG {
             println!(
-                "PC:${:02X} SP:${:02X} A:${:02X} X:${:02X} Y:${:02X}\tOpcode: (${:02X}) {} {:02X?}",
+                "({}) PC:${:02X} SP:${:02X} A:${:02X} X:${:02X} Y:${:02X}\tOpcode: (${:02X}) {} {:02X?}",
+                self.program_counter - 1,
                 self.program_counter - 1,
                 self.stack_pointer,
                 self.register_a,
@@ -153,7 +154,7 @@ impl CPU {
         }
 
         match code {
-            0x00 => panic!(), // BRK
+            0x00 => return, // BRK
             0xEA => {}      // NOP
 
             0x4C => self.jmp(opcode), // JMP Absolute
@@ -226,7 +227,7 @@ impl CPU {
             0x2A | 0x26 | 0x36 | 0x2E | 0x3E => {
                 self.rol(opcode); // ROL
             }
-            0x6A | 0x66 | 0x76 | 0x6E | 0x73 => {
+            0x6A | 0x66 | 0x76 | 0x6E | 0x7E => {
                 self.ror(opcode); // ROR
             }
             0xE6 | 0xF6 | 0xEE | 0xFE => {
@@ -260,7 +261,84 @@ impl CPU {
                 self.ora(opcode); // ORA
             }
 
-            // TODO: Implement unofficial 6502 opcodes
+
+            /////////////////////////
+            /// Unofficial Opcodes
+            /////////////////////////
+
+            // TODO: Finish implementing unofficial 6502 opcodes
+
+            0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 | 0x04 | 0x44 | 0x64 | 0x14 | 0x34 | 0x54 |
+            0x74 | 0xD4 | 0xF4 | 0x0C | 0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC | 0x02 |
+            0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2 | 0xF2 |
+            0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => {
+                // Various single and multiple-byte NOPs
+            }
+
+            0xC7 | 0xD7 | 0xCF | 0xDF | 0xDB | 0xD3 | 0xC3 => {
+                // DCP => DEC oper + CMP oper
+                self.dec(opcode);
+                self.cmp(opcode);
+            }
+            0x27 | 0x37 | 0x2F | 0x3F | 0x3B | 0x33 | 0x23 => {
+                // RLA => ROL oper + AND oper
+                self.rol(opcode);
+                self.and(opcode);
+            }
+            0x07 | 0x17 | 0x0F | 0x1F | 0x1B | 0x03 | 0x13 => {
+                // SLO => ASL oper + ORA oper
+                self.asl(opcode);
+                self.ora(opcode);
+            }
+            0x47 | 0x57 | 0x4F | 0x5F | 0x5B | 0x43 | 0x53 => {
+                // SRE => LSR oper + EOR oper
+                self.lsr(opcode);
+                self.eor(opcode);
+            }
+            0x67 | 0x77 | 0x6F | 0x7F | 0x7B | 0x63 | 0x73 => {
+                // RRA => ROR oper + ADC oper
+                self.ror(opcode);
+                self.adc(opcode);
+            }
+            0xE7 | 0xF7 | 0xEF | 0xFF | 0xFB | 0xE3 | 0xF3 => {
+                // ISC (ISB / INS) => INC oper + SBC oper
+                self.inc(opcode);
+                self.sbc(opcode);
+            }
+            0xA7 | 0xB7 | 0xAF | 0xBF | 0xA3 | 0xB3 => {
+                // LAX => LDA oper + LDX oper
+                self.lda(opcode);
+                self.ldx(opcode);
+            }
+            0x87 | 0x97 | 0x8F | 0x83 => {
+                // SAX => A AND X -> M
+                self.sax(opcode);
+            }
+            0xCB => {
+                // SBX => CMP and DEX at once, sets flags like CMP
+                self.sbx(opcode);
+            }
+            0x6B => {
+                todo!();
+            }
+            0xEB => {
+                // USBC (SBC) => SBC oper + NOP
+                self.sbc(opcode);
+                // NOP
+            }
+            0x0B => {
+                // ANC => A AND oper, bit(7) -> C
+                self.anc(opcode);
+            }
+            0x4B => {
+                // ALR => AND oper + LSR
+                self.and(opcode);
+                self.lsr(opcode);
+            }
+
+
+
+
             _ => todo!(),
         }
 
@@ -776,6 +854,38 @@ impl CPU {
         self.status.set(Flags::ZERO, value == 0);
         self.status.set(Flags::NEGATIVE, value & 1 << 7 != 0);
         self.status.set(Flags::OVERFLOW, value & 1 << 6 != 0);
+    }
+
+    /////////////////////////
+    /// Unofficial Opcodes
+    /////////////////////////
+
+    fn sax(&mut self, opcode: &opcodes::Opcode) {
+        // SAX => A AND X -> M
+        /* A and X are put on the bus at the same time (resulting effectively
+           in an AND operation) and stored in M
+         */
+        let (address, _) = self.get_parameter_address(&opcode.mode);
+        let result = self.register_a & self.register_x;
+        self.store_byte(address, result);
+    }
+
+    fn sbx(&mut self, opcode: &opcodes::Opcode) {
+        // TODO: test this...
+        // SBX (AXS, SAX) => CMP and DEX at once, sets flags like CMP
+        let (address, _) = self.get_parameter_address(&opcode.mode);
+        let value = self.fetch_byte(address);
+        let and_result = self.register_a & self.register_x;
+        let result = and_result.wrapping_sub(value);
+        self.status.set(Flags::CARRY, result >= value);
+        self.update_zero_and_negative_flags(and_result);
+    }
+
+    fn anc(&mut self, opcode: &opcodes::Opcode) {
+        let (address, _) = self.get_parameter_address(&opcode.mode);
+        let value = self.fetch_byte(address);
+        self.set_register_a(self.register_a & value);
+        self.status.set(Flags::CARRY,  self.register_a & 0b0100_0000 != 0);
     }
 }
 

@@ -4,6 +4,7 @@ mod memory;
 mod opcodes;
 pub mod consts;
 mod display;
+// mod test_runner;
 
 use std::ops::Rem;
 // use rand;
