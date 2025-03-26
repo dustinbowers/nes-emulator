@@ -96,26 +96,26 @@ const OPCODES: &[Opcode] = &[
     Opcode::new(0x28, "PLP", 1, 4, AddressingMode::None),
 
     // Shifts
-    Opcode::new(0x0A, "ASL", 1, 2, AddressingMode::None),
+    Opcode::new(0x0A, "ASL", 1, 2, AddressingMode::Immediate),
     Opcode::new(0x06, "ASL", 2, 5, AddressingMode::ZeroPage),
     Opcode::new(0x16, "ASL", 2, 6, AddressingMode::ZeroPageX),
     Opcode::new(0x0E, "ASL", 3, 6, AddressingMode::Absolute),
     Opcode::new(0x1E, "ASL", 3, 7, AddressingMode::AbsoluteX),
 
-    Opcode::new(0x4A, "LSR", 1, 2, AddressingMode::None),
+    Opcode::new(0x4A, "LSR", 1, 2, AddressingMode::Immediate),
     Opcode::new(0x46, "LSR", 2, 5, AddressingMode::ZeroPage),
     Opcode::new(0x56, "LSR", 2, 6, AddressingMode::ZeroPageX),
     Opcode::new(0x4E, "LSR", 3, 6, AddressingMode::Absolute),
     Opcode::new(0x5E, "LSR", 3, 7, AddressingMode::AbsoluteX),
 
     // Rotates
-    Opcode::new(0x2A, "ROL", 1, 2, AddressingMode::None),
+    Opcode::new(0x2A, "ROL", 1, 2, AddressingMode::Immediate),
     Opcode::new(0x26, "ROL", 2, 5, AddressingMode::ZeroPage),
     Opcode::new(0x36, "ROL", 2, 6, AddressingMode::ZeroPageX),
     Opcode::new(0x2E, "ROL", 3, 6, AddressingMode::Absolute),
     Opcode::new(0x3E, "ROL", 3, 7, AddressingMode::AbsoluteX),
 
-    Opcode::new(0x6A, "ROR", 1, 2, AddressingMode::None),
+    Opcode::new(0x6A, "ROR", 1, 2, AddressingMode::Immediate),
     Opcode::new(0x66, "ROR", 2, 5, AddressingMode::ZeroPage),
     Opcode::new(0x76, "ROR", 2, 6, AddressingMode::ZeroPageX),
     Opcode::new(0x6E, "ROR", 3, 6, AddressingMode::Absolute),

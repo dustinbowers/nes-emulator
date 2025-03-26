@@ -5,8 +5,8 @@ use std::future::Future;
 
 const DEBUG: bool = true;
 const CPU_PC_RESET: u16 = 0x8000;
-const CPU_STACK_RESET: u8 = 0x00FD;
-const CPU_STACK_BASE: u16 = (CPU_STACK_RESET as u16) + 0x2;
+const CPU_STACK_RESET: u8 = 0xFF;
+const CPU_STACK_BASE: u16 = 0x0100;
 
 bitflags! {
     /* https://www.nesdev.org/wiki/Status_flags
@@ -35,6 +35,7 @@ bitflags! {
     }
 }
 
+#[derive(Debug)]
 pub enum AddressingMode {
     Immediate,
     ZeroPage,
@@ -70,7 +71,7 @@ impl CPU {
             register_a: 0,
             register_x: 0,
             register_y: 0,
-            stack_pointer: 0,
+            stack_pointer: CPU_STACK_RESET,
             status: Flags::from_bits_truncate(0b0010_0010),
             program_counter: CPU_PC_RESET,
             extra_cycles: 0,
@@ -81,6 +82,7 @@ impl CPU {
         self.register_a = 0;
         self.register_x = 0;
         self.register_y = 0;
+        self.stack_pointer = CPU_STACK_RESET;
         self.program_counter = CPU_PC_RESET;
         self.status = Flags::from_bits_truncate(0b0010_0010);
         self.extra_cycles = 0;
@@ -123,11 +125,15 @@ impl CPU {
     {
         loop {
             callback(self);
-            self.tick();
+            let (cycles, bytes_consumed, should_break) = self.tick();
+            if should_break {
+                break;
+            }
         }
     }
 
-    pub fn tick(&mut self) -> (u8, u8) {
+    // `tick` returns (num_cycles, bytes_consumed, is_breaking)
+    pub fn tick(&mut self) -> (u8, u8, bool) {
         let ref opcodes: HashMap<u8, &'static opcodes::Opcode> = *opcodes::OPCODES_MAP;
 
         self.extra_cycles = 0;
@@ -137,16 +143,23 @@ impl CPU {
             .expect(&format!("Unknown opcode: {:#x}", &code));
 
         if DEBUG {
+            let mut operand_bytes: Vec<u8> = vec![];
+            for i in 1..opcode.size {
+                let address = self.program_counter.wrapping_add(i as u16);
+                operand_bytes.push(self.fetch_byte(address));
+            }
             println!(
-                "({}) PC:${:04X} SP:${:02X} A:${:02X} X:${:02X} Y:${:02X}\tOpcode: (${:02X}) {}", // {:02X?}",
+                "({}) PC:${:04X} SP:${:02X} A:${:02X} X:${:02X} Y:${:02X} status: 0b{:08b} \tOpcode: (${:02X}) {} {:02X?}",
                 self.program_counter,
                 self.program_counter,
                 self.stack_pointer,
                 self.register_a,
                 self.register_x,
                 self.register_y,
+                self.status.bits(),
                 self.bus.fetch_byte(self.program_counter),
                 opcode.name,
+                operand_bytes
                 // self.bus.fetch_bytes(self.program_counter, opcode.size - 1)
             )
         }
@@ -154,8 +167,8 @@ impl CPU {
         let curr_program_counter = self.program_counter;
 
         match code {
-            0x00 => return (1, 1), // BRK
-            0xEA => {}             // NOP
+            0x00 => return (1, 1, true), // BRK
+            0xEA => {}                   // NOP
 
             0x4C => self.jmp(opcode), // JMP Absolute
             0x6C => self.jmp(opcode), // JMP Indirect (with 6502 bug)
@@ -347,7 +360,7 @@ impl CPU {
         if curr_program_counter == self.program_counter {
             self.program_counter = self.program_counter.wrapping_add((opcode.size - 1) as u16);
         }
-        (cycle_count, opcode.size)
+        (cycle_count, opcode.size, false)
     }
 
     // Utility functions
@@ -420,7 +433,7 @@ impl CPU {
                 };
                 (address, is_boundary_crossed(self.program_counter, address))
             }
-            _ => unimplemented!("Unimplemented addressing mode"),
+            _ => unimplemented!("Unimplemented addressing mode: {:#?}", mode),
         }
     }
 
@@ -440,7 +453,7 @@ impl CPU {
     }
 
     fn stack_push(&mut self, value: u8) {
-        let address = CPU_STACK_BASE + self.stack_pointer as u16;
+        let address = CPU_STACK_BASE.wrapping_add(self.stack_pointer as u16);
         self.bus.store_byte(address, value);
         self.stack_pointer = self.stack_pointer.wrapping_sub(1);
     }
@@ -455,7 +468,7 @@ impl CPU {
     fn stack_pop(&mut self) -> u8 {
         self.stack_pointer = self.stack_pointer.wrapping_add(1);
         self.bus
-            .fetch_byte(CPU_STACK_BASE + self.stack_pointer as u16)
+            .fetch_byte(CPU_STACK_BASE.wrapping_add(self.stack_pointer as u16))
     }
 
     fn stack_pop_u16(&mut self) -> u16 {
@@ -655,52 +668,84 @@ impl CPU {
 
     fn asl(&mut self, opcode: &opcodes::Opcode) {
         // Arithmetic Shift Left into carry
-        let (address, _) = self.get_parameter_address(&opcode.mode);
-        let mut value = self.bus.fetch_byte(address);
-        let carry = value & 0b1000_0000 != 0;
-        value <<= 1;
-        self.bus.store_byte(address, value);
-        self.status.set(Flags::CARRY, carry);
-        self.update_zero_and_negative_flags(value);
+        match opcode.mode {
+            AddressingMode::Immediate => {
+                let carry = self.register_a & 0x80 != 0;
+                let value = self.register_a << 1;
+                self.set_register_a(value);
+                self.status.set(Flags::CARRY, carry);
+            }
+            _ => {
+                let (address, _) = self.get_parameter_address(&opcode.mode);
+                let mut value = self.fetch_byte(address);
+                let carry = value & 0x80 != 0;
+                value <<= 1;
+                self.store_byte(address, value);
+                self.update_zero_and_negative_flags(value);
+                self.status.set(Flags::CARRY, carry);
+            }
+        }
     }
 
     fn lsr(&mut self, opcode: &opcodes::Opcode) {
         // Logical Shift Right into carry
-        let (address, _) = self.get_parameter_address(&opcode.mode);
-        let mut value = self.bus.fetch_byte(address);
-        let carry = value & 0b1 != 0;
-        value >>= 1;
-        self.bus.store_byte(address, value);
-        self.status.set(Flags::CARRY, carry);
-        self.update_zero_and_negative_flags(value);
+        match opcode.mode {
+            AddressingMode::Immediate => {
+                let carry = self.register_a & 1 != 0;
+                let value = self.register_a >> 1;
+                self.set_register_a(value);
+                self.status.set(Flags::CARRY, carry);
+            }
+            _ => {
+                let (address, _) = self.get_parameter_address(&opcode.mode);
+                let mut value = self.fetch_byte(address);
+                let carry = value & 1 != 0;
+                value >>= 1;
+                self.store_byte(address, value);
+                self.update_zero_and_negative_flags(value);
+                self.status.set(Flags::CARRY, carry);
+            }
+        }
     }
 
     fn rol(&mut self, opcode: &opcodes::Opcode) {
         // Rotate Left through carry flag
-        let (address, _) = self.get_parameter_address(&opcode.mode);
-        let mut value = self.bus.fetch_byte(address);
-        let prev_carry = self.status.contains(Flags::CARRY);
-        let new_carry = value & 0b1000_0000 != 0;
-        value <<= 1;
-        if prev_carry {
-            value |= 1;
+        let curr_carry = self.status.contains(Flags::CARRY);
+        match opcode.mode {
+            AddressingMode::Immediate => {
+                let (value, new_carry) = rotate_value_left(self.register_a, curr_carry);
+                self.set_register_a(value);
+                self.status.set(Flags::CARRY, new_carry);
+            }
+            _ => {
+                let (address, _) = self.get_parameter_address(&opcode.mode);
+                let value = self.fetch_byte(address);
+                let (result, new_carry) = rotate_value_left(value, curr_carry);
+                self.store_byte(address, result);
+                self.update_zero_and_negative_flags(result);
+                self.status.set(Flags::CARRY, new_carry);
+            }
         }
-        self.bus.store_byte(address, value);
-        self.status.set(Flags::CARRY, new_carry);
     }
 
     fn ror(&mut self, opcode: &opcodes::Opcode) {
         // Rotate Right through carry flag
-        let (address, _) = self.get_parameter_address(&opcode.mode);
-        let mut value = self.bus.fetch_byte(address);
-        let prev_carry = self.status.contains(Flags::CARRY);
-        let new_carry = value & 0b0000_0001 != 0;
-        value >>= 1;
-        if prev_carry {
-            value |= 0b1000_0000;
+        let curr_carry = self.status.contains(Flags::CARRY);
+        match opcode.mode {
+            AddressingMode::Immediate => {
+                let (value, new_carry) = rotate_value_right(self.register_a, curr_carry);
+                self.set_register_a(value);
+                self.status.set(Flags::CARRY, new_carry);
+            }
+            _ => {
+                let (address, _) = self.get_parameter_address(&opcode.mode);
+                let value = self.fetch_byte(address);
+                let (result, new_carry) = rotate_value_right(value, curr_carry);
+                self.store_byte(address, result);
+                self.update_zero_and_negative_flags(result);
+                self.status.set(Flags::CARRY, new_carry);
+            }
         }
-        self.bus.store_byte(address, value);
-        self.status.set(Flags::CARRY, new_carry);
     }
 
     fn inc(&mut self, opcode: &opcodes::Opcode) {
@@ -784,7 +829,7 @@ impl CPU {
     fn jsr(&mut self, opcode: &opcodes::Opcode) {
         // Jump to Subroutine
         let (jump_address, _) = self.get_parameter_address(&opcode.mode);
-        let return_address = self.program_counter + 1;
+        let return_address = self.program_counter.wrapping_add(1);
         self.stack_push_u16(return_address);
         self.program_counter = jump_address;
     }
@@ -792,7 +837,7 @@ impl CPU {
     fn rts(&mut self) {
         // Return from Subroutine
         let return_address_minus_one = self.stack_pop_u16();
-        self.program_counter = return_address_minus_one + 1;
+        self.program_counter = return_address_minus_one.wrapping_add(1);
     }
 
     fn rti(&mut self) {
@@ -888,6 +933,20 @@ impl CPU {
 
 fn is_boundary_crossed(addr1: u16, addr2: u16) -> bool {
     addr1 & 0xFF00 != addr2 & 0xFF00
+}
+
+fn rotate_value_left(value: u8, current_carry: bool) -> (u8, bool) {
+    let new_carry = value & 0b1000_0000 != 0;
+    let mut shifted = value << 1;
+    shifted |= current_carry as u8;
+    (shifted, new_carry)
+}
+
+fn rotate_value_right(value: u8, current_carry: bool) -> (u8, bool) {
+    let new_carry = value & 0b0000_0001 != 0;
+    let mut shifted = value >> 1;
+    shifted |= (current_carry as u8) << 7;
+    (shifted, new_carry)
 }
 
 #[cfg(test)]
@@ -1120,5 +1179,14 @@ mod test {
         assert_eq!(cpu.status.contains(Flags::CARRY), false);
         assert_eq!(cpu.status.contains(Flags::OVERFLOW), false);
         assert_eq!(cpu.register_a, 0xFF);
+    }
+
+    #[test]
+    fn test_rotate_value_right() {
+        let carry = true;
+        let value = 0xE0;
+        let (result, new_carry) = rotate_value_right(value, carry);
+        assert_eq!(result, 240);
+        assert_eq!(new_carry, false);
     }
 }

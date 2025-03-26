@@ -1,7 +1,5 @@
 pub mod bus;
-pub mod consts;
 pub mod cpu;
-mod display;
 pub mod memory;
 pub mod opcodes;
 
@@ -17,10 +15,12 @@ use std::process;
 #[derive(Debug, Deserialize)]
 struct OpcodeTest {
     name: String,
+
     #[serde(rename = "initial")]
     initial_state: CPUState,
+
     #[serde(rename = "final")]
-    final_state: CPUState, // Rename to avoid keyword conflict
+    final_state: CPUState,
     cycles: Vec<MemoryCycle>,
 }
 
@@ -56,7 +56,7 @@ fn main() {
 
     println!(
         "Currently running at: {}",
-        std::env::current_dir().unwrap().display()
+        env::current_dir().unwrap().display()
     );
 
     // Get directory path and resolve to absolute path
@@ -68,7 +68,7 @@ fn main() {
         }
     };
 
-    // Parse the opcode argument as a u8 hex value
+    // Parse the opcode argument as u8 hex value
     let opcode = match u8::from_str_radix(&args[2], 16) {
         Ok(value) => value,
         Err(_) => {
@@ -81,12 +81,11 @@ fn main() {
     };
 
     println!("Running tests for opcode: {:02X}", opcode);
-    // Call the function to read the tests
+    // Read, parse, and run tests
     match read_opcode_tests(&dir_path, opcode) {
         Ok(tests) => {
             for (i, opcode_test) in tests.iter().enumerate() {
-                //println!("Loaded test: {:?}", test);
-                println!("\n====== Running test #{} ====== ", i + 1);
+                println!("\n====== Running 0x{:02X} test #{} ====== ", opcode, i + 1);
                 run_opcode_test(opcode_test);
                 println!(" Pass!");
             }
@@ -130,17 +129,11 @@ fn run_opcode_test(test: &OpcodeTest) {
     cpu.register_x = start.x;
     cpu.register_y = start.y;
     cpu.status = Flags::from_bits_truncate(start.p);
+    println!("RAM data:");
     for (address, value) in start.ram.iter() {
         cpu.store_byte(*address, *value);
+        println!("\t${:04X} = ${:02X}", *address, *value);
     }
-    println!(
-        "RAM: {:?}",
-        start
-            .ram
-            .iter()
-            .map(|&(_, byte)| format!("{:02X}", byte))
-            .collect::<Vec<_>>()
-    );
 
     cpu.tick();
 
@@ -150,6 +143,7 @@ fn run_opcode_test(test: &OpcodeTest) {
     assert_eq!(cpu.register_a, end.a, "register_a mismatch");
     assert_eq!(cpu.register_x, end.x, "register_x mismatch");
     assert_eq!(cpu.register_y, end.y, "register_y mismatch");
+    assert_eq!(cpu.status.bits(), end.p, "status flag mismatch");
     for (address, value) in end.ram.iter() {
         assert_eq!(cpu.fetch_byte(*address), *value);
     }
