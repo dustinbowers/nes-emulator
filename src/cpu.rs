@@ -118,8 +118,8 @@ impl CPU {
     }
 
     pub async fn run_with_callback<F>(&mut self, mut callback: F)
-        where
-            F: FnMut(&mut CPU),
+    where
+        F: FnMut(&mut CPU),
     {
         loop {
             callback(self);
@@ -127,35 +127,35 @@ impl CPU {
         }
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self) -> (u8, u8) {
         let ref opcodes: HashMap<u8, &'static opcodes::Opcode> = *opcodes::OPCODES_MAP;
 
         self.extra_cycles = 0;
         let code = self.fetch_byte(self.program_counter);
-        self.program_counter += 1;
         let opcode = *opcodes
             .get(&code)
             .expect(&format!("Unknown opcode: {:#x}", &code));
-        let curr_program_counter = self.program_counter;
 
         if DEBUG {
             println!(
-                "({}) PC:${:02X} SP:${:02X} A:${:02X} X:${:02X} Y:${:02X}\tOpcode: (${:02X}) {} {:02X?}",
-                self.program_counter - 1,
-                self.program_counter - 1,
+                "({}) PC:${:04X} SP:${:02X} A:${:02X} X:${:02X} Y:${:02X}\tOpcode: (${:02X}) {}", // {:02X?}",
+                self.program_counter,
+                self.program_counter,
                 self.stack_pointer,
                 self.register_a,
                 self.register_x,
                 self.register_y,
-                self.bus.fetch_byte(self.program_counter - 1),
+                self.bus.fetch_byte(self.program_counter),
                 opcode.name,
-                self.bus.fetch_bytes(self.program_counter, opcode.size - 1)
+                // self.bus.fetch_bytes(self.program_counter, opcode.size - 1)
             )
         }
+        self.program_counter = self.program_counter.wrapping_add(1);
+        let curr_program_counter = self.program_counter;
 
         match code {
-            0x00 => return, // BRK
-            0xEA => {}      // NOP
+            0x00 => return (1, 1), // BRK
+            0xEA => {}             // NOP
 
             0x4C => self.jmp(opcode), // JMP Absolute
             0x6C => self.jmp(opcode), // JMP Indirect (with 6502 bug)
@@ -261,17 +261,15 @@ impl CPU {
                 self.ora(opcode); // ORA
             }
 
-
             /////////////////////////
             /// Unofficial Opcodes
             /////////////////////////
 
             // TODO: Finish implementing unofficial 6502 opcodes
-
-            0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 | 0x04 | 0x44 | 0x64 | 0x14 | 0x34 | 0x54 |
-            0x74 | 0xD4 | 0xF4 | 0x0C | 0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC | 0x02 |
-            0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2 | 0xF2 |
-            0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => {
+            0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 | 0x04 | 0x44 | 0x64 | 0x14 | 0x34 | 0x54 | 0x74
+            | 0xD4 | 0xF4 | 0x0C | 0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC | 0x02 | 0x12 | 0x22
+            | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2 | 0xF2 | 0x1A | 0x3A | 0x5A
+            | 0x7A | 0xDA | 0xFA => {
                 // Various single and multiple-byte NOPs
             }
 
@@ -336,9 +334,6 @@ impl CPU {
                 self.lsr(opcode);
             }
 
-
-
-
             _ => todo!(),
         }
 
@@ -350,8 +345,9 @@ impl CPU {
         // we step it forward by the size of the opcode - 1
         // since we've already stepped it forward one byte when reading it
         if curr_program_counter == self.program_counter {
-            self.program_counter += (opcode.size - 1) as u16;
+            self.program_counter = self.program_counter.wrapping_add((opcode.size - 1) as u16);
         }
+        (cycle_count, opcode.size)
     }
 
     // Utility functions
@@ -475,7 +471,7 @@ impl CPU {
 
     fn add_to_register_a(&mut self, value: u8) {
         let curr_carry = self.status.contains(Flags::CARRY) as u8;
-        let result = self.register_a.wrapping_add(value + curr_carry);
+        let result = self.register_a.wrapping_add(value.wrapping_add(curr_carry));
 
         // Method: OVERFLOW if the sign of the inputs are the same,
         //         and do not match the sign of the result
@@ -863,8 +859,8 @@ impl CPU {
     fn sax(&mut self, opcode: &opcodes::Opcode) {
         // SAX => A AND X -> M
         /* A and X are put on the bus at the same time (resulting effectively
-           in an AND operation) and stored in M
-         */
+          in an AND operation) and stored in M
+        */
         let (address, _) = self.get_parameter_address(&opcode.mode);
         let result = self.register_a & self.register_x;
         self.store_byte(address, result);
@@ -885,7 +881,8 @@ impl CPU {
         let (address, _) = self.get_parameter_address(&opcode.mode);
         let value = self.fetch_byte(address);
         self.set_register_a(self.register_a & value);
-        self.status.set(Flags::CARRY,  self.register_a & 0b0100_0000 != 0);
+        self.status
+            .set(Flags::CARRY, self.register_a & 0b0100_0000 != 0);
     }
 }
 

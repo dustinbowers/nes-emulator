@@ -1,14 +1,12 @@
 pub mod color_map;
 
-use macroquad::color::Color;
-use macroquad::color_u8;
-use macroquad::prelude::{draw_rectangle};
 use crate::consts::*;
 use crate::display::color_map::ColorMap;
+use macroquad::color::Color;
+use macroquad::color_u8;
+use macroquad::prelude::draw_rectangle;
 
 pub type Screen = Vec<Vec<u8>>;
-
-
 
 pub fn draw_screen(screen: &Screen, color_map: &ColorMap) {
     for (ri, r) in screen.iter().enumerate() {

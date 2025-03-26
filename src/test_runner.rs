@@ -1,20 +1,18 @@
 pub mod bus;
+pub mod consts;
 pub mod cpu;
+mod display;
 pub mod memory;
 pub mod opcodes;
-pub mod consts;
-mod display;
 
+use crate::bus::Bus;
+use crate::cpu::{Flags, CPU};
+use serde::Deserialize;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::io::{self, Read};
-use serde::Deserialize;
+use std::path::{Path, PathBuf};
 use std::process;
-use crate::bus::Bus;
-// use crate::bus::Bus;
-// use crate::bus::Bus;
-use crate::cpu::{CPU, Flags};
 
 #[derive(Debug, Deserialize)]
 struct OpcodeTest {
@@ -44,7 +42,7 @@ struct MemoryCycle {
     #[serde(rename = "1")]
     value: u8,
     #[serde(rename = "2")]
-    operation: String, // "read" or other operations
+    operation: String, // "read" or "write" operations
 }
 
 fn main() {
@@ -56,7 +54,10 @@ fn main() {
         process::exit(1);
     }
 
-    println!("Currently running at: {}", std::env::current_dir().unwrap().display());
+    println!(
+        "Currently running at: {}",
+        std::env::current_dir().unwrap().display()
+    );
 
     // Get directory path and resolve to absolute path
     let dir_path = match fs::canonicalize(Path::new(&args[1])) {
@@ -71,17 +72,21 @@ fn main() {
     let opcode = match u8::from_str_radix(&args[2], 16) {
         Ok(value) => value,
         Err(_) => {
-            eprintln!("Error: Invalid opcode '{}'. Expected a valid hex value (e.g., 'ff').", args[2]);
+            eprintln!(
+                "Error: Invalid opcode '{}'. Expected a valid hex value (e.g., 'ff').",
+                args[2]
+            );
             process::exit(1);
         }
     };
 
+    println!("Running tests for opcode: {:02X}", opcode);
     // Call the function to read the tests
     match read_opcode_tests(&dir_path, opcode) {
         Ok(tests) => {
             for (i, opcode_test) in tests.iter().enumerate() {
                 //println!("Loaded test: {:?}", test);
-                println!("Running test #{}... ", i);
+                println!("\n====== Running test #{} ====== ", i + 1);
                 run_opcode_test(opcode_test);
                 println!(" Pass!");
             }
@@ -90,7 +95,10 @@ fn main() {
     }
 }
 
-fn read_opcode_tests(dir_path: &PathBuf, opcode: u8) -> Result<Vec<OpcodeTest>, Box<dyn std::error::Error>> {
+fn read_opcode_tests(
+    dir_path: &PathBuf,
+    opcode: u8,
+) -> Result<Vec<OpcodeTest>, Box<dyn std::error::Error>> {
     let hex_string = format!("{:02x}", opcode); // Convert to lowercase hex
     let file_path = dir_path.join(format!("{}.json", hex_string)); // Use PathBuf.join()
 
@@ -110,8 +118,7 @@ fn read_opcode_tests(dir_path: &PathBuf, opcode: u8) -> Result<Vec<OpcodeTest>, 
     Ok(tests)
 }
 
-async fn run_opcode_test(test: &OpcodeTest) {
-
+fn run_opcode_test(test: &OpcodeTest) {
     let bus = Bus::new();
     let mut cpu = CPU::new(bus);
     cpu.reset();
@@ -126,21 +133,24 @@ async fn run_opcode_test(test: &OpcodeTest) {
     for (address, value) in start.ram.iter() {
         cpu.store_byte(*address, *value);
     }
-    println!("Program: {:?}", start.ram.iter().map(|&(_, byte)| format!("{:02X}", byte)).collect::<Vec<_>>());
+    println!(
+        "RAM: {:?}",
+        start
+            .ram
+            .iter()
+            .map(|&(_, byte)| format!("{:02X}", byte))
+            .collect::<Vec<_>>()
+    );
 
-    for _ in 0..2 {
-        cpu.tick();
-    }
-    // cpu.run().await;
+    cpu.tick();
 
     let end = &test.final_state;
-    assert_eq!(cpu.program_counter, end.pc);
-    assert_eq!(cpu.stack_pointer, end.s);
-    assert_eq!(cpu.register_a, end.a);
-    assert_eq!(cpu.register_x, end.x);
-    assert_eq!(cpu.register_y, end.y);
+    assert_eq!(cpu.program_counter, end.pc, "program_counter mismatch");
+    assert_eq!(cpu.stack_pointer, end.s, "stack_pointer mismatch");
+    assert_eq!(cpu.register_a, end.a, "register_a mismatch");
+    assert_eq!(cpu.register_x, end.x, "register_x mismatch");
+    assert_eq!(cpu.register_y, end.y, "register_y mismatch");
     for (address, value) in end.ram.iter() {
         assert_eq!(cpu.fetch_byte(*address), *value);
     }
 }
-

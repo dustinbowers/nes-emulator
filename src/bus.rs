@@ -1,6 +1,6 @@
-use std::marker::PhantomData;
 use crate::memory::heap_memory::HeapMemory;
 use crate::memory::memory_trait::MemoryTrait;
+use std::marker::PhantomData;
 
 const ROM_SIZE: usize = 1 << 16;
 pub struct Bus {
