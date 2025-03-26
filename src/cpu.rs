@@ -58,14 +58,14 @@ pub struct CPU {
     register_y: u8,
     stack_pointer: u8,
     status: Flags,
-    program_counter: u16,
+    pub program_counter: u16,
 
     extra_cycles: u8,
 }
 
 impl CPU {
-    pub fn new(bus: Bus) -> Self {
-        Self {
+    pub fn new(bus: Bus) -> CPU {
+        CPU {
             bus,
             register_a: 0,
             register_x: 0,
@@ -88,11 +88,19 @@ impl CPU {
 
     pub fn load(&mut self, program: &[u8]) {
         self.reset();
-        self.bus.store_bytes(self.program_counter, program);
+        self.load_program_at(program, self.program_counter);
+    }
+
+    pub fn load_program_at(&mut self, program: &[u8], address: u16) {
+        self.bus.store_bytes(address, program);
     }
 
     pub fn fetch_byte(&mut self, address: u16) -> u8 {
         self.bus.fetch_byte(address)
+    }
+
+    pub fn fetch_bytes_raw(&mut self, address: u16, size: u16) -> &[u8] {
+        self.bus.fetch_bytes_raw(address, size)
     }
 
     pub fn fetch_u16(&mut self, address: u16) -> u16 {
@@ -106,163 +114,165 @@ impl CPU {
     }
 
     pub async fn run(&mut self) {
-        self.run_with_callback(|_| async {}).await;
+        self.run_with_callback(|_| {}).await;
     }
 
-    pub async fn run_with_callback<F, Fut>(&mut self, mut callback: F)
+    pub async fn run_with_callback<F>(&mut self, mut callback: F)
         where
-            F: FnMut(&mut CPU) -> Fut,
-            Fut: Future<Output = ()>,
+            F: FnMut(&mut CPU),
     {
-        let ref opcodes: HashMap<u8, &'static opcodes::Opcode> = *opcodes::OPCODES_MAP;
-
         loop {
             callback(self);
+            self.tick();
+        }
+    }
 
-            self.extra_cycles = 0;
-            let code = self.fetch_byte(self.program_counter);
-            self.program_counter += 1;
-            let opcode = *opcodes
-                .get(&code)
-                .expect(&format!("Unknown opcode: {:#x}", &code));
-            let curr_program_counter = self.program_counter;
+    pub fn tick(&mut self) {
+        let ref opcodes: HashMap<u8, &'static opcodes::Opcode> = *opcodes::OPCODES_MAP;
 
-            if DEBUG {
-                println!(
-                    "PC:${:02X} SP:${:02X} A:${:02X} X:${:02X} Y:${:02X}\tOpcode: (${:02X}) {} {:02X?}",
-                    self.program_counter,
-                    self.stack_pointer,
-                    self.register_a,
-                    self.register_x,
-                    self.register_y,
-                    self.bus.fetch_byte(self.program_counter - 1),
-                    opcode.name,
-                    self.bus.fetch_bytes(self.program_counter, opcode.size - 1)
-                )
+        self.extra_cycles = 0;
+        let code = self.fetch_byte(self.program_counter);
+        self.program_counter += 1;
+        let opcode = *opcodes
+            .get(&code)
+            .expect(&format!("Unknown opcode: {:#x}", &code));
+        let curr_program_counter = self.program_counter;
+
+        if DEBUG {
+            println!(
+                "PC:${:02X} SP:${:02X} A:${:02X} X:${:02X} Y:${:02X}\tOpcode: (${:02X}) {} {:02X?}",
+                self.program_counter - 1,
+                self.stack_pointer,
+                self.register_a,
+                self.register_x,
+                self.register_y,
+                self.bus.fetch_byte(self.program_counter - 1),
+                opcode.name,
+                self.bus.fetch_bytes(self.program_counter, opcode.size - 1)
+            )
+        }
+
+        match code {
+            0x00 => panic!(), // BRK
+            0xEA => {}      // NOP
+
+            0x4C => self.jmp(opcode), // JMP Absolute
+            0x6C => self.jmp(opcode), // JMP Indirect (with 6502 bug)
+            0x20 => self.jsr(opcode), // JSR
+            0x60 => self.rts(),       // RTS
+            0x40 => self.rti(),       // RTI
+
+            0xAA => self.tax(), // TAX
+            0xA8 => self.tay(), // TAY
+            0xBA => self.tsx(), // TSX
+            0x8A => self.txa(), // TXA
+            0x9A => self.txs(), // TXS
+            0x98 => self.tya(), // TYA
+
+            0xD8 => self.cld(), // CLD
+            0x58 => self.cli(), // CLI
+            0xB8 => self.clv(), // CLV
+            0x18 => self.clc(), // CLC
+            0x38 => self.sec(), // SEC
+            0x78 => self.sei(), // SEI
+            0xF8 => self.sed(), // SED
+
+            0xD0 => self.bne(opcode), // BNE
+            0x70 => self.bvs(opcode), // BVS
+            0x50 => self.bvc(opcode), // BVC
+            0x30 => self.bmi(opcode), // BMI
+            0xF0 => self.beq(opcode), // BEQ
+            0xB0 => self.bcs(opcode), // BCS
+            0x90 => self.bcc(opcode), // BCC
+            0x10 => self.bpl(opcode), // BPL
+
+            0xE8 => self.inx(), // INX
+            0xC8 => self.iny(), // INY
+
+            0xCA => self.dex(), // DEX
+            0x88 => self.dey(), // DEY
+
+            0x48 => self.pha(), // PHA
+            0x68 => self.pla(), // PLA
+            0x08 => self.php(), // PHP
+            0x28 => self.plp(), // PLP
+
+            0x24 => self.bit(opcode), // BIT
+
+            0xA9 | 0xA5 | 0xB5 | 0xAD | 0xBD | 0xB9 | 0xA1 | 0xB1 => {
+                self.lda(opcode); // LDA
+            }
+            0xA2 | 0xA6 | 0xB6 | 0xAE | 0xBE => {
+                self.ldx(opcode); // LDX
+            }
+            0xA0 | 0xA4 | 0xB4 | 0xAC | 0xBC => {
+                self.ldy(opcode); // LDY
+            }
+            0x85 | 0x95 | 0x8D | 0x9D | 0x99 | 0x81 | 0x91 => {
+                self.sta(opcode); // STA
+            }
+            0x86 | 0x96 | 0x8e => {
+                self.stx(opcode); // STX
+            }
+            0x84 | 0x94 | 0x8c => {
+                self.sty(opcode); // STY
+            }
+            0x0A | 0x06 | 0x16 | 0x0E | 0x1E => {
+                self.asl(opcode); // ASL
+            }
+            0x4A | 0x46 | 0x56 | 0x4E | 0x5E => {
+                self.lsr(opcode); // LSR
+            }
+            0x2A | 0x26 | 0x36 | 0x2E | 0x3E => {
+                self.rol(opcode); // ROL
+            }
+            0x6A | 0x66 | 0x76 | 0x6E | 0x73 => {
+                self.ror(opcode); // ROR
+            }
+            0xE6 | 0xF6 | 0xEE | 0xFE => {
+                self.inc(opcode); // INC
+            }
+            0xC6 | 0xD6 | 0xCE | 0xDE => {
+                self.dec(opcode); // DEC
+            }
+            0xC9 | 0xC5 | 0xD5 | 0xCD | 0xDD | 0xD9 | 0xC1 | 0xD1 => {
+                self.cmp(opcode); // CMP
+            }
+            0xE0 | 0xE4 | 0xEC => {
+                self.cpx(opcode); // CPX
+            }
+            0xC0 | 0xC4 | 0xCC => {
+                self.cpy(opcode); // CPY
+            }
+            0x69 | 0x65 | 0x75 | 0x6D | 0x7D | 0x79 | 0x61 | 0x71 => {
+                self.adc(opcode); // ADC
+            }
+            0xE9 | 0xE5 | 0xF5 | 0xED | 0xFD | 0xF9 | 0xE1 | 0xF1 => {
+                self.sbc(opcode); // SBC
+            }
+            0x29 | 0x25 | 0x35 | 0x2D | 0x3D | 0x39 | 0x21 | 0x31 => {
+                self.and(opcode); // AND
+            }
+            0x49 | 0x45 | 0x55 | 0x4D | 0x5D | 0x59 | 0x41 | 0x51 => {
+                self.eor(opcode); // EOR
+            }
+            0x09 | 0x05 | 0x15 | 0x0D | 0x1D | 0x19 | 0x01 | 0x11 => {
+                self.ora(opcode); // ORA
             }
 
-            match code {
-                0x00 => return, // BRK
-                0xEA => {}      // NOP
+            // TODO: Implement unofficial 6502 opcodes
+            _ => todo!(),
+        }
 
-                0x4C => self.jmp(opcode), // JMP Absolute
-                0x6C => self.jmp(opcode), // JMP Indirect (with 6502 bug)
-                0x20 => self.jsr(opcode), // JSR
-                0x60 => self.rts(),       // RTS
-                0x40 => self.rti(),       // RTI
+        // Tick the bus for opcode cycles. Add any extra cycles from boundary_crosses and other special cases
+        let cycle_count = opcode.cycles + self.extra_cycles;
+        self.bus.tick(cycle_count as usize);
 
-                0xAA => self.tax(), // TAX
-                0xA8 => self.tay(), // TAY
-                0xBA => self.tsx(), // TSX
-                0x8A => self.txa(), // TXA
-                0x9A => self.txs(), // TXS
-                0x98 => self.tya(), // TYA
-
-                0xD8 => self.cld(), // CLD
-                0x58 => self.cli(), // CLI
-                0xB8 => self.clv(), // CLV
-                0x18 => self.clc(), // CLC
-                0x38 => self.sec(), // SEC
-                0x78 => self.sei(), // SEI
-                0xF8 => self.sed(), // SED
-
-                0xD0 => self.bne(opcode), // BNE
-                0x70 => self.bvs(opcode), // BVE
-                0x50 => self.bvc(opcode), // BVC
-                0x30 => self.bmi(opcode), // BMI
-                0xF0 => self.beq(opcode), // BEQ
-                0xB0 => self.bcs(opcode), // BCS
-                0x90 => self.bcc(opcode), // BCC
-                0x10 => self.bpl(opcode), // BPL
-
-                0xE8 => self.inx(), // INX
-                0xC8 => self.iny(), // INY
-
-                0xCA => self.dex(), // DEX
-                0x88 => self.dey(), // DEY
-
-                0x48 => self.pha(), // PHA
-                0x68 => self.pla(), // PLA
-                0x08 => self.php(), // PHP
-                0x28 => self.plp(), // PLP
-
-                0x24 => self.bit(opcode), // BIT
-
-                0xA9 | 0xA5 | 0xB5 | 0xAD | 0xBD | 0xB9 | 0xA1 | 0xB1 => {
-                    self.lda(opcode); // LDA
-                }
-                0xA2 | 0xA6 | 0xB6 | 0xAE | 0xBE => {
-                    self.ldx(opcode); // LDX
-                }
-                0xA0 | 0xA4 | 0xB4 | 0xAC | 0xBC => {
-                    self.ldy(opcode); // LDY
-                }
-                0x85 | 0x95 | 0x8D | 0x9D | 0x99 | 0x81 | 0x91 => {
-                    self.sta(opcode); // STA
-                }
-                0x86 | 0x96 | 0x8e => {
-                    self.stx(opcode); // STX
-                }
-                0x84 | 0x94 | 0x8c => {
-                    self.sty(opcode); // STY
-                }
-                0x0A | 0x06 | 0x16 | 0x0E | 0x1E => {
-                    self.asl(opcode); // ASL
-                }
-                0x4A | 0x46 | 0x56 | 0x4E | 0x5E => {
-                    self.lsr(opcode); // LSR
-                }
-                0x2A | 0x26 | 0x36 | 0x2E | 0x3E => {
-                    self.rol(opcode); // ROL
-                }
-                0x6A | 0x66 | 0x76 | 0x6E | 0x73 => {
-                    self.ror(opcode); // ROR
-                }
-                0xE6 | 0xF6 | 0xEE | 0xFE => {
-                    self.inc(opcode); // INC
-                }
-                0xC6 | 0xD6 | 0xCE | 0xDE => {
-                    self.dec(opcode); // DEC
-                }
-                0xC9 | 0xC5 | 0xD5 | 0xCD | 0xDD | 0xD9 | 0xC1 | 0xD1 => {
-                    self.cmp(opcode); // CMP
-                }
-                0xE0 | 0xE4 | 0xEC => {
-                    self.cpx(opcode); // CPX
-                }
-                0xC0 | 0xC4 | 0xCC => {
-                    self.cpy(opcode); // CPY
-                }
-                0x69 | 0x65 | 0x75 | 0x6D | 0x7D | 0x79 | 0x61 | 0x71 => {
-                    self.adc(opcode); // ADC
-                }
-                0xE9 | 0xE5 | 0xF5 | 0xED | 0xFD | 0xF9 | 0xE1 | 0xF1 => {
-                    self.sbc(opcode); // SBC
-                }
-                0x29 | 0x25 | 0x35 | 0x2D | 0x3D | 0x39 | 0x21 | 0x31 => {
-                    self.and(opcode); // AND
-                }
-                0x49 | 0x45 | 0x55 | 0x4D | 0x5D | 0x59 | 0x41 | 0x51 => {
-                    self.eor(opcode); // EOR
-                }
-                0x09 | 0x05 | 0x15 | 0x0D | 0x1D | 0x19 | 0x01 | 0x11 => {
-                    self.ora(opcode); // ORA
-                }
-
-                // TODO: Implement unofficial 6502 opcodes
-                _ => todo!(),
-            }
-
-            // Tick the bus for opcode cycles. Add any extra cycles from boundary_crosses and other special cases
-            let cycle_count = opcode.cycles + self.extra_cycles;
-            self.bus.tick(cycle_count as usize);
-
-            // If the opcode didn't move PC by some call/ret/branch, then
-            // we step it forward by the size of the opcode - 1
-            // since we've already stepped it forward one byte when reading it
-            if curr_program_counter == self.program_counter {
-                self.program_counter += (opcode.size - 1) as u16;
-            }
+        // If the opcode didn't move PC by some call/ret/branch, then
+        // we step it forward by the size of the opcode - 1
+        // since we've already stepped it forward one byte when reading it
+        if curr_program_counter == self.program_counter {
+            self.program_counter += (opcode.size - 1) as u16;
         }
     }
 

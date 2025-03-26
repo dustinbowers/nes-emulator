@@ -1,14 +1,15 @@
+use std::marker::PhantomData;
 use crate::memory::heap_memory::HeapMemory;
 use crate::memory::memory_trait::MemoryTrait;
 
 const ROM_SIZE: usize = 1 << 16;
 pub struct Bus {
-    memory: HeapMemory<u8>,
-    pub(crate) cycles: usize,
+    pub memory: HeapMemory<u8>,
+    pub cycles: usize,
 }
 
 impl Bus {
-    pub fn new() -> Self {
+    pub fn new() -> Bus {
         Self {
             memory: HeapMemory::new(ROM_SIZE, 0u8),
             cycles: 0,
@@ -20,10 +21,15 @@ impl Bus {
     }
 
     pub fn fetch_byte(&mut self, address: u16) -> u8 {
+        // TODO: impose correct memory mapping / mirroring for NES
         *self.memory.read(address as usize)
     }
 
     pub fn fetch_bytes(&mut self, address: u16, size: u8) -> &[u8] {
+        self.memory.read_n(address as usize, size as usize)
+    }
+
+    pub fn fetch_bytes_raw(&mut self, address: u16, size: u16) -> &[u8] {
         self.memory.read_n(address as usize, size as usize)
     }
 
