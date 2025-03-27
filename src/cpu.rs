@@ -486,7 +486,8 @@ impl CPU {
 
     fn add_to_register_a(&mut self, value: u8) {
         let curr_carry = self.status.contains(Flags::CARRY) as u8;
-        let result = self.register_a.wrapping_add(value.wrapping_add(curr_carry));
+        let sum = self.register_a as u16 + value as u16 + curr_carry as u16;
+        let result = sum as u8;
 
         // Method: OVERFLOW if the sign of the inputs are the same,
         //         and do not match the sign of the result
@@ -496,14 +497,12 @@ impl CPU {
         // Boolean logic: (!((register_a ^ value) & 0x80) && ((register_a ^ result) & 0x80))
         // See: https://forums.nesdev.org/viewtopic.php?t=6331
         let signed_overflow =
-            !((self.register_a ^ value) & 0x80 != 0) && ((self.register_a ^ result) & 0x80 != 0);
+            ((self.register_a ^ result) & 0x80 != 0) && ((self.register_a ^ value) & 0x80 == 0);
+
         self.status.set(Flags::OVERFLOW, signed_overflow);
-
-        // TODO: Rewrite carry detection more elegantly
-        let sum_u16 = self.register_a as u16 + value as u16;
-        self.status.set(Flags::CARRY, sum_u16 & 0xFF00 != 0);
-
-        self.status.set(Flags::NEGATIVE, result & 0b1000_0000 != 0);
+        self.status.set(Flags::NEGATIVE, result & 0x80 != 0);
+        self.status.set(Flags::ZERO, result == 0);
+        self.status.set(Flags::CARRY, sum > 0xFF);
         self.register_a = result;
     }
 
