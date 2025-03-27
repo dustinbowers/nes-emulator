@@ -213,7 +213,7 @@ impl CPU {
             0x08 => self.php(), // PHP
             0x28 => self.plp(), // PLP
 
-            0x24 => self.bit(opcode), // BIT
+            0x24 | 0x2C => self.bit(opcode), // BIT
 
             0xA9 | 0xA5 | 0xB5 | 0xAD | 0xBD | 0xB9 | 0xA1 | 0xB1 => {
                 self.lda(opcode); // LDA
@@ -279,13 +279,6 @@ impl CPU {
             /////////////////////////
             /// Unofficial Opcodes
             /////////////////////////
-            0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 | 0x04 | 0x44 | 0x64 | 0x14 | 0x34 | 0x54 | 0x74
-            | 0xD4 | 0xF4 | 0x0C | 0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC | 0x02 | 0x12 | 0x22
-            | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2 | 0xF2 | 0x1A | 0x3A | 0x5A
-            | 0x7A | 0xDA | 0xFA => {
-                // Various single and multiple-byte NOPs
-            }
-
             0xC7 | 0xD7 | 0xCF | 0xDF | 0xDB | 0xD3 | 0xC3 => {
                 // DCP => DEC oper + CMP oper
                 self.dec(opcode);
@@ -330,14 +323,13 @@ impl CPU {
                 self.sbx(opcode);
             }
             0x6B => {
-                todo!();
+                self.arr(opcode);
             }
             0xEB => {
                 // USBC (SBC) => SBC oper + NOP
                 self.sbc(opcode);
-                // NOP
             }
-            0x0B => {
+            0x0B | 0x2B => {
                 // ANC => A AND oper, bit(7) -> C
                 self.anc(opcode);
             }
@@ -346,8 +338,35 @@ impl CPU {
                 self.and(opcode);
                 self.lsr(opcode);
             }
+            0xBB => {
+                // LAS - M AND SP -> A, X, SP
+                self.las(opcode);
+            }
+            0x02 | 0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2 | 0xF2 => {
+                // JAM - These instructions freeze the CPU
+                panic!(
+                    "{}",
+                    &format!("JAM instruction 0x{:02X} freezes CPU!", opcode.value)
+                )
+            }
+            0x8B | 0xAB | 0x9F | 0x93 | 0x9E | 0x9C | 0x9B => {
+                // Unstable and highly-unstable opcodes
+                panic!(
+                    "{}",
+                    &format!(
+                        "Instruction 0x{:02X} unimplemented. It's too unstable!",
+                        opcode.value
+                    )
+                )
+            }
 
-            _ => todo!(),
+            0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 | 0x04 | 0x44 | 0x64 | 0x14 | 0x34 | 0x54 | 0x74
+            | 0xD4 | 0xF4 | 0x0C | 0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC | 0x1A | 0x3A | 0x5A
+            | 0x7A | 0xDA | 0xFA => {
+                // Various single and multiple-byte NOPs
+            }
+
+            _ => {}
         }
 
         // Tick the bus for opcode cycles. Add any extra cycles from boundary_crosses and other special cases
@@ -932,6 +951,44 @@ impl CPU {
         self.set_register_a(self.register_a & value);
         self.status
             .set(Flags::CARRY, self.register_a & 0b0100_0000 != 0);
+    }
+
+    fn arr(&mut self, opcode: &opcodes::Opcode) {
+        // ARR => AND + ROR with special flag behavior
+        let (address, _) = self.get_parameter_address(&opcode.mode);
+        let value = self.fetch_byte(address);
+        self.register_a &= value;
+
+        // Perform ROR (Rotate Right) with Carry
+        let carry = self.status.contains(Flags::CARRY) as u8;
+        let result = (self.register_a >> 1) | (carry << 7);
+        self.register_a = result;
+
+        // Set Zero and Negative Flags
+        self.update_zero_and_negative_flags(result);
+
+        // Set Carry flag based on bit 6
+        self.status.set(Flags::CARRY, result & 0b0100_0000 != 0);
+
+        // Set Overflow flag based on bits 6 and 5
+        let bit6 = result & 0b0100_0000 != 0;
+        let bit5 = result & 0b0010_0000 != 0;
+        self.status.set(Flags::OVERFLOW, bit6 ^ bit5);
+    }
+
+    fn las(&mut self, opcode: &opcodes::Opcode) {
+        // LAS => AND with SP, store in A, X, SP
+        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
+        let value = self.fetch_byte(address);
+
+        // Perform AND operation with the stack pointer
+        let result = value & self.stack_pointer;
+        self.register_a = result;
+        self.register_x = result;
+        self.stack_pointer = result;
+
+        self.update_zero_and_negative_flags(result);
+        self.extra_cycles += boundary_crossed as u8;
     }
 }
 

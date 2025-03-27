@@ -225,7 +225,7 @@ const OPCODES: &[Opcode] = &[
 
     // Bit Test
     Opcode::new(0x24, "BIT", 2, 3, AddressingMode::ZeroPage),
-    Opcode::new(0x2c, "BIT", 3, 4, AddressingMode::Absolute),
+    Opcode::new(0x2C, "BIT", 3, 4, AddressingMode::Absolute),
 
 
     /////////////////////////
@@ -342,7 +342,6 @@ const OPCODES: &[Opcode] = &[
     Opcode::new(0x8F, "*SAX", 3, 4, AddressingMode::Absolute),
     Opcode::new(0x83, "*SAX", 2, 6, AddressingMode::IndirectX),
 
-
     // SBX (AXS, SAX) => CMP and DEX at once, sets flags like CMP
     Opcode::new(0xCB, "*SBX", 2,2, AddressingMode::Immediate),
 
@@ -358,6 +357,11 @@ const OPCODES: &[Opcode] = &[
 
     // ALR => AND oper + LSR
     Opcode::new(0x4B, "*ALR", 2,2, AddressingMode::Immediate),
+
+    // LAS => AND with SP, store in A, X, SP 
+    // NOTE: Docs say this is a 3-byte instruction, but 10,000 SingleTests only pass 
+    // when size is set to 2 :thinking_face:
+    Opcode::new(0x4B, "*LAS", 2,4, AddressingMode::Immediate), // cycles +1 if page page crossed
 
 ];
 
