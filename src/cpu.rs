@@ -446,7 +446,7 @@ impl CPU {
                 let offset = self.fetch_byte(self.program_counter) as i8; // sign-extend u8 to i8
                 let base_pc = self.program_counter.wrapping_add(1); // the relative address is based on a PC /after/ the current opcode
                 let target_address = base_pc.wrapping_add_signed(offset as i16);
-                let boundary_crossed = is_boundary_crossed(self.program_counter, target_address); // TODO: this might not be right...
+                let boundary_crossed = is_boundary_crossed(base_pc, target_address);
                 (target_address, boundary_crossed)
             }
             _ => unimplemented!(),
@@ -539,12 +539,11 @@ impl CPU {
 
     fn branch(&mut self, opcode: &opcodes::Opcode, condition: bool) {
         let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let mut cycles = boundary_crossed as u8;
+        let cycles = boundary_crossed as u8;
         if condition {
             self.set_program_counter(address);
-            cycles += 1;
+            self.extra_cycles = self.extra_cycles + cycles + 1;
         }
-        self.extra_cycles += cycles;
     }
 
     // Opcodes

@@ -123,10 +123,12 @@ fn read_opcode_tests(
 }
 
 fn run_opcode_test(test: &OpcodeTest) {
+    // Create CPU
     let bus = Bus::new();
     let mut cpu = CPU::new(bus);
     cpu.reset();
 
+    // Set initial state of CPU and memory
     let start = &test.initial_state;
     cpu.program_counter = start.pc;
     cpu.stack_pointer = start.s;
@@ -140,8 +142,10 @@ fn run_opcode_test(test: &OpcodeTest) {
         println!("\t${:04X} = ${:02X} (0b{:08b})", *address, *value, *value);
     }
 
+    // Single-step
     cpu.tick();
 
+    // Confirm final state is correct
     let end = &test.final_state;
     let expected_cycles = test.cycles.len();
     assert_eq!(
