@@ -110,11 +110,6 @@ async fn run_snake_game() {
         for (i, c) in output.iter().enumerate() {
             let row = i / 32;
             let col = i % 32;
-            // let color = if *c > 0 {
-            //     color_u8!(255, 255, 255, 255)
-            // } else {
-            //     color_u8!(0, 0, 0, 255)
-            // };
             let color = color_map.get_color(*c as usize);
 
             draw_rectangle(

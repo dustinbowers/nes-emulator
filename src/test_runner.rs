@@ -143,6 +143,7 @@ fn run_opcode_test(test: &OpcodeTest) {
     cpu.tick();
 
     let end = &test.final_state;
+    let expected_cycles = test.cycles.len();
     assert_eq!(
         cpu.program_counter,
         end.pc,
@@ -201,4 +202,13 @@ fn run_opcode_test(test: &OpcodeTest) {
     for (address, value) in end.ram.iter() {
         assert_eq!(cpu.fetch_byte(*address), *value);
     }
+    assert_eq!(
+        cpu.bus.cycles,
+        expected_cycles,
+        "{}",
+        format!(
+            "cycle count mismatch - Got: {} Want: {}",
+            cpu.bus.cycles, expected_cycles
+        )
+    );
 }
