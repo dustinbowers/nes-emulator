@@ -279,6 +279,9 @@ impl CPU {
             /////////////////////////
             /// Unofficial Opcodes
             /////////////////////////
+
+            // TODO: Fix unofficial opcode cycle accuracy (page crosses are probably double-counted)
+
             0xC7 | 0xD7 | 0xCF | 0xDF | 0xDB | 0xD3 | 0xC3 => {
                 // DCP => DEC oper + CMP oper
                 self.dec(opcode);
@@ -323,6 +326,7 @@ impl CPU {
                 self.sbx(opcode);
             }
             0x6B => {
+                // ARR => AND oper + ROR (Plus some wonky flag manipulation)
                 self.arr(opcode);
             }
             0xEB => {
@@ -350,7 +354,7 @@ impl CPU {
                 )
             }
             0x8B | 0xAB | 0x9F | 0x93 | 0x9E | 0x9C | 0x9B => {
-                // Unstable and highly-unstable opcodes
+                // Unstable and highly-unstable opcodes (Purposely unimplemented)
                 panic!(
                     "{}",
                     &format!(
@@ -373,9 +377,8 @@ impl CPU {
         let cycle_count = opcode.cycles + self.extra_cycles;
         self.bus.tick(cycle_count as usize);
 
-        // If the opcode didn't move PC by some call/ret/branch, then
-        // we step it forward by the size of the opcode - 1
-        // since we've already stepped it forward one byte when reading it
+
+        // Advance PC normally if an opcode didn't modify it
         if !self.skip_pc_advance {
             self.program_counter = self.program_counter.wrapping_add((opcode.size - 1) as u16);
         }
@@ -446,7 +449,7 @@ impl CPU {
                 let offset = self.fetch_byte(self.program_counter) as i8; // sign-extend u8 to i8
                 let base_pc = self.program_counter.wrapping_add(1); // the relative address is based on a PC /after/ the current opcode
                 let target_address = base_pc.wrapping_add_signed(offset as i16);
-                let boundary_crossed = is_boundary_crossed(self.program_counter, target_address); // TODO: this might not be right...
+                let boundary_crossed = is_boundary_crossed(base_pc, target_address);
                 (target_address, boundary_crossed)
             }
             _ => unimplemented!(),
@@ -539,12 +542,11 @@ impl CPU {
 
     fn branch(&mut self, opcode: &opcodes::Opcode, condition: bool) {
         let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let mut cycles = boundary_crossed as u8;
+        let cycles = boundary_crossed as u8;
         if condition {
             self.set_program_counter(address);
-            cycles += 1;
+            self.extra_cycles = self.extra_cycles + cycles + 1;
         }
-        self.extra_cycles += cycles;
     }
 
     // Opcodes
