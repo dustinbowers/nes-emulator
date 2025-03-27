@@ -2,8 +2,6 @@ pub mod color_map;
 
 use crate::consts::*;
 use crate::display::color_map::ColorMap;
-use macroquad::color::Color;
-use macroquad::color_u8;
 use macroquad::prelude::draw_rectangle;
 
 pub type Screen = Vec<Vec<u8>>;

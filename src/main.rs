@@ -11,7 +11,7 @@ use std::ops::Rem;
 use futures::executor;
 use macroquad::prelude::*;
 // use rand::Rng;
-use crate::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
+use crate::consts::{PIXEL_HEIGHT, PIXEL_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH};
 use crate::display::color_map::ColorMap;
 use crate::display::draw_screen;
 use bus::Bus;
@@ -58,34 +58,78 @@ async fn run_snake_game() {
         0x60, 0xa2, 0x00, 0xea, 0xea, 0xca, 0xd0, 0xfb, 0x60,
     ];
     // Create the Bus
-    let bus = Bus::new();
+    let mut bus = Bus::new();
 
     // Create a CPU
     let mut cpu = CPU::new(bus);
 
-    let mut screen_state = [0u8; 32 * 32];
-
     cpu.reset();
     cpu.program_counter = 0x0600;
     cpu.load_program_at(program, 0x0600);
+
+    let color_map = ColorMap::new();
+
     loop {
-        // TODO: handle input
+        let key_map: &[(Vec<KeyCode>, u8)] = &[
+            (vec![KeyCode::W], 0x77),
+            (vec![KeyCode::A], 0x61),
+            (vec![KeyCode::S], 0x73),
+            (vec![KeyCode::D], 0x64),
+        ];
+
+        // Handle user input
+        let keys_pressed = get_keys_down();
+        for (keys, v) in key_map.iter() {
+            let mut pressed = false;
+            if keys_pressed.contains(&KeyCode::Space) {
+                // reset
+                bus = Bus::new();
+                cpu = CPU::new(bus);
+                cpu.load_program_at(program, 0x0600);
+                cpu.program_counter = 0x0600;
+                cpu.load_program_at(program, 0x0600);
+            }
+            for k in keys.iter() {
+                if keys_pressed.contains(k) {
+                    pressed = true;
+                }
+            }
+            if pressed {
+                cpu.store_byte(0xFF, *v);
+            }
+        }
+
         cpu.store_byte(0xFE, rand::gen_range(1, 16));
 
-        cpu.tick();
+        for i in 1..150 {
+            cpu.tick();
+        }
 
         clear_background(BLACK);
         let output = cpu.fetch_bytes_raw(0x0200, 0x0400);
         for (i, c) in output.iter().enumerate() {
             let row = i / 32;
             let col = i % 32;
-            let color = if *c > 0 {
-                color_u8!(255, 255, 255, 255)
-            } else {
-                color_u8!(0, 0, 0, 255)
-            };
-            draw_rectangle(col as f32 * 10.0, row as f32 * 10.0, 10.0, 10.0, color);
+            // let color = if *c > 0 {
+            //     color_u8!(255, 255, 255, 255)
+            // } else {
+            //     color_u8!(0, 0, 0, 255)
+            // };
+            let color = color_map.get_color(*c as usize);
+
+            draw_rectangle(
+                col as f32 * PIXEL_WIDTH,
+                row as f32 * PIXEL_HEIGHT,
+                PIXEL_WIDTH,
+                PIXEL_HEIGHT,
+                *color,
+            );
         }
+        let status_str = format!(
+            "PC: ${:04X} SP: ${:02X} A:${:02X} X:${:02X} Y:${:02X}",
+            cpu.program_counter, cpu.stack_pointer, cpu.register_a, cpu.register_x, cpu.register_y
+        );
+        draw_text(&status_str, 5.0, 24.0, 18.0, Color::new(1.0, 0.0, 0.0, 1.0));
 
         next_frame().await;
     }
