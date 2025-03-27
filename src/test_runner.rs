@@ -1,3 +1,8 @@
+/*
+   Test runner is meant to run nes6502 single-step opcode tests from
+   https://github.com/SingleStepTests/65x02/tree/main/nes6502
+*/
+
 pub mod bus;
 pub mod cpu;
 pub mod memory;
@@ -132,18 +137,67 @@ fn run_opcode_test(test: &OpcodeTest) {
     println!("RAM data:");
     for (address, value) in start.ram.iter() {
         cpu.store_byte(*address, *value);
-        println!("\t${:04X} = ${:02X}", *address, *value);
+        println!("\t${:04X} = ${:02X} (0b{:08b})", *address, *value, *value);
     }
 
     cpu.tick();
 
     let end = &test.final_state;
-    assert_eq!(cpu.program_counter, end.pc, "program_counter mismatch");
-    assert_eq!(cpu.stack_pointer, end.s, "stack_pointer mismatch");
-    assert_eq!(cpu.register_a, end.a, "register_a mismatch");
-    assert_eq!(cpu.register_x, end.x, "register_x mismatch");
-    assert_eq!(cpu.register_y, end.y, "register_y mismatch");
-    assert_eq!(cpu.status.bits(), end.p, "status flag mismatch");
+    assert_eq!(
+        cpu.program_counter,
+        end.pc,
+        "{}",
+        format!(
+            "program_counter mismatch - Got: ${:02X} Want: ${:02X}",
+            cpu.program_counter, end.pc
+        )
+    );
+    assert_eq!(
+        cpu.stack_pointer,
+        end.s,
+        "{}",
+        format!(
+            "stack_pointer mismatch - Got: ${:02X} Want: ${:02X}",
+            cpu.stack_pointer, end.s
+        )
+    );
+    assert_eq!(
+        cpu.register_a,
+        end.a,
+        "{}",
+        format!(
+            "register_a mismatch - Got: ${:02X} Want: ${:02X}",
+            cpu.register_a, end.a
+        )
+    );
+    assert_eq!(
+        cpu.register_x,
+        end.x,
+        "{}",
+        format!(
+            "register_x mismatch - Got: ${:02X} Want: ${:02X}",
+            cpu.register_x, end.x
+        )
+    );
+    assert_eq!(
+        cpu.register_y,
+        end.y,
+        "{}",
+        format!(
+            "register_y mismatch - Got: ${:02X} Want: ${:02X}",
+            cpu.register_y, end.y
+        )
+    );
+    assert_eq!(
+        cpu.status.bits(),
+        end.p,
+        "{}",
+        format!(
+            "status flag mismatch.\n\tGot:  {:08b}\n\tWant: {:08b}",
+            cpu.status.bits(),
+            end.p
+        )
+    );
     for (address, value) in end.ram.iter() {
         assert_eq!(cpu.fetch_byte(*address), *value);
     }

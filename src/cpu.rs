@@ -62,6 +62,7 @@ pub struct CPU {
     pub program_counter: u16,
 
     extra_cycles: u8,
+    skip_pc_advance: bool,
 }
 
 impl CPU {
@@ -75,6 +76,7 @@ impl CPU {
             status: Flags::from_bits_truncate(0b0010_0010),
             program_counter: CPU_PC_RESET,
             extra_cycles: 0,
+            skip_pc_advance: false,
         }
     }
 
@@ -86,6 +88,7 @@ impl CPU {
         self.program_counter = CPU_PC_RESET;
         self.status = Flags::from_bits_truncate(0b0010_0010);
         self.extra_cycles = 0;
+        self.skip_pc_advance = false;
     }
 
     pub fn load(&mut self, program: &[u8]) {
@@ -107,7 +110,7 @@ impl CPU {
 
     pub fn fetch_u16(&mut self, address: u16) -> u16 {
         let lo = self.bus.fetch_byte(address) as u16;
-        let hi = self.bus.fetch_byte(address + 1) as u16;
+        let hi = self.bus.fetch_byte(address.wrapping_add(1)) as u16;
         hi << 8 | lo
     }
 
@@ -137,6 +140,7 @@ impl CPU {
         let ref opcodes: HashMap<u8, &'static opcodes::Opcode> = *opcodes::OPCODES_MAP;
 
         self.extra_cycles = 0;
+        self.skip_pc_advance = false;
         let code = self.fetch_byte(self.program_counter);
         let opcode = *opcodes
             .get(&code)
@@ -160,11 +164,9 @@ impl CPU {
                 self.bus.fetch_byte(self.program_counter),
                 opcode.name,
                 operand_bytes
-                // self.bus.fetch_bytes(self.program_counter, opcode.size - 1)
             )
         }
         self.program_counter = self.program_counter.wrapping_add(1);
-        let curr_program_counter = self.program_counter;
 
         match code {
             0x00 => return (1, 1, true), // BRK
@@ -277,8 +279,6 @@ impl CPU {
             /////////////////////////
             /// Unofficial Opcodes
             /////////////////////////
-
-            // TODO: Finish implementing unofficial 6502 opcodes
             0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 | 0x04 | 0x44 | 0x64 | 0x14 | 0x34 | 0x54 | 0x74
             | 0xD4 | 0xF4 | 0x0C | 0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC | 0x02 | 0x12 | 0x22
             | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2 | 0xF2 | 0x1A | 0x3A | 0x5A
@@ -357,7 +357,7 @@ impl CPU {
         // If the opcode didn't move PC by some call/ret/branch, then
         // we step it forward by the size of the opcode - 1
         // since we've already stepped it forward one byte when reading it
-        if curr_program_counter == self.program_counter {
+        if !self.skip_pc_advance {
             self.program_counter = self.program_counter.wrapping_add((opcode.size - 1) as u16);
         }
         (cycle_count, opcode.size, false)
@@ -423,17 +423,14 @@ impl CPU {
                 (address, false)
             }
             AddressingMode::Relative => {
-                let base = self.fetch_byte(self.program_counter) as u16;
-                let address = if base & 0b1000_0000 == 0 {
-                    // Positive signed offset
-                    self.program_counter.wrapping_add(base & 0b0111_1111)
-                } else {
-                    // Negative signed offset
-                    self.program_counter.wrapping_sub(base & 0b0111_1111)
-                };
-                (address, is_boundary_crossed(self.program_counter, address))
+                // Note: Branch opcodes exclusively use this address mode
+                let offset = self.fetch_byte(self.program_counter) as i8; // sign-extend u8 to i8
+                let base_pc = self.program_counter.wrapping_add(1); // the relative address is based on a PC /after/ the current opcode
+                let target_address = base_pc.wrapping_add_signed(offset as i16);
+                let boundary_crossed = is_boundary_crossed(base_pc, target_address); // TODO: this might not be right...
+                (target_address, boundary_crossed)
             }
-            _ => unimplemented!("Unimplemented addressing mode: {:#?}", mode),
+            _ => unimplemented!(),
         }
     }
 
@@ -450,6 +447,11 @@ impl CPU {
     fn set_register_y(&mut self, value: u8) {
         self.register_y = value;
         self.update_zero_and_negative_flags(value);
+    }
+
+    fn set_program_counter(&mut self, address: u16) {
+        self.program_counter = address;
+        self.skip_pc_advance = true;
     }
 
     fn stack_push(&mut self, value: u8) {
@@ -521,7 +523,7 @@ impl CPU {
         let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
         let mut cycles = boundary_crossed as u8;
         if condition {
-            self.program_counter = address;
+            self.set_program_counter(address);
             cycles += 1;
         }
         self.extra_cycles += cycles;
@@ -823,7 +825,7 @@ impl CPU {
 
     fn jmp(&mut self, opcode: &opcodes::Opcode) {
         let (address, _) = self.get_parameter_address(&opcode.mode);
-        self.program_counter = address;
+        self.set_program_counter(address);
     }
 
     fn jsr(&mut self, opcode: &opcodes::Opcode) {
@@ -831,13 +833,14 @@ impl CPU {
         let (jump_address, _) = self.get_parameter_address(&opcode.mode);
         let return_address = self.program_counter.wrapping_add(1);
         self.stack_push_u16(return_address);
-        self.program_counter = jump_address;
+        self.set_program_counter(jump_address);
     }
 
     fn rts(&mut self) {
         // Return from Subroutine
         let return_address_minus_one = self.stack_pop_u16();
-        self.program_counter = return_address_minus_one.wrapping_add(1);
+        let address = return_address_minus_one.wrapping_add(1);
+        self.set_program_counter(address);
     }
 
     fn rti(&mut self) {
@@ -845,7 +848,9 @@ impl CPU {
         // NOTE: Note that unlike RTS, the return address on the stack is the actual address rather than the address-1
         self.plp(); // pop stack into status flags
         let return_address = self.stack_pop_u16();
-        self.program_counter = return_address;
+        self.set_program_counter(return_address);
+        self.status.set(Flags::BREAK, false);
+        self.status.set(Flags::BREAK2, true);
     }
 
     fn bne(&mut self, opcode: &opcodes::Opcode) {
@@ -959,17 +964,19 @@ mod test {
     }
 
     #[async_std::test]
-    async fn test_0xaa_tax() {
+    async fn test_0xaa_tax_0xa8_tay() {
         let program = &[
             0xa9, // LDA immediate
             0x42, //    with $0F
             0xAA, // TAX
+            0xA8, // TAY
             0x00, // BRK
         ];
         let mut cpu = init_cpu();
         cpu.load(program);
         cpu.run().await;
         assert_eq!(cpu.register_x, 0x42);
+        assert_eq!(cpu.register_y, 0x42);
         assert_eq!(cpu.status.contains(Flags::ZERO), false);
         assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
     }
@@ -1188,5 +1195,112 @@ mod test {
         let (result, new_carry) = rotate_value_right(value, carry);
         assert_eq!(result, 240);
         assert_eq!(new_carry, false);
+    }
+
+    #[test]
+    fn test_rotate_value_left() {
+        let carry = true;
+        let value = 0xE0;
+        let (result, new_carry) = rotate_value_left(value, carry);
+        assert_eq!(result, 193);
+        assert_eq!(new_carry, true);
+    }
+
+    #[async_std::test]
+    async fn test_0x8a_txa() {
+        let program = &[
+            0x8A, // TXA
+            0x00, // BRK
+        ];
+        let mut cpu = init_cpu();
+        cpu.load(program);
+        cpu.set_register_x(0x42);
+        cpu.run().await;
+        assert_eq!(cpu.register_a, 0x42);
+    }
+
+    #[async_std::test]
+    async fn test_0x98_tya() {
+        let program = &[
+            0x98, // TYA
+            0x00, // BRK
+        ];
+        let mut cpu = init_cpu();
+        cpu.load(program);
+        cpu.set_register_y(0x88);
+        cpu.run().await;
+        assert_eq!(cpu.register_a, 0x88);
+    }
+
+    #[async_std::test]
+    async fn test_0xba_tsx() {
+        let program = &[
+            0xBA, // TSX
+            0x00, // BRK
+        ];
+        let mut cpu = init_cpu();
+        cpu.load(program);
+        cpu.stack_pointer = 0x37;
+        cpu.run().await;
+        assert_eq!(cpu.register_x, 0x37);
+    }
+
+    #[async_std::test]
+    async fn test_0x9a_txs() {
+        let program = &[
+            0x9A, // TXS
+            0x00, // BRK
+        ];
+        let mut cpu = init_cpu();
+        cpu.load(program);
+        cpu.register_x = 0x33;
+        cpu.run().await;
+        assert_eq!(cpu.stack_pointer, 0x33);
+    }
+
+    #[async_std::test]
+    async fn test_0xd0_bne_success() {
+        let program = &[
+            0xD0, // BNE
+            0x0F, //   to 0x0F
+            0x00, // BRK
+        ];
+        let mut cpu = init_cpu();
+        cpu.load(program);
+        cpu.status.set(Flags::ZERO, false);
+        cpu.run().await;
+        let want = 0x8012;
+        assert_eq!(
+            cpu.program_counter,
+            want,
+            "{}",
+            format!(
+                "program_counter mismatch - Got: ${:02X} Want: ${:02X}",
+                cpu.program_counter, want
+            )
+        );
+    }
+
+    #[async_std::test]
+    async fn test_0xd0_bne_failed() {
+        let program = &[
+            0xD0, // BNE
+            0x0F, //   to 0x0F
+            0x00, // BRK
+        ];
+        let mut cpu = init_cpu();
+        cpu.load(program);
+        cpu.status.set(Flags::ZERO, true);
+        cpu.run().await;
+        let want = 0x8003;
+        assert_eq!(
+            cpu.program_counter,
+            want,
+            "{}",
+            format!(
+                "program_counter mismatch - Got: ${:02X} Want: ${:02X}",
+                cpu.program_counter, want
+            )
+        );
     }
 }
