@@ -123,10 +123,12 @@ fn read_opcode_tests(
 }
 
 fn run_opcode_test(test: &OpcodeTest) {
+    // Create CPU
     let bus = Bus::new();
     let mut cpu = CPU::new(bus);
     cpu.reset();
 
+    // Set initial state of CPU and memory
     let start = &test.initial_state;
     cpu.program_counter = start.pc;
     cpu.stack_pointer = start.s;
@@ -140,9 +142,12 @@ fn run_opcode_test(test: &OpcodeTest) {
         println!("\t${:04X} = ${:02X} (0b{:08b})", *address, *value, *value);
     }
 
+    // Single-step
     cpu.tick();
 
+    // Confirm final state is correct
     let end = &test.final_state;
+    let expected_cycles = test.cycles.len();
     assert_eq!(
         cpu.program_counter,
         end.pc,
@@ -201,4 +206,13 @@ fn run_opcode_test(test: &OpcodeTest) {
     for (address, value) in end.ram.iter() {
         assert_eq!(cpu.fetch_byte(*address), *value);
     }
+    assert_eq!(
+        cpu.bus.cycles,
+        expected_cycles,
+        "{}",
+        format!(
+            "cycle count mismatch - Got: {} Want: {}",
+            cpu.bus.cycles, expected_cycles
+        )
+    );
 }

@@ -52,7 +52,7 @@ pub enum AddressingMode {
 }
 
 pub struct CPU {
-    bus: Bus,
+    pub bus: Bus,
 
     pub register_a: u8,
     pub register_x: u8,
@@ -446,7 +446,7 @@ impl CPU {
                 let offset = self.fetch_byte(self.program_counter) as i8; // sign-extend u8 to i8
                 let base_pc = self.program_counter.wrapping_add(1); // the relative address is based on a PC /after/ the current opcode
                 let target_address = base_pc.wrapping_add_signed(offset as i16);
-                let boundary_crossed = is_boundary_crossed(base_pc, target_address); // TODO: this might not be right...
+                let boundary_crossed = is_boundary_crossed(base_pc, target_address);
                 (target_address, boundary_crossed)
             }
             _ => unimplemented!(),
@@ -539,12 +539,11 @@ impl CPU {
 
     fn branch(&mut self, opcode: &opcodes::Opcode, condition: bool) {
         let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let mut cycles = boundary_crossed as u8;
+        let cycles = boundary_crossed as u8;
         if condition {
             self.set_program_counter(address);
-            cycles += 1;
+            self.extra_cycles = self.extra_cycles + cycles + 1;
         }
-        self.extra_cycles += cycles;
     }
 
     // Opcodes
@@ -913,11 +912,13 @@ impl CPU {
     fn bit(&mut self, opcode: &opcodes::Opcode) {
         // Bit Test
         let (address, _) = self.get_parameter_address(&opcode.mode);
-        let mut value = self.bus.fetch_byte(address);
-        value &= self.register_a;
-        self.status.set(Flags::ZERO, value == 0);
-        self.status.set(Flags::NEGATIVE, value & 1 << 7 != 0);
-        self.status.set(Flags::OVERFLOW, value & 1 << 6 != 0);
+        let value = self.bus.fetch_byte(address);
+        let result = value & self.register_a;
+        self.status.set(Flags::ZERO, result == 0);
+
+        // These flags are set based on bits from the original fetched data
+        self.status.set(Flags::NEGATIVE, value & (1 << 7) != 0);
+        self.status.set(Flags::OVERFLOW, value & (1 << 6) != 0);
     }
 
     /////////////////////////
