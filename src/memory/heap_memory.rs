@@ -1,7 +1,7 @@
 use super::memory_trait::MemoryTrait;
 
 pub struct HeapMemory<T: Sized + Copy> {
-    data: Vec<T>,
+    pub data: Vec<T>,
 }
 
 impl<T: Sized + Copy> MemoryTrait<T> for HeapMemory<T> {

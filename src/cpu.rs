@@ -1,7 +1,7 @@
+use crate::bus::BusMemory;
 use crate::{opcodes, Bus};
 use bitflags::bitflags;
 use std::collections::HashMap;
-use std::future::Future;
 
 const DEBUG: bool = false;
 const CPU_PC_RESET: u16 = 0x8000;
@@ -65,6 +65,17 @@ pub struct CPU {
     skip_pc_advance: bool,
 }
 
+impl BusMemory for CPU {
+    type DisableMirroring = bool; // unused in CPU
+
+    fn fetch_byte(&mut self, address: u16) -> u8 {
+        self.bus.fetch_byte(address)
+    }
+    fn store_byte(&mut self, address: u16, value: u8) {
+        self.bus.store_byte(address, value);
+    }
+}
+
 impl CPU {
     pub fn new(bus: Bus) -> CPU {
         CPU {
@@ -91,38 +102,11 @@ impl CPU {
         self.skip_pc_advance = false;
     }
 
-    pub fn load(&mut self, program: &[u8]) {
-        self.reset();
-        self.load_program_at(program, self.program_counter);
+    pub fn run(&mut self) {
+        self.run_with_callback(|_| {});
     }
 
-    pub fn load_program_at(&mut self, program: &[u8], address: u16) {
-        self.bus.store_bytes(address, program);
-    }
-
-    pub fn fetch_byte(&mut self, address: u16) -> u8 {
-        self.bus.fetch_byte(address)
-    }
-
-    pub fn fetch_bytes_raw(&mut self, address: u16, size: u16) -> &[u8] {
-        self.bus.fetch_bytes_raw(address, size)
-    }
-
-    pub fn fetch_u16(&mut self, address: u16) -> u16 {
-        let lo = self.bus.fetch_byte(address) as u16;
-        let hi = self.bus.fetch_byte(address.wrapping_add(1)) as u16;
-        hi << 8 | lo
-    }
-
-    pub fn store_byte(&mut self, address: u16, value: u8) {
-        self.bus.store_byte(address, value);
-    }
-
-    pub async fn run(&mut self) {
-        self.run_with_callback(|_| {}).await;
-    }
-
-    pub async fn run_with_callback<F>(&mut self, mut callback: F)
+    pub fn run_with_callback<F>(&mut self, mut callback: F)
     where
         F: FnMut(&mut CPU),
     {
@@ -281,7 +265,6 @@ impl CPU {
             /////////////////////////
 
             // TODO: Fix unofficial opcode cycle accuracy (page crosses are probably double-counted)
-
             0xC7 | 0xD7 | 0xCF | 0xDF | 0xDB | 0xD3 | 0xC3 => {
                 // DCP => DEC oper + CMP oper
                 self.dec(opcode);
@@ -377,7 +360,6 @@ impl CPU {
         let cycle_count = opcode.cycles + self.extra_cycles;
         self.bus.tick(cycle_count as usize);
 
-
         // Advance PC normally if an opcode didn't modify it
         if !self.skip_pc_advance {
             self.program_counter = self.program_counter.wrapping_add((opcode.size - 1) as u16);
@@ -461,12 +443,12 @@ impl CPU {
         self.update_zero_and_negative_flags(value);
     }
 
-    fn set_register_x(&mut self, value: u8) {
+    pub(crate) fn set_register_x(&mut self, value: u8) {
         self.register_x = value;
         self.update_zero_and_negative_flags(value);
     }
 
-    fn set_register_y(&mut self, value: u8) {
+    pub(crate) fn set_register_y(&mut self, value: u8) {
         self.register_y = value;
         self.update_zero_and_negative_flags(value);
     }
@@ -1000,367 +982,16 @@ fn is_boundary_crossed(addr1: u16, addr2: u16) -> bool {
     addr1 & 0xFF00 != addr2 & 0xFF00
 }
 
-fn rotate_value_left(value: u8, current_carry: bool) -> (u8, bool) {
+pub fn rotate_value_left(value: u8, current_carry: bool) -> (u8, bool) {
     let new_carry = value & 0b1000_0000 != 0;
     let mut shifted = value << 1;
     shifted |= current_carry as u8;
     (shifted, new_carry)
 }
 
-fn rotate_value_right(value: u8, current_carry: bool) -> (u8, bool) {
+pub fn rotate_value_right(value: u8, current_carry: bool) -> (u8, bool) {
     let new_carry = value & 0b0000_0001 != 0;
     let mut shifted = value >> 1;
     shifted |= (current_carry as u8) << 7;
     (shifted, new_carry)
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    fn init_cpu() -> CPU {
-        let bus = Bus::new();
-        CPU::new(bus)
-    }
-
-    #[async_std::test]
-    async fn test_0xaa_tax_0xa8_tay() {
-        let program = &[
-            0xa9, // LDA immediate
-            0x42, //    with $0F
-            0xAA, // TAX
-            0xA8, // TAY
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.run().await;
-        assert_eq!(cpu.register_x, 0x42);
-        assert_eq!(cpu.register_y, 0x42);
-        assert_eq!(cpu.status.contains(Flags::ZERO), false);
-        assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
-    }
-
-    #[async_std::test]
-    async fn test_0xa9_lda_immediate_load_data() {
-        let program = &[
-            0xa9, // LDA immediate
-            0x05, //    with $05
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.run().await;
-        assert_eq!(cpu.register_a, 0x05);
-        assert_eq!(cpu.status.contains(Flags::ZERO), false);
-        assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
-    }
-
-    #[async_std::test]
-    async fn test_0xa9_lda_zero_flag() {
-        let program = &[
-            0xa9, // LDA immediate
-            0x00, //    with $0
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.run().await;
-        assert_eq!(cpu.status.contains(Flags::ZERO), true);
-    }
-
-    #[async_std::test]
-    async fn test_0xa5_lda_zero_page_load_data() {
-        let program = &[
-            0xa5, // LDA ZeroPage
-            0x05, //    with $05
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.bus.store_byte(0x05, 0x42);
-        cpu.run().await;
-        assert_eq!(cpu.register_a, 0x42);
-        assert_eq!(cpu.status.contains(Flags::ZERO), false);
-        assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
-    }
-
-    #[async_std::test]
-    async fn test_0xa5_lda_zero_page_x_load_data() {
-        let program = &[
-            0xa9, // LDA immediate
-            0x0F, //    with $0F
-            0xAA, // TAX
-            0xB5, // LDA ZeroPageX
-            0x80, //    with $80        - X = $0F, loading A with data from $8F = 0x42
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.bus.store_byte(0x8F, 0x42);
-        cpu.run().await;
-        assert_eq!(cpu.register_a, 0x42);
-        assert_eq!(cpu.register_x, 0x0F);
-        assert_eq!(cpu.status.contains(Flags::ZERO), false);
-        assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
-    }
-
-    #[async_std::test]
-    async fn test_0xb5_lda_absolute_load_data() {
-        let program = &[
-            0xAD, // LDA absolute (5 cycles)
-            0xEF, //
-            0xBE, // Loading from little endian $EFBE which will actually be $BEEF
-            0xAA, // TAX (1 cycle)
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.bus.store_byte(0xBEEF, 0x42);
-        cpu.run().await;
-        assert_eq!(cpu.register_a, 0x42);
-        assert_eq!(cpu.register_x, 0x42);
-        assert_eq!(cpu.bus.cycles, 5 + 1);
-        assert_eq!(cpu.status.contains(Flags::ZERO), false);
-        assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
-    }
-
-    #[async_std::test]
-    async fn test_set_flags() {
-        let program = &[
-            0x38, // SEC
-            0x78, // SEI
-            0xF8, // SED
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.run().await;
-        assert_eq!(cpu.status.contains(Flags::CARRY), true);
-        assert_eq!(cpu.status.contains(Flags::INTERRUPT_DISABLE), true);
-        assert_eq!(cpu.status.contains(Flags::DECIMAL_MODE), true);
-    }
-
-    #[async_std::test]
-    async fn test_set_and_clear_flags() {
-        let program = &[
-            0x38, // SEC
-            0x78, // SEI
-            0xF8, // SED
-            0x18, // CLC
-            0x58, // CLI
-            0xD8, // CLD
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.run().await;
-        assert_eq!(cpu.status.contains(Flags::CARRY), false);
-        assert_eq!(cpu.status.contains(Flags::INTERRUPT_DISABLE), false);
-        assert_eq!(cpu.status.contains(Flags::DECIMAL_MODE), false);
-    }
-
-    #[async_std::test]
-    async fn test_adc_without_carry() {
-        let program = &[
-            0xA9, // LDA
-            0x10, //   with 0x10
-            0x69, // ADC
-            0x07, //   with 0x07
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.run().await;
-        assert_eq!(cpu.register_a, 0x17);
-        assert_eq!(cpu.status.contains(Flags::CARRY), false);
-        assert_eq!(cpu.status.contains(Flags::OVERFLOW), false);
-    }
-
-    #[async_std::test]
-    async fn test_adc_with_overflow() {
-        let program = &[
-            0xA9, // LDA
-            0x7F, //   with 0x7F
-            0x69, // ADC
-            0x0F, //   with 0x0F
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.run().await;
-        assert_eq!(cpu.status.contains(Flags::CARRY), false);
-        assert_eq!(cpu.status.contains(Flags::OVERFLOW), true);
-        assert_eq!(cpu.register_a, 0x8E);
-    }
-
-    #[async_std::test]
-    async fn test_adc_with_carry() {
-        let program = &[
-            0xA9, // LDA
-            0xFF, //   with 0xFF
-            0x69, // ADC
-            0x0F, //   with 0x01
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.run().await;
-        assert_eq!(cpu.status.contains(Flags::CARRY), true);
-        assert_eq!(cpu.status.contains(Flags::OVERFLOW), false);
-        assert_eq!(cpu.register_a, 0x0E);
-    }
-
-    #[async_std::test]
-    async fn test_sbc_without_borrow() {
-        let program = &[
-            0xA9, // LDA
-            0xFF, //   with 0xFF
-            0x38, // SEC
-            0xE9, // SBC
-            0x0F, //   with 0x0F
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.run().await;
-        // Note: In SBC, the "CARRY" flag becomes a "BORROW" flag which is complement
-        assert_eq!(cpu.status.contains(Flags::CARRY), true);
-        assert_eq!(cpu.status.contains(Flags::OVERFLOW), false);
-        assert_eq!(cpu.register_a, 0xF0);
-    }
-
-    #[async_std::test]
-    async fn test_sbc_with_borrow() {
-        let program = &[
-            0xA9, // LDA
-            0x00, //   with 0x00
-            0x38, // SEC -- Note: it's standard to SEC before any SBC (complement of carry acts as borrow flag)
-            0xE9, // SBC
-            0x01, //   with 0x01
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.run().await;
-        assert_eq!(cpu.status.contains(Flags::CARRY), false);
-        assert_eq!(cpu.status.contains(Flags::OVERFLOW), false);
-        assert_eq!(cpu.register_a, 0xFF);
-    }
-
-    #[test]
-    fn test_rotate_value_right() {
-        let carry = true;
-        let value = 0xE0;
-        let (result, new_carry) = rotate_value_right(value, carry);
-        assert_eq!(result, 240);
-        assert_eq!(new_carry, false);
-    }
-
-    #[test]
-    fn test_rotate_value_left() {
-        let carry = true;
-        let value = 0xE0;
-        let (result, new_carry) = rotate_value_left(value, carry);
-        assert_eq!(result, 193);
-        assert_eq!(new_carry, true);
-    }
-
-    #[async_std::test]
-    async fn test_0x8a_txa() {
-        let program = &[
-            0x8A, // TXA
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.set_register_x(0x42);
-        cpu.run().await;
-        assert_eq!(cpu.register_a, 0x42);
-    }
-
-    #[async_std::test]
-    async fn test_0x98_tya() {
-        let program = &[
-            0x98, // TYA
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.set_register_y(0x88);
-        cpu.run().await;
-        assert_eq!(cpu.register_a, 0x88);
-    }
-
-    #[async_std::test]
-    async fn test_0xba_tsx() {
-        let program = &[
-            0xBA, // TSX
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.stack_pointer = 0x37;
-        cpu.run().await;
-        assert_eq!(cpu.register_x, 0x37);
-    }
-
-    #[async_std::test]
-    async fn test_0x9a_txs() {
-        let program = &[
-            0x9A, // TXS
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.register_x = 0x33;
-        cpu.run().await;
-        assert_eq!(cpu.stack_pointer, 0x33);
-    }
-
-    #[async_std::test]
-    async fn test_0xd0_bne_success() {
-        let program = &[
-            0xD0, // BNE
-            0x0F, //   to 0x0F
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.status.set(Flags::ZERO, false);
-        cpu.run().await;
-        let want = 0x8012;
-        assert_eq!(
-            cpu.program_counter,
-            want,
-            "{}",
-            format!(
-                "program_counter mismatch - Got: ${:02X} Want: ${:02X}",
-                cpu.program_counter, want
-            )
-        );
-    }
-
-    #[async_std::test]
-    async fn test_0xd0_bne_failed() {
-        let program = &[
-            0xD0, // BNE
-            0x0F, //   to 0x0F
-            0x00, // BRK
-        ];
-        let mut cpu = init_cpu();
-        cpu.load(program);
-        cpu.status.set(Flags::ZERO, true);
-        cpu.run().await;
-        let want = 0x8003;
-        assert_eq!(
-            cpu.program_counter,
-            want,
-            "{}",
-            format!(
-                "program_counter mismatch - Got: ${:02X} Want: ${:02X}",
-                cpu.program_counter, want
-            )
-        );
-    }
 }

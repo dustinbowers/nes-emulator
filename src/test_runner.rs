@@ -7,9 +7,12 @@ pub mod bus;
 pub mod cpu;
 pub mod memory;
 pub mod opcodes;
+pub mod rom;
 
 use crate::bus::Bus;
+use crate::bus::BusMemory;
 use crate::cpu::{Flags, CPU};
+use crate::rom::Rom;
 use serde::Deserialize;
 use std::env;
 use std::fs;
@@ -124,7 +127,9 @@ fn read_opcode_tests(
 
 fn run_opcode_test(test: &OpcodeTest) {
     // Create CPU
-    let bus = Bus::new();
+    let rom = Rom::empty();
+    let mut bus = Bus::new(rom);
+    bus.enable_test_mode();
     let mut cpu = CPU::new(bus);
     cpu.reset();
 
