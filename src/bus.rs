@@ -6,11 +6,13 @@ use macroquad::telemetry::disable;
 const CPU_RAM_SIZE: usize = 1 << 11;
 const CPU_RAM_START: u16 = 0x0000;
 const CPU_RAM_END: u16 = 0x1FFF;
-const CPU_MIRROR_MASK: u16 = 0b0001_1111_1111_1111;
+const CPU_MIRROR_MASK: u16 = 0b0000_0111_1111_1111;
 
 const PPU_REGISTERS_START: u16 = 0x2000;
 const PPU_REGISTERS_END: u16 = 0x3FFF;
 const PPU_MIRROR_MASK: u16 = 0b0010_0000_0000_0111;
+const ROM_START: u16 = 0x8000;
+const ROM_END: u16 = 0xFFFF;
 
 pub struct Bus {
     pub cpu_ram: HeapMemory<u8>,
@@ -52,7 +54,13 @@ impl BusMemory for Bus {
                 let _mirrored_address = address & PPU_MIRROR_MASK;
                 todo!("PPU registers not available");
             }
-            _ => todo!(),
+            ROM_START ..= ROM_END => {
+                self.read_prg_rom(address)
+            }
+            _ => {
+                println!("Invalid fetch from ${:04X}", address);
+                0
+            }
         }
     }
     fn store_byte(&mut self, address: u16, value: u8) {
@@ -69,7 +77,12 @@ impl BusMemory for Bus {
                 let _mirrored_address = address & PPU_MIRROR_MASK;
                 todo!("PPU registers not available");
             }
-            _ => todo!(),
+            ROM_START ..= ROM_END => {
+                panic!("{}", format!("Attempted write to ROM! (${:04X})", address))
+            }
+            _ => {
+                println!("Invalid write to ${:04X}", address);
+            }
         }
     }
 }
@@ -109,6 +122,18 @@ impl Bus {
     pub fn store_byte_vec(&mut self, address: u16, values: Vec<u8>) {
         self.cpu_ram
             .write_n(address as usize, &values.into_boxed_slice())
+    }
+
+    fn read_prg_rom(&self, addr: u16) -> u8 {
+        let addr = addr - 0x8000;
+
+        // Calculate the effective address with mirroring if needed
+        let effective_addr = if self.rom.prg_rom.len() == 0x4000 && addr >= 0x4000 {
+            addr % 0x4000
+        } else {
+            addr
+        };
+        self.rom.prg_rom[effective_addr as usize]
     }
 }
 

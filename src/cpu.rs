@@ -102,22 +102,6 @@ impl CPU {
         self.skip_pc_advance = false;
     }
 
-    #[deprecated]
-    pub fn load(&mut self, program: &[u8]) {
-        self.reset();
-        self.load_program_at(program, self.program_counter);
-    }
-
-    #[deprecated]
-    pub fn load_program_at(&mut self, program: &[u8], address: u16) {
-        self.bus.store_bytes(address, program);
-    }
-
-    #[deprecated]
-    pub fn fetch_bytes_raw(&mut self, address: u16, size: u16) -> &[u8] {
-        self.bus.fetch_bytes_raw(address, size)
-    }
-
     pub fn run(&mut self) {
         self.run_with_callback(|_| {});
     }
