@@ -4,18 +4,21 @@ mod cpu;
 mod display;
 mod memory;
 mod opcodes;
-// mod test_runner;
 
-use std::ops::Rem;
-// use rand;
-use futures::executor;
-use macroquad::prelude::*;
-// use rand::Rng;
+#[cfg(test)]
+mod cpu_tests;
+mod rom;
+
+use crate::bus::BusMemory;
 use crate::consts::{PIXEL_HEIGHT, PIXEL_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH};
 use crate::display::color_map::ColorMap;
 use crate::display::draw_screen;
+use crate::rom::Rom;
 use bus::Bus;
 use cpu::CPU;
+use futures::executor;
+use macroquad::prelude::*;
+use std::ops::Rem;
 
 fn window_conf() -> Conf {
     Conf {
@@ -27,14 +30,13 @@ fn window_conf() -> Conf {
     }
 }
 
-// #[async_std::main]
 #[macroquad::main(window_conf)]
 async fn main() {
     run_snake_game().await;
 }
 
 async fn run_snake_game() {
-    let program = &[
+    let program: Vec<u8> = vec![
         0x20, 0x06, 0x06, 0x20, 0x38, 0x06, 0x20, 0x0d, 0x06, 0x20, 0x2a, 0x06, 0x60, 0xa9, 0x02,
         0x85, 0x02, 0xa9, 0x04, 0x85, 0x03, 0xa9, 0x11, 0x85, 0x10, 0xa9, 0x10, 0x85, 0x12, 0xa9,
         0x0f, 0x85, 0x14, 0xa9, 0x04, 0x85, 0x11, 0x85, 0x13, 0x85, 0x15, 0x60, 0xa5, 0xfe, 0x85,
@@ -57,15 +59,18 @@ async fn run_snake_game() {
         0x91, 0x00, 0x60, 0xa6, 0x03, 0xa9, 0x00, 0x81, 0x10, 0xa2, 0x00, 0xa9, 0x01, 0x81, 0x10,
         0x60, 0xa2, 0x00, 0xea, 0xea, 0xca, 0xd0, 0xfb, 0x60,
     ];
+    // Load ROM
+    let rom = Rom::new(&program).unwrap();
+
     // Create the Bus
-    let mut bus = Bus::new();
+    let mut bus = Bus::new(rom);
 
     // Create a CPU
     let mut cpu = CPU::new(bus);
 
     cpu.reset();
     cpu.program_counter = 0x0600;
-    cpu.load_program_at(program, 0x0600);
+    // cpu.load_program_at(program, 0x0600);
 
     let color_map = ColorMap::new();
 
@@ -81,14 +86,14 @@ async fn run_snake_game() {
         let keys_pressed = get_keys_down();
         for (keys, v) in key_map.iter() {
             let mut pressed = false;
-            if keys_pressed.contains(&KeyCode::Space) {
-                // reset
-                bus = Bus::new();
-                cpu = CPU::new(bus);
-                cpu.load_program_at(program, 0x0600);
-                cpu.program_counter = 0x0600;
-                cpu.load_program_at(program, 0x0600);
-            }
+            // if keys_pressed.contains(&KeyCode::Space) {
+            //     // reset
+            //     bus = Bus::new();
+            //     cpu = CPU::new(bus);
+            //     cpu.load_program_at(program, 0x0600);
+            //     cpu.program_counter = 0x0600;
+            //     cpu.load_program_at(program, 0x0600);
+            // }
             for k in keys.iter() {
                 if keys_pressed.contains(k) {
                     pressed = true;
