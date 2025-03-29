@@ -1,7 +1,8 @@
 use crate::bus::BusMemory;
-use crate::{opcodes, Bus};
+use crate::Bus;
 use bitflags::bitflags;
 use std::collections::HashMap;
+use crate::cpu::opcodes;
 
 const DEBUG: bool = false;
 const CPU_PC_RESET: u16 = 0x8000;
@@ -66,7 +67,7 @@ pub struct CPU {
 }
 
 impl BusMemory for CPU {
-    type DisableMirroring = bool; // unused in CPU
+    type DisableMirroring = bool; // only used in Bus for testing purposes
 
     fn fetch_byte(&mut self, address: u16) -> u8 {
         self.bus.fetch_byte(address)
@@ -107,8 +108,8 @@ impl CPU {
     }
 
     pub fn run_with_callback<F>(&mut self, mut callback: F)
-    where
-        F: FnMut(&mut CPU),
+        where
+            F: FnMut(&mut CPU),
     {
         loop {
             callback(self);

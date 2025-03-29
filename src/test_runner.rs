@@ -6,12 +6,10 @@
 pub mod bus;
 pub mod cpu;
 pub mod memory;
-pub mod opcodes;
 pub mod rom;
 
 use crate::bus::Bus;
 use crate::bus::BusMemory;
-use crate::cpu::{Flags, CPU};
 use crate::rom::Rom;
 use serde::Deserialize;
 use std::env;
@@ -19,6 +17,7 @@ use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process;
+use crate::cpu::processor::{CPU, Flags};
 
 #[derive(Debug, Deserialize)]
 struct OpcodeTest {

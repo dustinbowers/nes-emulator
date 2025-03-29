@@ -1,4 +1,4 @@
-use crate::cpu::AddressingMode;
+use crate::cpu::processor::AddressingMode;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 

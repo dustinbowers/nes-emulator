@@ -3,10 +3,7 @@ pub mod consts;
 mod cpu;
 mod display;
 mod memory;
-mod opcodes;
 
-#[cfg(test)]
-mod cpu_tests;
 mod rom;
 
 use crate::bus::BusMemory;
@@ -15,10 +12,10 @@ use crate::display::color_map::ColorMap;
 use crate::display::draw_screen;
 use crate::rom::Rom;
 use bus::Bus;
-use cpu::CPU;
 use futures::executor;
 use macroquad::prelude::*;
 use std::ops::Rem;
+use crate::cpu::processor::CPU;
 
 fn window_conf() -> Conf {
     Conf {

@@ -98,6 +98,6 @@ impl Rom {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_magic_bytes() {}
+    // TODO
+
 }
