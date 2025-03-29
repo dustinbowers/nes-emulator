@@ -2,7 +2,7 @@
 
 ***NOTE**: This is still very much a work in progress.*
 
-# TODO
+### TODO
 
 - [x] Implement 6502 CPU
 - [x] Create 6502 CPU test runner for single-step tests
@@ -11,7 +11,7 @@
 - [ ] Implement interrupt handling
 - [ ] Implement APU
 
-# Resources
+### Resources
 
 - 6502 opcode references:
   - https://www.nesdev.org/obelisk-6502-guide/reference.html
