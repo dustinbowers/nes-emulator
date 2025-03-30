@@ -38,9 +38,13 @@ impl ControlRegister {
 
     pub fn increment_ram_addr(&self) -> u8 {
         match self.contains(ControlRegister::VRAM_ADD_INCREMENT) {
-            true => { 32 }
-            false => { 1 }
+            true => 32,
+            false => 1,
         }
+    }
+
+    pub fn generate_vblank_nmi(&self) -> bool {
+        self.contains(Self::GENERATE_NMI)
     }
 
     pub fn update(&mut self, data: u8) {

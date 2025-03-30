@@ -1,19 +1,18 @@
-
 /* See: https://www.nesdev.org/wiki/PPU_registers#PPUSCROLL
-    1st write
-    7  bit  0
-    ---- ----
-    XXXX XXXX
-    |||| ||||
-    ++++-++++- X scroll bits 7-0 (bit 8 in PPUCTRL bit 0)
+   1st write
+   7  bit  0
+   ---- ----
+   XXXX XXXX
+   |||| ||||
+   ++++-++++- X scroll bits 7-0 (bit 8 in PPUCTRL bit 0)
 
-    2nd write
-    7  bit  0
-    ---- ----
-    YYYY YYYY
-    |||| ||||
-    ++++-++++- Y scroll bits 7-0 (bit 8 in PPUCTRL bit 1)
- */
+   2nd write
+   7  bit  0
+   ---- ----
+   YYYY YYYY
+   |||| ||||
+   ++++-++++- Y scroll bits 7-0 (bit 8 in PPUCTRL bit 1)
+*/
 pub struct ScrollRegister {
     pub scroll_x: u8,
     pub scroll_y: u8,

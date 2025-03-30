@@ -60,9 +60,7 @@ impl BusMemory for Bus {
                 let mirrored_address = address & PPU_MIRROR_MASK;
                 self.fetch_byte(mirrored_address)
             }
-            ROM_START ..= ROM_END => {
-                self.read_prg_rom(address)
-            }
+            ROM_START..=ROM_END => self.read_prg_rom(address),
             _ => {
                 println!("Invalid fetch from ${:04X}", address);
                 0
@@ -92,7 +90,7 @@ impl BusMemory for Bus {
                 let mirror_down_addr = address & 0b0010_0000_0000_0111;
                 self.store_byte(mirror_down_addr, value);
             }
-            ROM_START ..= ROM_END => {
+            ROM_START..=ROM_END => {
                 panic!("{}", format!("Attempted write to ROM! (${:04X})", address))
             }
             _ => {
@@ -125,6 +123,10 @@ impl Bus {
     pub fn tick(&mut self, cycles: usize) {
         self.cycles += cycles;
         self.ppu.tick(cycles * 3);
+    }
+
+    pub fn get_nmi_status(&mut self) -> bool {
+        self.ppu.get_nmi_status()
     }
 
     pub fn fetch_bytes(&mut self, address: u16, size: u8) -> &[u8] {

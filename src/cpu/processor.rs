@@ -1,10 +1,11 @@
 use crate::bus::BusMemory;
+use crate::cpu::interrupts::Interrupt;
+use crate::cpu::{interrupts, opcodes};
 use crate::Bus;
 use bitflags::bitflags;
 use std::collections::HashMap;
-use crate::cpu::opcodes;
 
-const DEBUG: bool = false;
+const DEBUG: bool = true;
 const CPU_PC_RESET: u16 = 0x8000;
 const CPU_STACK_RESET: u8 = 0xFF;
 const CPU_STACK_BASE: u16 = 0x0100;
@@ -104,15 +105,7 @@ impl CPU {
     }
 
     pub fn run(&mut self) {
-        self.run_with_callback(|_| {});
-    }
-
-    pub fn run_with_callback<F>(&mut self, mut callback: F)
-        where
-            F: FnMut(&mut CPU),
-    {
         loop {
-            callback(self);
             let (cycles, bytes_consumed, should_break) = self.tick();
             if should_break {
                 break;
@@ -120,8 +113,24 @@ impl CPU {
         }
     }
 
+    // pub async fn run_with_callback(&mut self, mut callback: impl AsyncFnMut(&mut CPU) -> ())
+    // {
+    //     loop {
+    //         callback.async_call_mut((&mut self,)).await;
+    //         let (cycles, bytes_consumed, should_break) = self.tick();
+    //         if should_break {
+    //             break;
+    //         }
+    //     }
+    // }
+
     // `tick` returns (num_cycles, bytes_consumed, is_breaking)
     pub fn tick(&mut self) -> (u8, u8, bool) {
+        // Handle NMI
+        if self.bus.get_nmi_status() {
+            self.interrupt(interrupts::NMI);
+        }
+
         let ref opcodes: HashMap<u8, &'static opcodes::Opcode> = *opcodes::OPCODES_MAP;
 
         self.extra_cycles = 0;
@@ -154,8 +163,8 @@ impl CPU {
         self.program_counter = self.program_counter.wrapping_add(1);
 
         match code {
-            0x00 => return (1, 1, true), // BRK
-            0xEA => {}                   // NOP
+            0x00 => self.brk(), // BRK
+            0xEA => {}          // NOP
 
             0x4C => self.jmp(opcode), // JMP Absolute
             0x6C => self.jmp(opcode), // JMP Indirect (with 6502 bug)
@@ -332,10 +341,12 @@ impl CPU {
             }
             0x02 | 0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2 | 0xF2 => {
                 // JAM - These instructions freeze the CPU
-                panic!(
-                    "{}",
-                    &format!("JAM instruction 0x{:02X} freezes CPU!", opcode.value)
-                )
+                // I'm hijacking these opcodes to be used in processor_tests
+                return (1, 1, true);
+                // panic!(
+                //     "{}",
+                //     &format!("JAM instruction 0x{:02X} freezes CPU!", opcode.value)
+                // )
             }
             0x8B | 0xAB | 0x9F | 0x93 | 0x9E | 0x9C | 0x9B => {
                 // Unstable and highly-unstable opcodes (Purposely unimplemented)
@@ -352,6 +363,15 @@ impl CPU {
             | 0xD4 | 0xF4 | 0x0C | 0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC | 0x1A | 0x3A | 0x5A
             | 0x7A | 0xDA | 0xFA => {
                 // Various single and multiple-byte NOPs
+            }
+            _ => {
+                panic!(
+                    "{}",
+                    format!(
+                        "This should be impossible to reach. (Unknown opcode: ${:02X})",
+                        code
+                    )
+                )
             }
         }
 
@@ -528,6 +548,21 @@ impl CPU {
             self.set_program_counter(address);
             self.extra_cycles = self.extra_cycles + cycles + 1;
         }
+    }
+
+    fn interrupt(&mut self, interrupt: Interrupt) {
+        self.stack_push_u16(self.program_counter);
+
+        let mut status_flags = Flags::from_bits_truncate(self.status.bits());
+        status_flags.set(Flags::BREAK, interrupt.b_flag_mask & 0b0001_0000 == 1);
+        status_flags.set(Flags::BREAK2, interrupt.b_flag_mask & 0b0010_0000 == 1);
+        self.stack_push(status_flags.bits());
+
+        self.status.set(Flags::INTERRUPT_DISABLE, true); // Disable interrupts after handling one
+
+        self.extra_cycles += interrupt.cpu_cycles;
+        let jmp_address = self.fetch_u16(interrupt.vector_addr);
+        self.set_program_counter(jmp_address);
     }
 
     // Opcodes
@@ -920,14 +955,20 @@ impl CPU {
     }
 
     fn sbx(&mut self, opcode: &opcodes::Opcode) {
-        // TODO: test this...
-        // SBX (AXS, SAX) => CMP and DEX at once, sets flags like CMP
         let (address, _) = self.get_parameter_address(&opcode.mode);
         let value = self.fetch_byte(address);
+
         let and_result = self.register_a & self.register_x;
         let result = and_result.wrapping_sub(value);
-        self.status.set(Flags::CARRY, result >= value);
-        self.update_zero_and_negative_flags(and_result);
+
+        // Store result in register X
+        self.register_x = result;
+
+        // Carry flag is set like CMP (if result is not negative)
+        self.status.set(Flags::CARRY, and_result >= value);
+
+        // Update Zero and Negative flags based on result
+        self.update_zero_and_negative_flags(result);
     }
 
     fn anc(&mut self, opcode: &opcodes::Opcode) {
@@ -959,6 +1000,13 @@ impl CPU {
         let bit6 = result & 0b0100_0000 != 0;
         let bit5 = result & 0b0010_0000 != 0;
         self.status.set(Flags::OVERFLOW, bit6 ^ bit5);
+    }
+
+    fn brk(&mut self) {
+        // BRK - Software-defined Interrupt
+        if !self.status.contains(Flags::INTERRUPT_DISABLE) {
+            self.interrupt(interrupts::BRK);
+        }
     }
 
     fn las(&mut self, opcode: &opcodes::Opcode) {

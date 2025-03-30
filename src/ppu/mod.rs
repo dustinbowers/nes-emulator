@@ -1,8 +1,8 @@
-mod control_register;
 mod address_register;
+mod control_register;
 mod mask_register;
-mod status_register;
 mod scroll_register;
+mod status_register;
 
 use crate::ppu::address_register::AddrRegister;
 use crate::ppu::control_register::ControlRegister;
@@ -30,6 +30,8 @@ pub struct PPU {
 
     internal_data: u8,
     cycles: usize,
+    scanline: usize,
+    nmi_interrupt: bool,
 
     pub mirroring: Mirroring,
 }
@@ -49,20 +51,56 @@ impl PPU {
             status_register: StatusRegister::new(),
             internal_data: 0,
             cycles: 0,
+            scanline: 0,
+            nmi_interrupt: false,
         }
     }
     pub fn tick(&mut self, cycles: usize) {
         self.cycles += cycles;
+        if self.cycles >= 341 {
+            // 341 cycles per scanline
+            self.scanline += 1;
+            self.cycles -= 341;
+            if self.scanline == 241 {
+                // Enter VBLANK on scanline 241
+                // Trigger NMI if CPU hasn't requested a break from them
+                if self.ctrl_register.generate_vblank_nmi() {
+                    self.status_register.set_vblank_status(true);
+                    self.nmi_interrupt = true;
+                }
+            }
+            if self.scanline >= 262 {
+                // Exit VBLANK past scanline 262
+                self.scanline = 0;
+                self.status_register.reset_vblank_status();
+                self.nmi_interrupt = false;
+            }
+        }
+    }
+
+    pub fn get_nmi_status(&self) -> bool {
+        self.nmi_interrupt
     }
 
     pub fn write_to_ppu_addr(&mut self, value: u8) {
         self.addr_register.update(value);
     }
     pub fn write_to_ctrl(&mut self, value: u8) {
+        // Automatically generate NMI if:
+        //      - PPU is in VBLANK
+        //      - GENERATE_NMI toggles from 0 to 1
+        let prev_generate_nmi = self.ctrl_register.generate_vblank_nmi();
         self.ctrl_register.update(value);
+        if !prev_generate_nmi
+            && self.ctrl_register.generate_vblank_nmi()
+            && self.status_register.is_in_vblank()
+        {
+            self.nmi_interrupt = true;
+        }
     }
     fn increment_ram_addr(&mut self) {
-        self.addr_register.increment(self.ctrl_register.increment_ram_addr());
+        self.addr_register
+            .increment(self.ctrl_register.increment_ram_addr());
     }
 
     pub fn read_data(&mut self) -> u8 {
@@ -74,51 +112,44 @@ impl PPU {
                 let result = self.internal_data;
                 self.internal_data = self.chr_rom[addr as usize];
                 result
-            },
+            }
             0x2000..=0x2fff => {
                 let result = self.internal_data;
                 self.internal_data = self.ram[addr as usize];
                 result
-            },
-            0x3000..=0x3eff => panic!("Invalid address ${:04X}. (0x3000..0x3EFF is invalid)", addr),
-            0x3f00..=0x3fff =>
-            {
-                self.palette_table[(addr - 0x3f00) as usize]
             }
+            0x3000..=0x3eff => panic!("Invalid address ${:04X}. (0x3000..0x3EFF is invalid)", addr),
+            0x3f00..=0x3fff => self.palette_table[(addr - 0x3f00) as usize],
             _ => panic!("Invalid access to mirrored space ${:04X}", addr),
         }
     }
 
-    pub(crate) fn write_to_data(&mut self, value: u8) {
+    pub fn write_to_data(&mut self, value: u8) {
         let addr = self.addr_register.get();
         match addr {
-            0..=0x1fff => println!("attempt to write to chr rom space {}", addr),
-            0x2000..=0x2fff => {
+            0..=0x1FFF => println!("Invalid PPU write to chr rom space ${:04X}", addr),
+            0x2000..=0x2FFF => {
                 self.ram[self.mirror_ram_addr(addr) as usize] = value;
             }
-            0x3000..=0x3eff => unimplemented!("addr {} shouldn't be used in reallity", addr),
+            0x3000..=0x3EFF => panic!("Invalid PPU write to address ${:04X}", addr),
 
             //Addresses $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
-            0x3f10 | 0x3f14 | 0x3f18 | 0x3f1c => {
+            0x3F10 | 0x3F14 | 0x3F18 | 0x3F1C => {
                 let add_mirror = addr - 0x10;
-                self.palette_table[(add_mirror - 0x3f00) as usize] = value;
+                self.palette_table[(add_mirror - 0x3F00) as usize] = value;
             }
-            0x3f00..=0x3fff => {
-                self.palette_table[(addr - 0x3f00) as usize] = value;
+            0x3F00..=0x3FFF => {
+                self.palette_table[(addr - 0x3F00) as usize] = value;
             }
             _ => panic!("unexpected access to mirrored space {}", addr),
         }
         self.increment_ram_addr();
     }
 
-    // Horizontal:
-    //   [ A ] [ a ]
-    //   [ B ] [ b ]
-
-    // Vertical:
-    //   [ A ] [ B ]
-    //   [ a ] [ b ]
     pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
+        // Horizontal:          Vertical:
+        //   [ A ] [ a ]          [ A ] [ B ]
+        //   [ B ] [ b ]          [ a ] [ b ]
         let mirrored_ram = addr & 0b0010_1111_1111_1111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
         let ram_index = mirrored_ram - 0x2000; // to ram index
         let name_table = ram_index / 0x400; // to the name table index
@@ -130,5 +161,4 @@ impl PPU {
             _ => ram_index,
         }
     }
-
 }

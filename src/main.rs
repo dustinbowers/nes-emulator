@@ -1,14 +1,18 @@
+#![feature(unboxed_closures)]
+#![feature(async_fn_traits)]
+
 mod bus;
 mod consts;
 mod cpu;
 mod display;
 mod memory;
 
-mod rom;
 mod ppu;
+mod rom;
 
 use crate::bus::BusMemory;
 use crate::consts::{PIXEL_HEIGHT, PIXEL_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH};
+use crate::cpu::processor::CPU;
 use crate::display::color_map::ColorMap;
 use crate::display::draw_screen;
 use crate::rom::Rom;
@@ -16,7 +20,6 @@ use bus::Bus;
 use futures::executor;
 use macroquad::prelude::*;
 use std::ops::Rem;
-use crate::cpu::processor::CPU;
 
 fn window_conf() -> Conf {
     Conf {
@@ -34,7 +37,6 @@ async fn main() {
 }
 
 async fn run_snake_game() {
-
     // Load and parse ROM
     let snake_rom = std::fs::read("roms/snake.nes").expect("error reading ROM file");
     let rom = Rom::new(&snake_rom).unwrap();

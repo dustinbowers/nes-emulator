@@ -1,7 +1,6 @@
+pub mod interrupts;
 pub mod opcodes;
 pub mod processor;
 
-#[cfg(tests)]
-mod processor_tests;
-
-
+#[cfg(test)]
+pub mod processor_tests;

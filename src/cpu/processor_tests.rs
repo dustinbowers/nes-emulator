@@ -2,7 +2,7 @@
 mod test {
     use super::*;
     use crate::bus::{Bus, BusMemory};
-    use crate::cpu::{rotate_value_left, rotate_value_right, Flags, CPU};
+    use crate::cpu::processor::{rotate_value_left, rotate_value_right, Flags, CPU};
     use crate::rom::{Mirroring, Rom};
 
     fn init_cpu(prg_rom: &[u8]) -> CPU {
@@ -21,7 +21,7 @@ mod test {
             0x42, //    with $0F
             0xAA, // TAX
             0xA8, // TAY
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.run();
@@ -36,7 +36,7 @@ mod test {
         let program = &[
             0xa9, // LDA immediate
             0x05, //    with $05
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.run();
@@ -50,7 +50,7 @@ mod test {
         let program = &[
             0xa9, // LDA immediate
             0x00, //    with $0
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.run();
@@ -62,7 +62,7 @@ mod test {
         let program = &[
             0xa5, // LDA ZeroPage
             0x05, //    with $05
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.bus.store_byte(0x05, 0x42);
@@ -80,7 +80,7 @@ mod test {
             0xAA, // TAX
             0xB5, // LDA ZeroPageX
             0x80, //    with $80        - X = $0F, loading A with data from $8F = 0x42
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.bus.store_byte(0x8F, 0x42);
@@ -98,7 +98,7 @@ mod test {
             0xEF, //
             0xBE, // Loading from little endian $EFBE which will actually be $BEEF
             0xAA, // TAX (1 cycle)
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.bus.store_byte(0xBEEF, 0x42);
@@ -116,7 +116,7 @@ mod test {
             0x38, // SEC
             0x78, // SEI
             0xF8, // SED
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.run();
@@ -134,7 +134,7 @@ mod test {
             0x18, // CLC
             0x58, // CLI
             0xD8, // CLD
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.run();
@@ -150,7 +150,7 @@ mod test {
             0x10, //   with 0x10
             0x69, // ADC
             0x07, //   with 0x07
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.run();
@@ -166,7 +166,7 @@ mod test {
             0x7F, //   with 0x7F
             0x69, // ADC
             0x0F, //   with 0x0F
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.run();
@@ -182,7 +182,7 @@ mod test {
             0xFF, //   with 0xFF
             0x69, // ADC
             0x0F, //   with 0x01
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.run();
@@ -199,7 +199,7 @@ mod test {
             0x38, // SEC
             0xE9, // SBC
             0x0F, //   with 0x0F
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.run();
@@ -217,7 +217,7 @@ mod test {
             0x38, // SEC -- Note: it's standard to SEC before any SBC (complement of carry acts as borrow flag)
             0xE9, // SBC
             0x01, //   with 0x01
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.run();
@@ -248,7 +248,7 @@ mod test {
     fn test_0x8a_txa() {
         let program = &[
             0x8A, // TXA
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.set_register_x(0x42);
@@ -260,7 +260,7 @@ mod test {
     fn test_0x98_tya() {
         let program = &[
             0x98, // TYA
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.set_register_y(0x88);
@@ -272,7 +272,7 @@ mod test {
     fn test_0xba_tsx() {
         let program = &[
             0xBA, // TSX
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.stack_pointer = 0x37;
@@ -284,7 +284,7 @@ mod test {
     fn test_0x9a_txs() {
         let program = &[
             0x9A, // TXS
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.register_x = 0x33;
@@ -297,10 +297,11 @@ mod test {
         let program = &[
             0xD0, // BNE
             0x0F, //   to 0x0F
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.status.set(Flags::ZERO, false);
+        cpu.store_byte(0x0011, 0x02); // Write BRK to branch target
         cpu.run();
         let want = 0x12;
         assert_eq!(
@@ -319,7 +320,7 @@ mod test {
         let program = &[
             0xD0, // BNE
             0x0F, //   to 0x0F
-            0x00, // BRK
+            0x02, // JAM
         ];
         let mut cpu = init_cpu(program);
         cpu.status.set(Flags::ZERO, true);

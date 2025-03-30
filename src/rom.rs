@@ -99,5 +99,4 @@ mod tests {
     use super::*;
 
     // TODO
-
 }
