@@ -1,10 +1,11 @@
 mod bus;
-pub mod consts;
+mod consts;
 mod cpu;
 mod display;
 mod memory;
 
 mod rom;
+mod ppu;
 
 use crate::bus::BusMemory;
 use crate::consts::{PIXEL_HEIGHT, PIXEL_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH};

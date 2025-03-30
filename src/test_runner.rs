@@ -3,10 +3,11 @@
    https://github.com/SingleStepTests/65x02/tree/main/nes6502
 */
 
-pub mod bus;
-pub mod cpu;
-pub mod memory;
-pub mod rom;
+mod bus;
+mod cpu;
+mod memory;
+mod rom;
+mod ppu;
 
 use crate::bus::Bus;
 use crate::bus::BusMemory;

@@ -4,7 +4,7 @@
 
 ### TODO
 
-- [x] Implement 6502 CPU
+- [x] Implement 6502 CPU (minus APU)
 - [x] Create 6502 CPU test runner for single-step tests
 - [x] Implement iNES 1.0 ROM parsing
 - [ ] Implement PPU

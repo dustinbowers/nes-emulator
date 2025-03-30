@@ -353,8 +353,6 @@ impl CPU {
             | 0x7A | 0xDA | 0xFA => {
                 // Various single and multiple-byte NOPs
             }
-
-            _ => {}
         }
 
         // Tick the bus for opcode cycles. Add any extra cycles from boundary_crosses and other special cases

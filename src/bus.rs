@@ -1,9 +1,9 @@
 use crate::memory::heap_memory::HeapMemory;
 use crate::memory::memory_trait::MemoryTrait;
+use crate::ppu::PPU;
 use crate::rom::Rom;
-use macroquad::telemetry::disable;
 
-const CPU_RAM_SIZE: usize = 1 << 11;
+const CPU_RAM_SIZE: usize = 2048;
 const CPU_RAM_START: u16 = 0x0000;
 const CPU_RAM_END: u16 = 0x1FFF;
 const CPU_MIRROR_MASK: u16 = 0b0000_0111_1111_1111;
@@ -17,7 +17,8 @@ const ROM_END: u16 = 0xFFFF;
 pub struct Bus {
     pub cpu_ram: HeapMemory<u8>,
     pub cycles: usize,
-    rom: Rom,
+    prg_rom: Vec<u8>,
+    ppu: PPU,
     pub disable_mirroring: bool,
 }
 
@@ -50,9 +51,14 @@ impl BusMemory for Bus {
                 let mirrored_address = address & CPU_MIRROR_MASK;
                 *self.cpu_ram.read(mirrored_address as usize)
             }
+            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => {
+                panic!("Attempt to read from write-only PPU address {:x}", address);
+            }
+            0x2007 => self.ppu.read_data(),
+
             PPU_REGISTERS_START..=PPU_REGISTERS_END => {
-                let _mirrored_address = address & PPU_MIRROR_MASK;
-                todo!("PPU registers not available");
+                let mirrored_address = address & PPU_MIRROR_MASK;
+                self.fetch_byte(mirrored_address)
             }
             ROM_START ..= ROM_END => {
                 self.read_prg_rom(address)
@@ -73,9 +79,18 @@ impl BusMemory for Bus {
                 let mirrored_address = address & CPU_MIRROR_MASK;
                 self.cpu_ram.write(mirrored_address as usize, value);
             }
-            PPU_REGISTERS_START..=PPU_REGISTERS_END => {
-                let _mirrored_address = address & PPU_MIRROR_MASK;
-                todo!("PPU registers not available");
+            0x2000 => {
+                self.ppu.write_to_ctrl(value);
+            }
+            0x2006 => {
+                self.ppu.write_to_ppu_addr(value);
+            }
+            0x2007 => {
+                self.ppu.write_to_data(value);
+            }
+            0x2008..=PPU_REGISTERS_END => {
+                let mirror_down_addr = address & 0b0010_0000_0000_0111;
+                self.store_byte(mirror_down_addr, value);
             }
             ROM_START ..= ROM_END => {
                 panic!("{}", format!("Attempted write to ROM! (${:04X})", address))
@@ -88,23 +103,28 @@ impl BusMemory for Bus {
 }
 
 impl Bus {
-    pub fn new(rom: Rom) -> Bus {
+    pub fn new(rom: Rom) -> Self {
+        let prg_rom = rom.prg_rom.clone();
+        let ppu = PPU::new(rom.chr_rom, rom.screen_mirroring);
+
         Self {
             cpu_ram: HeapMemory::new(CPU_RAM_SIZE, 0u8),
             cycles: 0,
-            rom,
+            prg_rom,
+            ppu,
             disable_mirroring: false,
         }
     }
 
     pub fn enable_test_mode(&mut self) {
         self.disable_mirroring = true;
-        self.cpu_ram.data = std::mem::take(&mut self.rom.prg_rom);
+        self.cpu_ram.data = std::mem::take(&mut self.prg_rom.clone());
         self.cpu_ram.data.resize(1 << 16, 0u8);
     }
 
     pub fn tick(&mut self, cycles: usize) {
         self.cycles += cycles;
+        self.ppu.tick(cycles * 3);
     }
 
     pub fn fetch_bytes(&mut self, address: u16, size: u8) -> &[u8] {
@@ -128,12 +148,12 @@ impl Bus {
         let addr = addr - 0x8000;
 
         // Calculate the effective address with mirroring if needed
-        let effective_addr = if self.rom.prg_rom.len() == 0x4000 && addr >= 0x4000 {
+        let effective_addr = if self.prg_rom.len() == 0x4000 && addr >= 0x4000 {
             addr % 0x4000
         } else {
             addr
         };
-        self.rom.prg_rom[effective_addr as usize]
+        self.prg_rom[effective_addr as usize]
     }
 }
 
