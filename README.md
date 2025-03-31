@@ -8,7 +8,7 @@
 - [x] Create 6502 CPU test runner for single-step tests
 - [x] Implement iNES 1.0 ROM parsing
 - [ ] Implement PPU
-- [ ] Implement interrupt handling
+- [x] Implement interrupt handling
 - [ ] Implement APU
 
 ### Resources
