@@ -29,6 +29,7 @@ fn window_conf() -> Conf {
     }
 }
 
+
 #[macroquad::main(window_conf)]
 async fn main() {
     let args: Vec<String> = env::args().collect();
@@ -54,7 +55,7 @@ async fn play_rom(rom_path: &str) {
 
     let mut frame = Frame::new();
     loop {
-        // clear_background(LIGHTGRAY);
+        clear_background(LIGHTGRAY);
         for i in 0..29_830 {
             let (_, _, is_breaking) = cpu.tick();
             if is_breaking {
@@ -65,9 +66,9 @@ async fn play_rom(rom_path: &str) {
         if cpu.bus.ready_to_render {
             render(&cpu.bus.ppu, &mut frame);
             cpu.bus.ready_to_render = false;
-            draw_frame(&frame);
             // println!("draw frame!");
         }
+        draw_frame(&frame);
         let status_str = format!(
             "PC: ${:04X} SP: ${:02X} A:${:02X} X:${:02X} Y:${:02X}",
             cpu.program_counter, cpu.stack_pointer, cpu.register_a, cpu.register_x, cpu.register_y

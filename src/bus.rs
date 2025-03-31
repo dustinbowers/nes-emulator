@@ -84,9 +84,6 @@ impl BusMemory for Bus {
         }
     }
     fn store_byte(&mut self, address: u16, value: u8) {
-        // if value != 0 {
-        //     println!("store_byte ${:04X} = {:02X}", address, value);
-        // }
         if self.disable_mirroring {
             self.cpu_ram.write(address as usize, value);
             return;
@@ -97,7 +94,6 @@ impl BusMemory for Bus {
                 self.cpu_ram.write(mirrored_address as usize, value);
             }
             0x2000 => {
-                // println!("write to ctrl - {:04X}", value);
                 self.ppu.write_to_ctrl(value);
             }
             0x2001 => {
@@ -138,7 +134,6 @@ impl BusMemory for Bus {
                 }
 
                 self.ppu.write_to_oam_dma(&buffer);
-                // println!("writing to OAM data: {:?}", &buffer);
             }
             0x4016 => {
                 // TODO: implement joypad 1

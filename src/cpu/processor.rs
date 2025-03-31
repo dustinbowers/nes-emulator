@@ -48,8 +48,8 @@ pub enum AddressingMode {
     AbsoluteY,
     IndirectX,
     IndirectY,
-    Indirect, // Only JMP supports this mode
-    Relative, // The branch instructions exclusively use this mode
+    Indirect, // Exclusive to JMP opcodes
+    Relative, // Exclusive to Branch opcodes
     None,
 }
 
@@ -271,44 +271,53 @@ impl CPU {
             }
 
             /////////////////////////
-            /// Unofficial Opcodes
+            /// Illegal Opcodes
             /////////////////////////
 
-            // TODO: Fix unofficial opcode cycle accuracy (page crosses are probably double-counted)
             0xC7 | 0xD7 | 0xCF | 0xDF | 0xDB | 0xD3 | 0xC3 => {
                 // DCP => DEC oper + CMP oper
-                self.dec(opcode);
-                self.cmp(opcode);
+                let dec_value = self.dec(opcode);
+
+                // Compare register_a with decremented value
+                let result = self.register_a.wrapping_sub(dec_value);
+                self.status.set(Flags::CARRY, self.register_a >= dec_value);
+                self.update_zero_and_negative_flags(result);
+                self.extra_cycles = 0;
             }
             0x27 | 0x37 | 0x2F | 0x3F | 0x3B | 0x33 | 0x23 => {
                 // RLA => ROL oper + AND oper
                 self.rol(opcode);
                 self.and(opcode);
+                self.extra_cycles = 0;
             }
             0x07 | 0x17 | 0x0F | 0x1F | 0x1B | 0x03 | 0x13 => {
                 // SLO => ASL oper + ORA oper
-                self.asl(opcode);
-                self.ora(opcode);
+                self.slo(opcode);
             }
             0x47 | 0x57 | 0x4F | 0x5F | 0x5B | 0x43 | 0x53 => {
                 // SRE => LSR oper + EOR oper
                 self.lsr(opcode);
                 self.eor(opcode);
+                self.extra_cycles = 0;
             }
             0x67 | 0x77 | 0x6F | 0x7F | 0x7B | 0x63 | 0x73 => {
                 // RRA => ROR oper + ADC oper
                 self.ror(opcode);
                 self.adc(opcode);
+                self.extra_cycles = 0;
             }
             0xE7 | 0xF7 | 0xEF | 0xFF | 0xFB | 0xE3 | 0xF3 => {
                 // ISC (ISB / INS) => INC oper + SBC oper
-                self.inc(opcode);
-                self.sbc(opcode);
+                let inc_result = self.inc(opcode);
+                self.sub_from_register_a(inc_result);
             }
             0xA7 | 0xB7 | 0xAF | 0xBF | 0xA3 | 0xB3 => {
                 // LAX => LDA oper + LDX oper
                 self.lda(opcode);
                 self.ldx(opcode);
+                if self.extra_cycles == 2 {
+                    self.extra_cycles = 1;
+                }
             }
             0x87 | 0x97 | 0x8F | 0x83 => {
                 // SAX => A AND X -> M
@@ -336,18 +345,23 @@ impl CPU {
                 self.lsr(opcode);
             }
             0xBB => {
-                // LAS - M AND SP -> A, X, SP
+                // LAS (LAR) => LDA + AND with SP, store in A, X, SP
                 self.las(opcode);
             }
-            0x02 | 0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2 | 0xF2 => {
-                // JAM - These instructions freeze the CPU
-                // I'm hijacking these opcodes to be used in processor_tests
+            0x02 => {
+                // JAM - This freezes the CPU
+                // NOTE: I'm hijacking this opcode for use in processor_tests
+                //       0x02 now breaks the normal run() loop{}
                 return (1, 1, true);
-                // panic!(
-                //     "{}",
-                //     &format!("JAM instruction 0x{:02X} freezes CPU!", opcode.value)
-                // )
             }
+            0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2 | 0xF2 => {
+                // JAM - These instructions freeze the CPU
+                panic!(
+                    "{}",
+                    &format!("JAM instruction 0x{:02X} freezes CPU!", opcode.value)
+                )
+            }
+
             0x8B | 0xAB | 0x9F | 0x93 | 0x9E | 0x9C | 0x9B => {
                 // Unstable and highly-unstable opcodes (Purposely unimplemented)
                 panic!(
@@ -359,8 +373,13 @@ impl CPU {
                 )
             }
 
+            0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC => {
+                // page-crossing NOPs
+                self.nop_page_cross(opcode);
+            }
+
             0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 | 0x04 | 0x44 | 0x64 | 0x14 | 0x34 | 0x54 | 0x74
-            | 0xD4 | 0xF4 | 0x0C | 0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC | 0x1A | 0x3A | 0x5A
+            | 0xD4 | 0xF4 | 0x0C | 0x1A | 0x3A | 0x5A
             | 0x7A | 0xDA | 0xFA => {
                 // Various single and multiple-byte NOPs
             }
@@ -439,9 +458,9 @@ impl CPU {
                 let address = if indirect_vec & 0x00FF == 0x00FF {
                     let lo = self.fetch_byte(indirect_vec) as u16;
                     let hi = self.fetch_byte(indirect_vec & 0xFF00) as u16;
-                    (hi << 2) | lo
+                    (hi << 8) | lo
                 } else {
-                    indirect_vec
+                    self.fetch_u16(indirect_vec)
                 };
                 (address, false)
             }
@@ -701,10 +720,11 @@ impl CPU {
     fn plp(&mut self) {
         // Pop stack into processor_status
         self.status = Flags::from_bits_truncate(self.stack_pop());
+        self.status.remove(Flags::BREAK); // This flag is disabled when fetching
         self.status.insert(Flags::BREAK2); // This flag is supposed to always be 1 on CPU
     }
 
-    fn asl(&mut self, opcode: &opcodes::Opcode) {
+    fn asl(&mut self, opcode: &opcodes::Opcode) -> u8 {
         // Arithmetic Shift Left into carry
         match opcode.mode {
             AddressingMode::Immediate => {
@@ -712,6 +732,7 @@ impl CPU {
                 let value = self.register_a << 1;
                 self.set_register_a(value);
                 self.status.set(Flags::CARRY, carry);
+                value
             }
             _ => {
                 let (address, _) = self.get_parameter_address(&opcode.mode);
@@ -721,6 +742,7 @@ impl CPU {
                 self.store_byte(address, value);
                 self.update_zero_and_negative_flags(value);
                 self.status.set(Flags::CARRY, carry);
+                value
             }
         }
     }
@@ -786,22 +808,24 @@ impl CPU {
         }
     }
 
-    fn inc(&mut self, opcode: &opcodes::Opcode) {
+    fn inc(&mut self, opcode: &opcodes::Opcode) -> u8 {
         // Increment value at Memory
         let (address, _) = self.get_parameter_address(&opcode.mode);
         let mut value = self.bus.fetch_byte(address);
         value = value.wrapping_add(1);
         self.bus.store_byte(address, value);
         self.update_zero_and_negative_flags(value);
+        value
     }
 
-    fn dec(&mut self, opcode: &opcodes::Opcode) {
+    fn dec(&mut self, opcode: &opcodes::Opcode) -> u8 {
         // Decrement value at Memory
         let (address, _) = self.get_parameter_address(&opcode.mode);
         let mut value = self.bus.fetch_byte(address);
         value = value.wrapping_sub(1);
         self.bus.store_byte(address, value);
         self.update_zero_and_negative_flags(value);
+        value
     }
 
     fn cmp(&mut self, opcode: &opcodes::Opcode) {
@@ -940,8 +964,20 @@ impl CPU {
         self.status.set(Flags::OVERFLOW, value & (1 << 6) != 0);
     }
 
+    fn slo(&mut self, opcode: &opcodes::Opcode) {
+        let shifted_result = self.asl(opcode);
+        let ora_result = self.register_a | shifted_result;
+        self.set_register_a(ora_result);
+        self.update_zero_and_negative_flags(ora_result);
+    }
+
+    fn nop_page_cross(&mut self, opcode: &opcodes::Opcode) {
+        let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
+        self.extra_cycles += boundary_cross as u8;
+    }
+
     /////////////////////////
-    /// Unofficial Opcodes
+    /// Illegal Opcodes
     /////////////////////////
 
     fn sax(&mut self, opcode: &opcodes::Opcode) {
@@ -976,7 +1012,7 @@ impl CPU {
         let value = self.fetch_byte(address);
         self.set_register_a(self.register_a & value);
         self.status
-            .set(Flags::CARRY, self.register_a & 0b0100_0000 != 0);
+            .set(Flags::CARRY, self.register_a & 0b1000_0000 != 0);
     }
 
     fn arr(&mut self, opcode: &opcodes::Opcode) {
@@ -1010,9 +1046,10 @@ impl CPU {
     }
 
     fn las(&mut self, opcode: &opcodes::Opcode) {
-        // LAS => AND with SP, store in A, X, SP
+        // LAS (LAR) => AND with SP, store in A, X, SP
         let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
         let value = self.fetch_byte(address);
+        self.set_register_a(value);
 
         // Perform AND operation with the stack pointer
         let result = value & self.stack_pointer;

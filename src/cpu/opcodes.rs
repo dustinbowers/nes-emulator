@@ -358,10 +358,8 @@ const OPCODES: &[Opcode] = &[
     // ALR => AND oper + LSR
     Opcode::new(0x4B, "*ALR", 2,2, AddressingMode::Immediate),
 
-    // LAS => AND with SP, store in A, X, SP 
-    // NOTE: Docs say this is a 3-byte instruction, but 10,000 SingleTests only pass 
-    // when size is set to 2 :thinking_face:
-    Opcode::new(0x4B, "*LAS", 2,4, AddressingMode::Immediate), // cycles +1 if page page crossed
+    // LAS => LDA/TSX oper
+    Opcode::new(0xBB, "*LAS", 3,4, AddressingMode::AbsoluteY), // cycles +1 if page page crossed
 
 ];
 

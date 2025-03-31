@@ -209,7 +209,16 @@ fn run_opcode_test(test: &OpcodeTest) {
         )
     );
     for (address, value) in end.ram.iter() {
-        assert_eq!(cpu.fetch_byte(*address), *value);
+        let got = cpu.fetch_byte(*address);
+        let want = *value;
+        assert_eq!(got, want,
+        "{}",
+        format!(
+            "ram mismatch at ${:04X}.\n\tGot:  {:08b} ${:02X}\n\tWant: {:08b} ${:02X}",
+            address,
+            got, got,
+            want, want
+        ));
     }
     assert_eq!(
         cpu.bus.cycles,
