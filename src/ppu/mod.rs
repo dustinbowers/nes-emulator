@@ -19,17 +19,18 @@ pub struct PPU {
     pub palette_table: [u8; 32],
     pub ram: [u8; 2048],
 
+    pub oam_addr: u8,
     pub oam_data: [u8; 256], // Object Attribute Memory
 
     // Registers
     addr_register: AddrRegister,
-    ctrl_register: ControlRegister,
+    pub ctrl_register: ControlRegister,
     mask_register: MaskRegister,
     scroll_register: ScrollRegister,
     status_register: StatusRegister,
 
     internal_data: u8,
-    cycles: usize,
+    pub cycles: usize,
     scanline: usize,
     nmi_interrupt: bool,
 
@@ -42,6 +43,7 @@ impl PPU {
             chr_rom,
             mirroring,
             ram: [0; RAM_SIZE],
+            oam_addr: 0,
             oam_data: [0; OAM_SIZE],
             palette_table: [0; 32],
             addr_register: AddrRegister::new(),
@@ -63,9 +65,9 @@ impl PPU {
             self.cycles -= 341;
             if self.scanline == 241 {
                 // Enter VBLANK on scanline 241
+                self.status_register.set_vblank_status(true);
                 // Trigger NMI if CPU hasn't requested a break from them
                 if self.ctrl_register.generate_vblank_nmi() {
-                    self.status_register.set_vblank_status(true);
                     self.nmi_interrupt = true;
                 }
             }
@@ -78,11 +80,43 @@ impl PPU {
         }
     }
 
+    pub fn read_status(&mut self) -> u8 {
+        let data = self.status_register.value();
+        self.status_register.reset_vblank_status();
+        self.addr_register.reset_latch();
+        self.scroll_register.reset_latch();
+        data
+    }
+
     pub fn get_nmi_status(&self) -> bool {
         self.nmi_interrupt
     }
 
-    pub fn write_to_ppu_addr(&mut self, value: u8) {
+    pub fn set_oam_addr(&mut self, value: u8) {
+        self.oam_addr = value;
+    }
+
+    pub fn write_to_oam_data(&mut self, value: u8) {
+        self.oam_data[self.oam_addr as usize] = value;
+        self.oam_addr = self.oam_addr.wrapping_add(1);
+    }
+
+    pub fn write_to_oam_dma(&mut self, data: &[u8; 256]) {
+        for x in data.iter() {
+            self.oam_data[self.oam_addr as usize] = *x;
+            self.oam_addr = self.oam_addr.wrapping_add(1);
+        }
+    }
+
+    pub fn read_oam_data(&self) -> u8 {
+        self.oam_data[self.oam_addr as usize]
+    }
+
+    pub fn write_to_scroll(&mut self, value: u8) {
+        self.scroll_register.write(value);
+    }
+
+    pub fn set_ppu_addr(&mut self, value: u8) {
         self.addr_register.update(value);
     }
     pub fn write_to_ctrl(&mut self, value: u8) {
@@ -98,6 +132,10 @@ impl PPU {
             self.nmi_interrupt = true;
         }
     }
+    pub fn write_to_mask(&mut self, value: u8) {
+        self.mask_register.update(value);
+    }
+
     fn increment_ram_addr(&mut self) {
         self.addr_register
             .increment(self.ctrl_register.increment_ram_addr());
@@ -115,12 +153,19 @@ impl PPU {
             }
             0x2000..=0x2fff => {
                 let result = self.internal_data;
-                self.internal_data = self.ram[addr as usize];
+                self.internal_data = self.ram[self.mirror_ram_addr(addr) as usize];
                 result
             }
             0x3000..=0x3eff => panic!("Invalid address ${:04X}. (0x3000..0x3EFF is invalid)", addr),
-            0x3f00..=0x3fff => self.palette_table[(addr - 0x3f00) as usize],
+
+            // $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
+            0x3F10 | 0x3F14 | 0x3F18 | 0x3F1C => {
+                let mirror_address = addr - 0x10;
+                self.palette_table[(mirror_address - 0x3F00) as usize]
+            }
+            0x3F00..=0x3FFF => self.palette_table[(addr - 0x3F00) as usize],
             _ => panic!("Invalid access to mirrored space ${:04X}", addr),
+
         }
     }
 
@@ -133,7 +178,7 @@ impl PPU {
             }
             0x3000..=0x3EFF => panic!("Invalid PPU write to address ${:04X}", addr),
 
-            //Addresses $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
+            // $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
             0x3F10 | 0x3F14 | 0x3F18 | 0x3F1C => {
                 let add_mirror = addr - 0x10;
                 self.palette_table[(add_mirror - 0x3F00) as usize] = value;

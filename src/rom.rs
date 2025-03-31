@@ -51,15 +51,12 @@ impl Rom {
             (false, false) => Mirroring::Horizontal,
         };
 
-        // Calculate ROM sizes
         let prg_rom_size = raw[4] as usize * PRG_ROM_PAGE_SIZE;
         let chr_rom_size = raw[5] as usize * CHR_ROM_PAGE_SIZE;
 
-        // Check if trainer is present
         let skip_trainer = raw[6] & 0b100 != 0;
 
-        // Determine starting positions
-        let prg_rom_start = 16 + (skip_trainer as usize * 512);
+        let prg_rom_start = 16 + if skip_trainer { 512 } else { 0 };
         let chr_rom_start = prg_rom_start + prg_rom_size;
 
         Ok(Rom {
@@ -99,4 +96,5 @@ mod tests {
     use super::*;
 
     // TODO
+
 }

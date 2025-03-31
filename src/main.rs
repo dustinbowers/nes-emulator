@@ -1,39 +1,112 @@
-#![feature(unboxed_closures)]
-#![feature(async_fn_traits)]
-
 mod bus;
-mod consts;
 mod cpu;
 mod display;
 mod memory;
-
 mod ppu;
 mod rom;
 
-use crate::bus::BusMemory;
-use crate::consts::{PIXEL_HEIGHT, PIXEL_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH};
-use crate::cpu::processor::CPU;
-use crate::display::color_map::ColorMap;
-use crate::display::draw_screen;
-use crate::rom::Rom;
+use display::render::render;
+use std::{env, process};
+use bus::BusMemory;
+use display::consts::{PIXEL_HEIGHT, PIXEL_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH};
+use cpu::processor::CPU;
+use display::color_map::ColorMap;
+use display::draw_frame;
+use rom::Rom;
 use bus::Bus;
 use futures::executor;
 use macroquad::prelude::*;
 use std::ops::Rem;
+use crate::display::frame::Frame;
 
 fn window_conf() -> Conf {
     Conf {
         window_title: "NES".to_owned(),
         fullscreen: false,
-        window_height: WINDOW_HEIGHT,
-        window_width: WINDOW_WIDTH,
+        window_height: WINDOW_HEIGHT as i32,
+        window_width: WINDOW_WIDTH as i32,
         ..Default::default()
     }
 }
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    run_snake_game().await;
+    let args: Vec<String> = env::args().collect();
+
+    // Ensure correct number of arguments
+    if args.len() != 2 {
+        eprintln!("Usage: {} <iNES 1.0 ROM path>", args[0]);
+        process::exit(1);
+    }
+    let rom_path = &args[1];
+
+    play_rom(rom_path).await;
+    // render_sprite_banks(rom_path).await;
+    // run_snake_game().await;
+}
+
+async fn play_rom(rom_path: &str) {
+
+    let rom_data = std::fs::read(rom_path).expect("Error reading ROM file.");
+    let rom = Rom::new(&rom_data).expect("Error parsing ROM file.");
+    let bus = Bus::new(rom);
+    let mut cpu = CPU::new(bus);
+
+    let mut frame = Frame::new();
+    loop {
+        // clear_background(LIGHTGRAY);
+        for i in 0..29_830 {
+            let (_, _, is_breaking) = cpu.tick();
+            if is_breaking {
+                break
+            }
+        }
+
+        if cpu.bus.ready_to_render {
+            render(&cpu.bus.ppu, &mut frame);
+            cpu.bus.ready_to_render = false;
+            draw_frame(&frame);
+            // println!("draw frame!");
+        }
+        let status_str = format!(
+            "PC: ${:04X} SP: ${:02X} A:${:02X} X:${:02X} Y:${:02X}",
+            cpu.program_counter, cpu.stack_pointer, cpu.register_a, cpu.register_x, cpu.register_y
+        );
+        draw_text(&status_str, 5.0, 24.0, 18.0, Color::new(1.0, 0.0, 0.0, 1.0));
+        let status_str = format!(
+            "bus_cycles: {} ppu_cycles: {}",
+            cpu.bus.cycles, cpu.bus.ppu.cycles
+        );
+        draw_text(&status_str, 5.0, 48.0, 18.0, Color::new(1.0, 0.0, 0.0, 1.0));
+        next_frame().await;
+
+    }
+}
+
+async fn render_sprite_banks(rom_path: &str) {
+    // Load and parse ROM
+    let rom_data = std::fs::read(rom_path).expect("Error reading ROM file");
+    let rom = Rom::new(&rom_data).unwrap();
+
+
+    let mut f: Frame = Frame::new();
+    for i in 0..256 {
+        f.show_tile(&rom.chr_rom, 0, i);
+    }
+    for i in 0..256 {
+        f.show_tile(&rom.chr_rom, 1, i);
+    }
+
+    loop {
+        clear_background(BLACK);
+        // Handle user input
+        let keys_pressed = get_keys_down();
+        if keys_pressed.contains(&KeyCode::Escape) {
+            break
+        }
+        draw_frame(&f);
+        next_frame().await;
+    }
 }
 
 async fn run_snake_game() {

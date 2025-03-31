@@ -47,6 +47,14 @@ impl ControlRegister {
         self.contains(Self::GENERATE_NMI)
     }
 
+    pub fn background_pattern_addr(&self) -> u16 {
+        if self.contains(Self::BACKROUND_PATTERN_ADDR) {
+            0x1000 // Use the second pattern table
+        } else {
+            0x0000 // Use the first pattern table
+        }
+    }
+
     pub fn update(&mut self, data: u8) {
         *self = ControlRegister::from_bits_truncate(data);
     }

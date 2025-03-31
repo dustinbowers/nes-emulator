@@ -8,7 +8,7 @@ const CPU_RAM_START: u16 = 0x0000;
 const CPU_RAM_END: u16 = 0x1FFF;
 const CPU_MIRROR_MASK: u16 = 0b0000_0111_1111_1111;
 
-const PPU_REGISTERS_START: u16 = 0x2000;
+const PPU_REGISTERS_START: u16 = 0x2008;
 const PPU_REGISTERS_END: u16 = 0x3FFF;
 const PPU_MIRROR_MASK: u16 = 0b0010_0000_0000_0111;
 const ROM_START: u16 = 0x8000;
@@ -18,8 +18,9 @@ pub struct Bus {
     pub cpu_ram: HeapMemory<u8>,
     pub cycles: usize,
     prg_rom: Vec<u8>,
-    ppu: PPU,
+    pub ppu: PPU,
     pub disable_mirroring: bool,
+    pub ready_to_render: bool,
 }
 
 pub trait BusMemory {
@@ -54,7 +55,22 @@ impl BusMemory for Bus {
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => {
                 panic!("Attempt to read from write-only PPU address {:x}", address);
             }
+            0x2002 => self.ppu.read_status(),
+            0x2004 => self.ppu.read_oam_data(),
             0x2007 => self.ppu.read_data(),
+
+            0x4000..=0x4015 => {
+                // ignore APU
+                0
+            }
+            0x4016 => {
+                // TODO: implement joypad 1
+                0
+            }
+            0x4017 => {
+                // ignore joypad 2
+                0
+            }
 
             PPU_REGISTERS_START..=PPU_REGISTERS_END => {
                 let mirrored_address = address & PPU_MIRROR_MASK;
@@ -68,6 +84,9 @@ impl BusMemory for Bus {
         }
     }
     fn store_byte(&mut self, address: u16, value: u8) {
+        // if value != 0 {
+        //     println!("store_byte ${:04X} = {:02X}", address, value);
+        // }
         if self.disable_mirroring {
             self.cpu_ram.write(address as usize, value);
             return;
@@ -78,30 +97,64 @@ impl BusMemory for Bus {
                 self.cpu_ram.write(mirrored_address as usize, value);
             }
             0x2000 => {
+                // println!("write to ctrl - {:04X}", value);
                 self.ppu.write_to_ctrl(value);
             }
+            0x2001 => {
+                self.ppu.write_to_mask(value);
+            }
+            0x2002 => panic!("attempt to write to PPU status register"),
+            0x2003 => {
+                self.ppu.set_oam_addr(value);
+            }
+            0x2004 => {
+                self.ppu.write_to_oam_data(value);
+            }
+            0x2005 => {
+                self.ppu.write_to_scroll(value);
+            }
             0x2006 => {
-                self.ppu.write_to_ppu_addr(value);
+                self.ppu.set_ppu_addr(value);
             }
             0x2007 => {
                 self.ppu.write_to_data(value);
             }
-            0x2008..=PPU_REGISTERS_END => {
+            PPU_REGISTERS_START..=PPU_REGISTERS_END => {
                 let mirror_down_addr = address & 0b0010_0000_0000_0111;
                 self.store_byte(mirror_down_addr, value);
+            }
+            0x4000..=0x4013 | 0x4015 => {
+                // TODO: implement APU
             }
             ROM_START..=ROM_END => {
                 panic!("{}", format!("Attempted write to ROM! (${:04X})", address))
             }
+
+            0x4014 => {
+                let mut buffer: [u8; 256] = [0; 256];
+                let hi: u16 = (value as u16) << 8;
+                for i in 0..256u16 {
+                    buffer[i as usize] = self.fetch_byte(hi + i);
+                }
+
+                self.ppu.write_to_oam_dma(&buffer);
+                // println!("writing to OAM data: {:?}", &buffer);
+            }
+            0x4016 => {
+                // TODO: implement joypad 1
+            }
+            0x4017 => {
+                // ignore joypad 2
+            }
             _ => {
-                println!("Invalid write to ${:04X}", address);
+                panic!("Invalid write to ${:04X}", address);
             }
         }
     }
 }
 
 impl Bus {
-    pub fn new(rom: Rom) -> Self {
+    pub fn new(rom: Rom, ) -> Self {
         let prg_rom = rom.prg_rom.clone();
         let ppu = PPU::new(rom.chr_rom, rom.screen_mirroring);
 
@@ -111,6 +164,7 @@ impl Bus {
             prg_rom,
             ppu,
             disable_mirroring: false,
+            ready_to_render: false,
         }
     }
 
@@ -122,7 +176,13 @@ impl Bus {
 
     pub fn tick(&mut self, cycles: usize) {
         self.cycles += cycles;
+
+        let pre_nmi = self.ppu.get_nmi_status();
         self.ppu.tick(cycles * 3);
+        let post_nmi = self.ppu.get_nmi_status();
+        if !pre_nmi && post_nmi {
+            self.ready_to_render = true
+        }
     }
 
     pub fn get_nmi_status(&mut self) -> bool {
