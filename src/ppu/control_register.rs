@@ -59,3 +59,54 @@ impl ControlRegister {
         *self = ControlRegister::from_bits_truncate(data);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_control_register() {
+        let ctrl = ControlRegister::new();
+        assert_eq!(ctrl.bits(), 0);
+        assert_eq!(ctrl.increment_ram_addr(), 1);
+        assert_eq!(ctrl.generate_vblank_nmi(), false);
+        assert_eq!(ctrl.background_pattern_addr(), 0x0000);
+    }
+
+    #[test]
+    fn test_update_control_register() {
+        let mut ctrl = ControlRegister::new();
+        ctrl.update(0b10110000);
+        assert!(ctrl.contains(ControlRegister::GENERATE_NMI));
+        assert!(ctrl.contains(ControlRegister::SPRITE_SIZE));
+        assert!(ctrl.contains(ControlRegister::BACKROUND_PATTERN_ADDR));
+        assert!(!ctrl.contains(ControlRegister::VRAM_ADD_INCREMENT));
+    }
+
+    #[test]
+    fn test_vram_increment() {
+        let mut ctrl = ControlRegister::new();
+        assert_eq!(ctrl.increment_ram_addr(), 1);
+
+        ctrl.update(ControlRegister::VRAM_ADD_INCREMENT.bits());
+        assert_eq!(ctrl.increment_ram_addr(), 32);
+    }
+
+    #[test]
+    fn test_nmi_generation() {
+        let mut ctrl = ControlRegister::new();
+        assert_eq!(ctrl.generate_vblank_nmi(), false);
+
+        ctrl.update(ControlRegister::GENERATE_NMI.bits());
+        assert_eq!(ctrl.generate_vblank_nmi(), true);
+    }
+
+    #[test]
+    fn test_background_pattern_addr() {
+        let mut ctrl = ControlRegister::new();
+        assert_eq!(ctrl.background_pattern_addr(), 0x0000);
+
+        ctrl.update(ControlRegister::BACKROUND_PATTERN_ADDR.bits());
+        assert_eq!(ctrl.background_pattern_addr(), 0x1000);
+    }
+}

@@ -16,7 +16,7 @@
 pub struct ScrollRegister {
     pub scroll_x: u8,
     pub scroll_y: u8,
-    pub w_latch: bool,
+    pub write_latch: bool,
 }
 
 impl ScrollRegister {
@@ -24,20 +24,20 @@ impl ScrollRegister {
         ScrollRegister {
             scroll_x: 0,
             scroll_y: 0,
-            w_latch: false,
+            write_latch: false,
         }
     }
 
     pub fn write(&mut self, data: u8) {
-        if !self.w_latch {
+        if !self.write_latch {
             self.scroll_x = data;
         } else {
             self.scroll_y = data;
         }
-        self.w_latch = !self.w_latch;
+        self.write_latch = !self.write_latch;
     }
 
     pub fn reset_latch(&mut self) {
-        self.w_latch = false;
+        self.write_latch = false;
     }
 }

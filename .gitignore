@@ -3,3 +3,4 @@ target
 .idea
 nes6502-tests/
 roms/
+*.log

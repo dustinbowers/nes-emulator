@@ -1,11 +1,11 @@
 use crate::bus::BusMemory;
-use crate::cpu::interrupts::Interrupt;
-use crate::cpu::{interrupts, opcodes};
+use super::interrupts::Interrupt;
+use super::{interrupts, opcodes};
 use crate::Bus;
 use bitflags::bitflags;
 use std::collections::HashMap;
 
-const DEBUG: bool = false;
+const DEBUG: bool = true;
 const CPU_PC_RESET: u16 = 0x8000;
 const CPU_STACK_RESET: u8 = 0xFF;
 const CPU_STACK_BASE: u16 = 0x0100;
@@ -80,7 +80,7 @@ impl BusMemory for CPU {
 
 impl CPU {
     pub fn new(bus: Bus) -> CPU {
-        CPU {
+        let mut cpu = CPU {
             bus,
             register_a: 0,
             register_x: 0,
@@ -90,7 +90,9 @@ impl CPU {
             program_counter: CPU_PC_RESET,
             extra_cycles: 0,
             skip_pc_advance: false,
-        }
+        };
+        // cpu.program_counter = cpu.bus.fetch_u16(0xFCCC);
+        cpu
     }
 
     pub fn reset(&mut self) {
@@ -106,7 +108,7 @@ impl CPU {
 
     pub fn run(&mut self) {
         loop {
-            let (cycles, bytes_consumed, should_break) = self.tick();
+            let (_, _, should_break) = self.tick();
             if should_break {
                 break;
             }
@@ -271,7 +273,7 @@ impl CPU {
             }
 
             /////////////////////////
-            /// Illegal Opcodes
+            // Illegal Opcodes
             /////////////////////////
 
             0xC7 | 0xD7 | 0xCF | 0xDF | 0xDB | 0xD3 | 0xC3 => {
@@ -286,9 +288,7 @@ impl CPU {
             }
             0x27 | 0x37 | 0x2F | 0x3F | 0x3B | 0x33 | 0x23 => {
                 // RLA => ROL oper + AND oper
-                self.rol(opcode);
-                self.and(opcode);
-                self.extra_cycles = 0;
+                self.rla(opcode);
             }
             0x07 | 0x17 | 0x0F | 0x1F | 0x1B | 0x03 | 0x13 => {
                 // SLO => ASL oper + ORA oper
@@ -296,9 +296,7 @@ impl CPU {
             }
             0x47 | 0x57 | 0x4F | 0x5F | 0x5B | 0x43 | 0x53 => {
                 // SRE => LSR oper + EOR oper
-                self.lsr(opcode);
-                self.eor(opcode);
-                self.extra_cycles = 0;
+                self.sre(opcode);
             }
             0x67 | 0x77 | 0x6F | 0x7F | 0x7B | 0x63 | 0x73 => {
                 // RRA => ROR oper + ADC oper
@@ -383,15 +381,15 @@ impl CPU {
             | 0x7A | 0xDA | 0xFA => {
                 // Various single and multiple-byte NOPs
             }
-            _ => {
-                panic!(
-                    "{}",
-                    format!(
-                        "This should be impossible to reach. (Unknown opcode: ${:02X})",
-                        code
-                    )
-                )
-            }
+            _ => {}
+            //     panic!(
+            //         "{}",
+            //         format!(
+            //             "This should be impossible to reach. (Unknown opcode: ${:02X})",
+            //             code
+            //         )
+            //     )
+            // }
         }
 
         // Tick the bus for opcode cycles. Add any extra cycles from boundary_crosses and other special cases
@@ -573,11 +571,11 @@ impl CPU {
         self.stack_push_u16(self.program_counter);
 
         let mut status_flags = Flags::from_bits_truncate(self.status.bits());
-        status_flags.set(Flags::BREAK, interrupt.b_flag_mask & 0b0001_0000 == 1);
-        status_flags.set(Flags::BREAK2, interrupt.b_flag_mask & 0b0010_0000 == 1);
+        status_flags.set(Flags::BREAK, interrupt.b_flag_mask & 0b0001_0000 != 0);
+        status_flags.set(Flags::BREAK2, interrupt.b_flag_mask & 0b0010_0000 != 0);
         self.stack_push(status_flags.bits());
 
-        self.status.set(Flags::INTERRUPT_DISABLE, true); // Disable interrupts after handling one
+        self.status.set(Flags::INTERRUPT_DISABLE, true); // Disable interrupts while handling one
 
         self.extra_cycles += interrupt.cpu_cycles;
         let jmp_address = self.fetch_u16(interrupt.vector_addr);
@@ -747,7 +745,7 @@ impl CPU {
         }
     }
 
-    fn lsr(&mut self, opcode: &opcodes::Opcode) {
+    fn lsr(&mut self, opcode: &opcodes::Opcode) -> u8 {
         // Logical Shift Right into carry
         match opcode.mode {
             AddressingMode::Immediate => {
@@ -755,6 +753,7 @@ impl CPU {
                 let value = self.register_a >> 1;
                 self.set_register_a(value);
                 self.status.set(Flags::CARRY, carry);
+                value
             }
             _ => {
                 let (address, _) = self.get_parameter_address(&opcode.mode);
@@ -764,11 +763,12 @@ impl CPU {
                 self.store_byte(address, value);
                 self.update_zero_and_negative_flags(value);
                 self.status.set(Flags::CARRY, carry);
+                value
             }
         }
     }
 
-    fn rol(&mut self, opcode: &opcodes::Opcode) {
+    fn rol(&mut self, opcode: &opcodes::Opcode) -> u8 {
         // Rotate Left through carry flag
         let curr_carry = self.status.contains(Flags::CARRY);
         match opcode.mode {
@@ -776,6 +776,7 @@ impl CPU {
                 let (value, new_carry) = rotate_value_left(self.register_a, curr_carry);
                 self.set_register_a(value);
                 self.status.set(Flags::CARRY, new_carry);
+                value
             }
             _ => {
                 let (address, _) = self.get_parameter_address(&opcode.mode);
@@ -784,6 +785,7 @@ impl CPU {
                 self.store_byte(address, result);
                 self.update_zero_and_negative_flags(result);
                 self.status.set(Flags::CARRY, new_carry);
+                result
             }
         }
     }
@@ -903,14 +905,27 @@ impl CPU {
         self.set_program_counter(address);
     }
 
+    // fn rti(&mut self) {
+    //     // Return from Interrupt
+    //     // NOTE: Note that unlike RTS, the return address on the stack is the actual address rather than the address-1
+    //     // self.plp(); // pop stack into status flags
+    //
+    //     let return_address = self.stack_pop_u16();
+    //     self.set_program_counter(return_address);
+    //     self.status.set(Flags::BREAK, false);
+    //     // self.status.set(Flags::BREAK2, true);
+    // }
     fn rti(&mut self) {
         // Return from Interrupt
-        // NOTE: Note that unlike RTS, the return address on the stack is the actual address rather than the address-1
-        self.plp(); // pop stack into status flags
-        let return_address = self.stack_pop_u16();
+        let return_status = self.stack_pop(); // Restore status flags first
+        let return_address = self.stack_pop_u16(); // Restore PC
+
         self.set_program_counter(return_address);
-        self.status.set(Flags::BREAK, false);
-        self.status.set(Flags::BREAK2, true);
+
+        let mut restored_flags = Flags::from_bits_truncate(return_status);
+        restored_flags.set(Flags::BREAK, false);  // BRK flag is always cleared after RTI
+        restored_flags.set(Flags::BREAK2, true);  // BRK flag is always cleared after RTI
+        self.status = restored_flags;
     }
 
     fn bne(&mut self, opcode: &opcodes::Opcode) {
@@ -1038,11 +1053,30 @@ impl CPU {
         self.status.set(Flags::OVERFLOW, bit6 ^ bit5);
     }
 
+    // fn brk(&mut self) {
+    //     if !self.status.contains(Flags::INTERRUPT_DISABLE) {
+    //         self.interrupt(interrupts::BRK);
+    //     }
+    // }
+
     fn brk(&mut self) {
         // BRK - Software-defined Interrupt
-        if !self.status.contains(Flags::INTERRUPT_DISABLE) {
-            self.interrupt(interrupts::BRK);
-        }
+        self.program_counter = self.program_counter.wrapping_add(1); // BRK has an implied operand, so increment PC before pushing
+        self.interrupt(interrupts::BRK);
+    }
+
+    fn sre(&mut self, opcode: &opcodes::Opcode) {
+        // SRE => LSR oper + EOR oper
+        let result = self.lsr(opcode); // LSR
+        self.set_register_a(self.register_a ^ result); // A ^ M -> A
+        self.extra_cycles = 0;
+    }
+
+    fn rla(&mut self, opcode: &opcodes::Opcode) {
+        // RLA => ROL oper + AND oper
+        let result = self.rol(opcode); // ROL
+        self.set_register_a(self.register_a & result); // M & A -> A
+        self.extra_cycles = 0;
     }
 
     fn las(&mut self, opcode: &opcodes::Opcode) {

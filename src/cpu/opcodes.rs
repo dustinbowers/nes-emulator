@@ -1,4 +1,4 @@
-use crate::cpu::processor::AddressingMode;
+use super::processor::AddressingMode;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 
@@ -30,7 +30,10 @@ impl Opcode {
 
 #[rustfmt::skip]
 const OPCODES: &[Opcode] = &[
+    // Software-defined interrupt
     Opcode::new(0x00, "BRK", 1, 7, AddressingMode::None),
+
+    // General NOP
     Opcode::new(0xEA, "NOP", 1, 2, AddressingMode::None),
 
     // Transfers
@@ -229,9 +232,10 @@ const OPCODES: &[Opcode] = &[
 
 
     /////////////////////////
-    /// Unofficial Opcodes
+    // Unofficial Opcodes
     /////////////////////////
 
+    // Various NOPs
     Opcode::new(0x80, "*NOP", 2, 2, AddressingMode::Immediate),
     Opcode::new(0x82, "*NOP", 2, 2, AddressingMode::Immediate),
     Opcode::new(0x89, "*NOP", 2, 2, AddressingMode::Immediate),
@@ -271,8 +275,6 @@ const OPCODES: &[Opcode] = &[
     Opcode::new(0x7A, "*NOP", 1,2, AddressingMode::None),
     Opcode::new(0xDA, "*NOP", 1,2, AddressingMode::None),
     Opcode::new(0xFA, "*NOP", 1,2, AddressingMode::None),
-    // Opcode::new(0xea, "NOP", 1,2, AddressingMode::None),
-
 
     // DCP => DEC oper + CMP oper
     Opcode::new(0xc7, "*DCP", 2, 5, AddressingMode::ZeroPage),

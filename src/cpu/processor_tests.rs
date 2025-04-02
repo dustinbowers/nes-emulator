@@ -336,4 +336,38 @@ mod test {
             )
         );
     }
+
+    #[test]
+    fn test_write_to_ppu_vram() {
+        let program = &[
+            0xa9, 0x23, // LDA #$23    ; High byte of PPU address (0x23XX)
+            0x8d, 0x06, 0x20, // STA $2006   ; Write high byte to PPUADDR
+            0xa9, 0x45, // LDA #$45    ; Low byte of PPU address (0x2345)
+            0x8d, 0x06, 0x20, // STA $2006   ; Write low byte to PPUADDR
+            0xa9, 0x99, // LDA #$99    ; Data to write to PPU
+            0x8d, 0x07, 0x20, // STA $2007   ; Store into PPUDATA
+            0xa9, 0xEF, // LDA #$EF    ; Data to write to PPU
+            0x8d, 0x07, 0x20, // STA $2007   ; Store into PPUDATA
+            0x02, // JAM (stop execution)
+        ];
+
+        let rom = Rom::new_custom(program.to_vec(), vec![], 0, Mirroring::Vertical);
+        let bus = Bus::new(rom);
+        let mut cpu = CPU::new(bus);
+        cpu.run();
+
+        // Verify internal PPU address register is set to $2345
+        let got = cpu.bus.ppu.addr_register.get();
+        let want = 0x2345 + 2; // PPU auto-increments the address after write
+        assert_eq!(got, want, "{}",
+        format!("PPU addr_register incorrect. Got: ${:04X}, Want: ${:04X}",
+        got, want));
+
+        // The VRAM address we wrote to: 0x2345 should contain 0x99
+        let ppu_vram = &cpu.bus.ppu.ram;
+        let mirrored_addr = 0x2345 & 0x2FFF; // VRAM mirroring
+        let ram_index = mirrored_addr - 0x2000;
+        assert_eq!(ppu_vram[ram_index], 0x99);
+        assert_eq!(ppu_vram[ram_index+1], 0xEF);
+    }
 }

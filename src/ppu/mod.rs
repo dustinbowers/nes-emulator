@@ -4,7 +4,7 @@ mod mask_register;
 mod scroll_register;
 mod status_register;
 
-use crate::ppu::address_register::AddrRegister;
+use crate::ppu::address_register::AddressRegister;
 use crate::ppu::control_register::ControlRegister;
 use crate::ppu::mask_register::MaskRegister;
 use crate::ppu::scroll_register::ScrollRegister;
@@ -13,21 +13,23 @@ use crate::rom::Mirroring;
 
 const OAM_SIZE: usize = 256;
 const RAM_SIZE: usize = 2048;
+const NAME_TABLE_SIZE: usize = 0x400; // Size of each nametable (1 KB)
+const PALETTE_SIZE: usize = 0x20; // Size of the palette memory
 
 pub struct PPU {
     pub chr_rom: Vec<u8>,
-    pub palette_table: [u8; 32],
-    pub ram: [u8; 2048],
+    pub palette_table: [u8; PALETTE_SIZE],
+    pub ram: [u8; RAM_SIZE],
 
     pub oam_addr: u8,
     pub oam_data: [u8; 256], // Object Attribute Memory
 
     // Registers
-    addr_register: AddrRegister,
+    pub addr_register: AddressRegister,
     pub ctrl_register: ControlRegister,
-    mask_register: MaskRegister,
-    scroll_register: ScrollRegister,
-    status_register: StatusRegister,
+    pub mask_register: MaskRegister,
+    pub scroll_register: ScrollRegister,
+    pub status_register: StatusRegister,
 
     internal_data: u8,
     pub cycles: usize,
@@ -46,7 +48,7 @@ impl PPU {
             oam_addr: 0,
             oam_data: [0; OAM_SIZE],
             palette_table: [0; 32],
-            addr_register: AddrRegister::new(),
+            addr_register: AddressRegister::new(),
             ctrl_register: ControlRegister::from_bits_truncate(0b0),
             mask_register: MaskRegister::new(),
             scroll_register: ScrollRegister::new(),
@@ -105,6 +107,11 @@ impl PPU {
         for x in data.iter() {
             self.oam_data[self.oam_addr as usize] = *x;
             self.oam_addr = self.oam_addr.wrapping_add(1);
+            // TODO: remove
+            if *x > 0 {
+                // println!("writing OAM via DMA @ ${:04X}\n{:?}", self.oam_addr, data);
+                // panic!();
+            }
         }
     }
 
@@ -117,6 +124,7 @@ impl PPU {
     }
 
     pub fn set_ppu_addr(&mut self, value: u8) {
+        println!("ppu.set_ppu_addr(${:02X})", value);
         self.addr_register.update(value);
     }
     pub fn write_to_ctrl(&mut self, value: u8) {
@@ -141,42 +149,83 @@ impl PPU {
             .increment(self.ctrl_register.increment_ram_addr());
     }
 
+    // pub fn read_data(&mut self) -> u8 {
+    //     let addr = self.addr_register.get();
+    //     self.increment_ram_addr();
+    //
+    //     match addr {
+    //         0..=0x1fff => {
+    //             let result = self.internal_data;
+    //             self.internal_data = self.chr_rom[addr as usize];
+    //             result
+    //         }
+    //         0x2000..=0x2fff => {
+    //             let result = self.internal_data;
+    //             self.internal_data = self.ram[self.mirror_ram_addr(addr) as usize];
+    //             result
+    //         }
+    //         0x3000..=0x3eff => panic!("Invalid address ${:04X}. (0x3000..0x3EFF is invalid)", addr),
+    //
+    //         // $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
+    //         0x3F10 | 0x3F14 | 0x3F18 | 0x3F1C => {
+    //             let mirror_address = addr - 0x10;
+    //             self.palette_table[(mirror_address - 0x3F00) as usize]
+    //         }
+    //         0x3F00..=0x3FFF => self.palette_table[(addr - 0x3F00) as usize],
+    //         _ => panic!("Invalid access to mirrored space ${:04X}", addr),
+    //
+    //     }
+    // }
     pub fn read_data(&mut self) -> u8 {
         let addr = self.addr_register.get();
         self.increment_ram_addr();
 
         match addr {
-            0..=0x1fff => {
+            0..=0x1FFF => {
                 let result = self.internal_data;
-                self.internal_data = self.chr_rom[addr as usize];
+                self.internal_data = *self.chr_rom.get(addr as usize).unwrap_or(&0);
                 result
             }
-            0x2000..=0x2fff => {
+            0x2000..=0x2FFF => {
                 let result = self.internal_data;
                 self.internal_data = self.ram[self.mirror_ram_addr(addr) as usize];
                 result
             }
-            0x3000..=0x3eff => panic!("Invalid address ${:04X}. (0x3000..0x3EFF is invalid)", addr),
-
-            // $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
+            0x3000..=0x3EFF => {
+                let mirrored_addr = addr - 0x1000; // Mirror 0x3000-0x3EFF to 0x2000-0x2EFF
+                let result = self.internal_data;
+                self.internal_data = self.ram[self.mirror_ram_addr(mirrored_addr) as usize];
+                result
+            }
             0x3F10 | 0x3F14 | 0x3F18 | 0x3F1C => {
                 let mirror_address = addr - 0x10;
                 self.palette_table[(mirror_address - 0x3F00) as usize]
             }
-            0x3F00..=0x3FFF => self.palette_table[(addr - 0x3F00) as usize],
+            0x3F00..=0x3FFF => {
+                self.palette_table[(addr - 0x3F00) as usize] // No buffering for palette reads
+            }
             _ => panic!("Invalid access to mirrored space ${:04X}", addr),
-
         }
     }
 
+
     pub fn write_to_data(&mut self, value: u8) {
         let addr = self.addr_register.get();
+        self.increment_ram_addr();
+
         match addr {
-            0..=0x1FFF => println!("Invalid PPU write to chr rom space ${:04X}", addr),
+            0..=0x1FFF => {
+                // TODO: some cartridges have CHR_RAM that is writable
+                println!("Invalid PPU write to chr rom space ${:04X}", addr)
+            },
             0x2000..=0x2FFF => {
                 self.ram[self.mirror_ram_addr(addr) as usize] = value;
+                // self.ram[addr as usize] = value;
             }
-            0x3000..=0x3EFF => panic!("Invalid PPU write to address ${:04X}", addr),
+            0x3000..=0x3EFF => {
+                let mirrored_addr = self.mirror_ram_addr(addr);
+                self.ram[mirrored_addr as usize] = value;
+            }
 
             // $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
             0x3F10 | 0x3F14 | 0x3F18 | 0x3F1C => {
@@ -188,22 +237,139 @@ impl PPU {
             }
             _ => panic!("unexpected access to mirrored space {}", addr),
         }
-        self.increment_ram_addr();
     }
 
+    pub fn read_bytes_raw(&mut self, address: usize, size: usize) -> Vec<u8> {
+        self.ram[address..=address+size].to_vec()
+    }
+
+    // pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
+    //     // Horizontal:          Vertical:
+    //     //   [ A ] [ a ]          [ A ] [ B ]
+    //     //   [ B ] [ b ]          [ a ] [ b ]
+    //     let mirrored_ram = addr & 0b0010_1111_1111_1111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
+    //     let ram_index = mirrored_ram - 0x2000; // to ram index
+    //     let name_table = ram_index / 0x400; // to the name table index
+    //     match (&self.mirroring, name_table) {
+    //         (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800,
+    //         (Mirroring::Horizontal, 1) => ram_index - 0x400,
+    //         (Mirroring::Horizontal, 2) => ram_index - 0x400,
+    //         (Mirroring::Horizontal, 3) => ram_index - 0x800,
+    //         _ => ram_index,
+    //     }
+    // }
+
+    // pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
+    //     // Mirror addresses from 0x3000-0x3EFF down to 0x2000-0x2EFF
+    //     let mirrored_ram = addr & 0b0010_1111_1111_1111;
+    //
+    //     // Handle palette memory mirroring ($3F00-$3FFF)
+    //     if addr >= 0x3F00 {
+    //         let mirrored_addr = addr & 0x1F; // Palette is only 32 bytes
+    //         if mirrored_addr == 0x10 || mirrored_addr == 0x14 || mirrored_addr == 0x18 || mirrored_addr == 0x1C {
+    //             return 0x3F00 + (mirrored_addr - 0x10);
+    //         }
+    //         return 0x3F00 + mirrored_addr;
+    //     }
+    //
+    //     let ram_index = mirrored_ram - 0x2000; // Convert to nametable RAM index
+    //     let name_table = ram_index / NAME_TABLE_SIZE as u16; // Determine which nametable this falls into
+    //
+    //     match (&self.mirroring, name_table) {
+    //         (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800, // NT 2 -> NT 0, NT 3 -> NT 1
+    //         (Mirroring::Horizontal, 2) => ram_index - 0x800, // NT 2 -> NT 0
+    //         (Mirroring::Horizontal, 3) => ram_index - 0x400, // NT 3 -> NT 1
+    //         _ => ram_index,
+    //     }
+    // }
+
+    // pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
+    //     // Mirror addresses from 0x3000-0x3EFF down to 0x2000-0x2EFF
+    //     let mirrored_ram = addr & 0b0010_1111_1111_1111;
+    //
+    //     // Handle palette memory mirroring ($3F00-$3FFF)
+    //     if addr >= 0x3F00 {
+    //         let mirrored_addr = addr & 0x1F; // Palette is only 32 bytes
+    //         if mirrored_addr & 0x03 == 0 { // Universal background color mirroring
+    //             return 0x3F00;
+    //         }
+    //         return 0x3F00 + mirrored_addr;
+    //     }
+    //
+    //     let ram_index = mirrored_ram - 0x2000; // Convert to nametable RAM index
+    //     let name_table = ram_index / NAME_TABLE_SIZE as u16; // Determine which nametable this falls into
+    //
+    //     let mirrored_index = match (&self.mirroring, name_table) {
+    //         (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800, // NT 2 -> NT 0, NT 3 -> NT 1
+    //         (Mirroring::Horizontal, 2) => ram_index - 0x800, // NT 2 -> NT 0
+    //         (Mirroring::Horizontal, 3) => ram_index - 0x400, // NT 3 -> NT 1
+    //         _ => ram_index,
+    //     };
+    //
+    //     0x2000 + mirrored_index // Convert back to PPU address
+    // }
+
     pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
-        // Horizontal:          Vertical:
-        //   [ A ] [ a ]          [ A ] [ B ]
-        //   [ B ] [ b ]          [ a ] [ b ]
-        let mirrored_ram = addr & 0b0010_1111_1111_1111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
-        let ram_index = mirrored_ram - 0x2000; // to ram index
-        let name_table = ram_index / 0x400; // to the name table index
+        let mirrored_vram = addr & 0b10111111111111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
+        let vram_index = mirrored_vram - 0x2000; // to vram vector
+        let name_table = vram_index / 0x400;
         match (&self.mirroring, name_table) {
-            (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800,
-            (Mirroring::Horizontal, 1) => ram_index - 0x400,
-            (Mirroring::Horizontal, 2) => ram_index - 0x400,
-            (Mirroring::Horizontal, 3) => ram_index - 0x800,
-            _ => ram_index,
+            (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => vram_index - 0x800,
+            (Mirroring::Horizontal, 2) => vram_index - 0x400,
+            (Mirroring::Horizontal, 1) => vram_index - 0x400,
+            (Mirroring::Horizontal, 3) => vram_index - 0x800,
+            _ => vram_index,
         }
+    }
+
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_empty_ppu() -> PPU {
+        PPU::new(vec![0; 4096], Mirroring::Vertical)
+    }
+
+    #[test]
+    fn test_write_chr_rom_space() {
+        let mut ppu = create_empty_ppu();
+        ppu.write_to_data(0x55);
+        // Expecting no change in CHR ROM since it's read-only (unless CHR RAM is supported)
+        assert_ne!(ppu.chr_rom[0], 0x55);
+    }
+
+    #[test]
+    fn test_write_nametable_ram() {
+        let mut ppu = create_empty_ppu();
+        ppu.addr_register.set(0x2005);
+        ppu.write_to_data(0xAB);
+        assert_eq!(ppu.ram[ppu.mirror_ram_addr(0x2005) as usize], 0xAB);
+    }
+
+    #[test]
+    fn test_write_mirrored_nametable_ram() {
+        let mut ppu = create_empty_ppu();
+        ppu.addr_register.set(0x3005);
+        ppu.write_to_data(0xCD);
+        assert_eq!(ppu.ram[ppu.mirror_ram_addr(0x3005) as usize], 0xCD);
+    }
+
+    #[test]
+    fn test_write_palette_table_direct() {
+        let mut ppu = create_empty_ppu();
+        ppu.addr_register.set(0x3F00);
+        ppu.write_to_data(0x12);
+        assert_eq!(ppu.palette_table[0], 0x12);
+    }
+
+    #[test]
+    fn test_write_palette_table_mirrored() {
+        let mut ppu = create_empty_ppu();
+        ppu.addr_register.set(0x3F10);
+        ppu.write_to_data(0x34);
+        assert_eq!(ppu.palette_table[0], 0x34); // Should be mirrored to 0x3F00
     }
 }

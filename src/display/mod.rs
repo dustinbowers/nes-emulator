@@ -3,12 +3,11 @@ pub mod frame;
 pub mod consts;
 pub mod render;
 
-use color_map::ColorMap;
 use consts::{PIXEL_HEIGHT, PIXEL_WIDTH};
 use frame::Frame;
 
 use macroquad::prelude::draw_rectangle;
-use crate::display::consts::{FRAME_COLS, FRAME_ROWS};
+use consts::{FRAME_COLS, FRAME_ROWS};
 
 pub type Screen = Vec<Vec<u8>>;
 

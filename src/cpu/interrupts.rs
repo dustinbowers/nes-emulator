@@ -24,6 +24,6 @@ pub const NMI: Interrupt = Interrupt {
 pub const BRK: Interrupt = Interrupt {
     interrupt_type: InterruptType::BRK,
     vector_addr: 0xFFFE, // BRK address vector lives at $FFFE
-    b_flag_mask: 0b0011_0000,
-    cpu_cycles: 1,
+    b_flag_mask: 0b0011_0000, // TODO: i think this is supposed to be 0b0010_0000
+    cpu_cycles: 0,
 };
