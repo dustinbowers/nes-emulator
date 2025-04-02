@@ -54,6 +54,10 @@ async fn play_rom(rom_path: &str) {
     let bus = Bus::new(rom);
     let mut cpu = CPU::new(bus);
 
+    if rom_path.contains("nestest.nes") {
+        cpu.program_counter = 0xC000;
+    }
+
     // println!("CHR_ROM sum: {:#?}", cpu.bus.ppu.chr_rom);
     let mut frame = Frame::new();
     loop {
@@ -88,51 +92,6 @@ async fn play_rom(rom_path: &str) {
         clear_background(RED);
         draw_frame(&frame);
 
-        // Debug overlays
-        let ram_px_size = 3;
-        for (i, v) in cpu.bus.cpu_ram.data.iter().enumerate() {
-            let x = i % 32 * ram_px_size + 400;
-            let y = i / 32 * ram_px_size + 60;
-            draw_rectangle(x as f32, y as f32, ram_px_size as f32, ram_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
-        }
-
-        let ram_px_size = 2;
-        for (i, v) in cpu.bus.ppu.ram.iter().enumerate() {
-            let x = i % 32 * ram_px_size;
-            let y = i / 32 * ram_px_size + 60;
-
-            draw_rectangle(x as f32, y as f32, ram_px_size as f32, ram_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
-        }
-
-        let oam_data_px_size = 2;
-        for (i, v) in cpu.bus.ppu.oam_data.iter().enumerate() {
-            let x = i % 32 * oam_data_px_size;
-            let y = i / 32 * oam_data_px_size + 200;
-            draw_rectangle(x as f32, y as f32, oam_data_px_size as f32, oam_data_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
-        }
-
-        let chr_data_px_size = 2;
-        for (i, v) in cpu.bus.ppu.chr_rom.iter().enumerate() {
-            let x = i % 64 * chr_data_px_size + 100;
-            let y = i / 64 * chr_data_px_size + 40;
-            draw_rectangle(x as f32, y as f32, chr_data_px_size as f32, chr_data_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
-        }
-
-        let prog_rom_px_size = 2;
-        for (i, v) in cpu.bus.prg_rom.iter().enumerate() {
-            let x = i % 64 * prog_rom_px_size + 230;
-            let y = i / 64 * prog_rom_px_size + 40;
-            draw_rectangle(x as f32, y as f32, prog_rom_px_size as f32, prog_rom_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
-        }
-
-        let palette_table_px_size = 5;
-        for (i, v) in cpu.bus.ppu.palette_table.iter().enumerate() {
-            let x = i % 32 * palette_table_px_size + 300;
-            let y = i / 32 * palette_table_px_size + 32;
-            draw_rectangle(x as f32, y as f32, palette_table_px_size as f32, palette_table_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
-        }
-
-        draw_rectangle(0f32, 0f32, palette_table_px_size as f32, palette_table_px_size as f32, *COLOR_MAP.get_color((cpu.bus.last_fetched_byte % 53) as usize));
 
         // Render stats
         let status_str = format!(
@@ -148,6 +107,54 @@ async fn play_rom(rom_path: &str) {
         next_frame().await;
 
     }
+}
+
+fn draw_debug_overlays(cpu: &CPU) {
+    // Debug overlays
+    let ram_px_size = 3;
+    for (i, v) in cpu.bus.cpu_ram.data.iter().enumerate() {
+        let x = i % 32 * ram_px_size + 400;
+        let y = i / 32 * ram_px_size + 60;
+        draw_rectangle(x as f32, y as f32, ram_px_size as f32, ram_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
+    }
+
+    let ram_px_size = 2;
+    for (i, v) in cpu.bus.ppu.ram.iter().enumerate() {
+        let x = i % 32 * ram_px_size;
+        let y = i / 32 * ram_px_size + 60;
+
+        draw_rectangle(x as f32, y as f32, ram_px_size as f32, ram_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
+    }
+
+    let oam_data_px_size = 2;
+    for (i, v) in cpu.bus.ppu.oam_data.iter().enumerate() {
+        let x = i % 32 * oam_data_px_size;
+        let y = i / 32 * oam_data_px_size + 200;
+        draw_rectangle(x as f32, y as f32, oam_data_px_size as f32, oam_data_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
+    }
+
+    let chr_data_px_size = 2;
+    for (i, v) in cpu.bus.ppu.chr_rom.iter().enumerate() {
+        let x = i % 64 * chr_data_px_size + 100;
+        let y = i / 64 * chr_data_px_size + 40;
+        draw_rectangle(x as f32, y as f32, chr_data_px_size as f32, chr_data_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
+    }
+
+    let prog_rom_px_size = 2;
+    for (i, v) in cpu.bus.prg_rom.iter().enumerate() {
+        let x = i % 64 * prog_rom_px_size + 230;
+        let y = i / 64 * prog_rom_px_size + 40;
+        draw_rectangle(x as f32, y as f32, prog_rom_px_size as f32, prog_rom_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
+    }
+
+    let palette_table_px_size = 5;
+    for (i, v) in cpu.bus.ppu.palette_table.iter().enumerate() {
+        let x = i % 32 * palette_table_px_size + 300;
+        let y = i / 32 * palette_table_px_size + 32;
+        draw_rectangle(x as f32, y as f32, palette_table_px_size as f32, palette_table_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
+    }
+
+    draw_rectangle(0f32, 0f32, palette_table_px_size as f32, palette_table_px_size as f32, *COLOR_MAP.get_color((cpu.bus.last_fetched_byte % 53) as usize));
 }
 
 async fn render_sprite_banks(rom_path: &str) {

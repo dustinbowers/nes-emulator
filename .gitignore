@@ -4,3 +4,4 @@ target
 nes6502-tests/
 roms/
 *.log
+*.sh

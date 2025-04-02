@@ -5,7 +5,7 @@ use crate::Bus;
 use bitflags::bitflags;
 use std::collections::HashMap;
 
-const DEBUG: bool = true;
+const DEBUG: bool = false;
 const CPU_PC_RESET: u16 = 0x8000;
 const CPU_STACK_RESET: u8 = 0xFF;
 const CPU_STACK_BASE: u16 = 0x0100;
@@ -91,7 +91,7 @@ impl CPU {
             extra_cycles: 0,
             skip_pc_advance: false,
         };
-        // cpu.program_counter = cpu.bus.fetch_u16(0xFCCC);
+        cpu.program_counter = cpu.bus.fetch_u16(0xFFFC);
         cpu
     }
 

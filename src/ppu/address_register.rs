@@ -16,7 +16,7 @@ impl AddressRegister {
     }
 
     pub fn update(&mut self, data: u8) {
-        println!("address_register.update(${:02X}) - hi_ptr = {}, current_address = {:04X}", data, self.hi_ptr, self.get());
+        // println!("address_register.update(${:02X}) - hi_ptr = {}, current_address = {:04X}", data, self.hi_ptr, self.get());
         if self.hi_ptr {
             self.value.0 = data;
         } else {

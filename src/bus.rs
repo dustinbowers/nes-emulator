@@ -86,7 +86,7 @@ impl BusMemory for Bus {
                 0
             }
             _ => {
-                println!("Invalid fetch from ${:04X}", address);
+                // println!("Invalid fetch from ${:04X}", address);
                 self.last_fetched_byte
             }
         };
@@ -99,16 +99,18 @@ impl BusMemory for Bus {
             return;
         }
 
-        println!("bus.store_byte(${:04X}, ${:02X})", address, value);
+        // println!("bus.store_byte(${:04X}, ${:02X})", address, value);
         match address {
             CPU_RAM_START..=CPU_RAM_END => {
                 let mirrored_address = address & CPU_MIRROR_MASK;
-                println!("writing to CPU_RAM ${:04X}, mirrored to: ${:04X}", address, mirrored_address);
+                // println!("writing to CPU_RAM ${:04X}, mirrored to: ${:04X}", address, mirrored_address);
                 self.cpu_ram.write(mirrored_address as usize, value);
             }
             PPU_REGISTERS_START..=PPU_REGISTERS_END => {
                 let mirror_down_address = address & 0b0010_0000_0000_0111;
-                println!("writing to PPU ${:04X}, mirrored to: ${:04X}", address, mirror_down_address);
+                // if value != 0x00 {
+                //     println!("writing PPU ${:04X}, mirrored to: ${:04X}", address, mirror_down_address);
+                // }
                 match mirror_down_address {
                     0x2000 => self.ppu.write_to_ctrl(value),
                     0x2001 => self.ppu.write_to_mask(value),
@@ -125,7 +127,7 @@ impl BusMemory for Bus {
                 // TODO: implement APU
             }
             ROM_START..=ROM_END => {
-                panic!("{}", format!("Attempted write to ROM! (${:04X})", address))
+                println!("{}", format!("Attempted write to ROM! (${:04X})", address))
             }
 
             0x4014 => {

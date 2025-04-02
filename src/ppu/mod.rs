@@ -124,7 +124,7 @@ impl PPU {
     }
 
     pub fn set_ppu_addr(&mut self, value: u8) {
-        println!("ppu.set_ppu_addr(${:02X})", value);
+        // println!("ppu.set_ppu_addr(${:02X})", value);
         self.addr_register.update(value);
     }
     pub fn write_to_ctrl(&mut self, value: u8) {
@@ -219,11 +219,16 @@ impl PPU {
                 println!("Invalid PPU write to chr rom space ${:04X}", addr)
             },
             0x2000..=0x2FFF => {
-                self.ram[self.mirror_ram_addr(addr) as usize] = value;
+                let mirrored_addr = self.mirror_ram_addr(addr);
+                // if value != 0x00 {
+                //     println!("PPU write to VRAM at ${:04X} = ${:02X}", mirrored_addr, value);
+                // }
+                self.ram[mirrored_addr as usize] = value;
                 // self.ram[addr as usize] = value;
             }
             0x3000..=0x3EFF => {
                 let mirrored_addr = self.mirror_ram_addr(addr);
+                // println!("** Mirroring down: PPU write to VRAM at ${:04X} = ${:02X}", mirrored_addr, value);
                 self.ram[mirrored_addr as usize] = value;
             }
 
