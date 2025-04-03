@@ -177,8 +177,13 @@ impl PPU {
     //     }
     // }
     pub fn read_data(&mut self) -> u8 {
-        let addr = self.addr_register.get();
+        let mut addr = self.addr_register.get();
         self.increment_ram_addr();
+
+        // Handle VRAM Mirroring (0x3000-0x3EFF → 0x2000-0x2EFF)
+        if (0x3000..=0x3EFF).contains(&addr) {
+            addr -= 0x1000;
+        }
 
         match addr {
             0..=0x1FFF => {
@@ -192,13 +197,13 @@ impl PPU {
                 result
             }
             0x3000..=0x3EFF => {
-                let mirrored_addr = addr - 0x1000; // Mirror 0x3000-0x3EFF to 0x2000-0x2EFF
                 let result = self.internal_data;
-                self.internal_data = self.ram[self.mirror_ram_addr(mirrored_addr) as usize];
+                self.internal_data = self.ram[self.mirror_ram_addr(addr) as usize];
                 result
             }
             0x3F10 | 0x3F14 | 0x3F18 | 0x3F1C => {
-                let mirror_address = addr - 0x10;
+                // let mirror_address = addr - 0x10;
+                let mirror_address = addr & 0x3F0F;
                 self.palette_table[(mirror_address - 0x3F00) as usize]
             }
             0x3F00..=0x3FFF => {
@@ -248,16 +253,42 @@ impl PPU {
         self.ram[address..=address+size].to_vec()
     }
 
-    pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
-        let mirrored_ram = addr & 0x2FFF; // Correct bitmask for VRAM mirroring
-        let ram_index = mirrored_ram - 0x2000; // Map to VRAM index (0x000 - 0xFFF)
-        let name_table = (ram_index / 0x400) % 4; // Ensure name_table is within [0,3]
+    // pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
+    //     let mirrored_ram = addr & 0x2FFF; // Correct bitmask for VRAM mirroring
+    //     let ram_index = mirrored_ram - 0x2000; // Map to VRAM index (0x000 - 0xFFF)
+    //     let name_table = (ram_index / 0x400) % 4; // Ensure name_table is within [0,3]
+    //
+    //     match (&self.mirroring, name_table) {
+    //         (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800,
+    //         (Mirroring::Horizontal, 2) => ram_index - 0x800,
+    //         (Mirroring::Horizontal, 3) => ram_index - 0x400,
+    //         _ => ram_index, // Covers Vertical (0,1) and Horizontal (0,1)
+    //     }
+    // }
 
+    // pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
+    //     let mirrored_ram = addr & 0x3FFF; // Ensures mirroring range
+    //     let ram_index = mirrored_ram - 0x2000; // Map to VRAM index (0x000 - 0xFFF)
+    //     let name_table = (ram_index / 0x400) % 4; // Ensure name_table is within [0,3]
+    //
+    //     match (&self.mirroring, name_table) {
+    //         (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800,
+    //         (Mirroring::Horizontal, 2) => ram_index - 0x400, // Maps table 2 → 0
+    //         (Mirroring::Horizontal, 3) => ram_index - 0x400, // Maps table 3 → 1
+    //         _ => ram_index, // Covers default cases (Vertical 0,1 and Horizontal 0,1)
+    //     }
+    // }
+
+    pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
+        let mirrored_ram = addr & 0b10111111111111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
+        let ram_index = mirrored_ram - 0x2000; // to vram vector
+        let name_table = ram_index / 0x400;
         match (&self.mirroring, name_table) {
             (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800,
-            (Mirroring::Horizontal, 2) => ram_index - 0x800,
-            (Mirroring::Horizontal, 3) => ram_index - 0x400,
-            _ => ram_index, // Covers Vertical (0,1) and Horizontal (0,1)
+            (Mirroring::Horizontal, 2) => ram_index - 0x400,
+            (Mirroring::Horizontal, 1) => ram_index - 0x400,
+            (Mirroring::Horizontal, 3) => ram_index - 0x800,
+            _ => ram_index,
         }
     }
 }
