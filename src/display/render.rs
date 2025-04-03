@@ -26,7 +26,7 @@ pub fn render(ppu: &PPU, frame: &mut Frame) {
             let lower = tile[y + 8];
 
             for x in (0..8).rev() {
-                let value = ((lower >> x) & 1) << 1 | ((upper >> x) & 1); // Build pixel value
+                let value = ((lower >> (7-x)) & 1) << 1 | ((upper >> (7-x)) & 1); // Build pixel value
                 let color = match value {
                     0 => COLOR_MAP.get_color(palette[0] as usize),
                     1 => COLOR_MAP.get_color(palette[1] as usize),

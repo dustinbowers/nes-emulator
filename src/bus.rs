@@ -14,7 +14,7 @@ const PPU_MIRROR_MASK: u16 = 0b0010_0000_0000_0111;
 const ROM_START: u16 = 0x8000;
 const ROM_END: u16 = 0xFFFF;
 
-pub struct Bus {
+pub struct Bus<'call> {
     pub cpu_ram: HeapMemory<u8>,
     pub cycles: usize,
     pub prg_rom: Vec<u8>,
@@ -25,6 +25,8 @@ pub struct Bus {
     // Some games expect an "open-bus": When reading from invalid addresses,
     // the bus should return its last-read value
     pub last_fetched_byte: u8,
+
+    gameloop_callback: Box<dyn FnMut(&PPU) + 'call>,
 }
 
 pub trait BusMemory {
@@ -44,7 +46,7 @@ pub trait BusMemory {
     }
 }
 
-impl BusMemory for Bus {
+impl BusMemory for Bus<'_> {
     type DisableMirroring = bool;
 
     fn fetch_byte(&mut self, address: u16) -> u8 {
@@ -157,12 +159,14 @@ impl BusMemory for Bus {
     }
 }
 
-impl Bus {
-    pub fn new(rom: Rom) -> Self {
+impl<'a> Bus<'a> {
+    pub fn new<'call, F>(rom: Rom, callback: F) -> Bus<'call>
+    where F: FnMut(&PPU) + 'call
+    {
         let prg_rom = rom.prg_rom.clone();
         let ppu = PPU::new(rom.chr_rom, rom.screen_mirroring);
 
-        Self {
+        Bus {
             cpu_ram: HeapMemory::new(CPU_RAM_SIZE, 0u8),
             cycles: 0,
             prg_rom,
@@ -170,6 +174,7 @@ impl Bus {
             disable_mirroring: false,
             ready_to_render: false,
             last_fetched_byte: 0,
+            gameloop_callback: Box::from(callback),
         }
     }
 
@@ -182,15 +187,16 @@ impl Bus {
     pub fn tick(&mut self, cycles: usize) {
         self.cycles += cycles;
 
-        let pre_nmi = self.ppu.get_nmi_status();
+        let pre_nmi = self.ppu.nmi_interrupt.is_some();
         self.ppu.tick(cycles * 3);
-        let post_nmi = self.ppu.get_nmi_status();
+        let post_nmi = self.ppu.nmi_interrupt.is_some();
         if !pre_nmi && post_nmi {
-            self.ready_to_render = true
+            self.ready_to_render = true;
+            (self.gameloop_callback)(&self.ppu);
         }
     }
 
-    pub fn get_nmi_status(&mut self) -> bool {
+    pub fn get_nmi_status(&mut self) -> Option<u8> {
         self.ppu.get_nmi_status()
     }
 
@@ -232,21 +238,21 @@ mod tests {
     #[test]
     fn test_bus_fetch_and_store_byte() {
         let rom = Rom::empty();
-        let mut bus = Bus::new(rom);
+        let mut bus = Bus::new(rom, |_| {});
 
         // Store a byte and verify retrieval
         bus.store_byte(5, 42);
         assert_eq!(bus.fetch_byte(5), 42);
     }
 
-    fn setup_bus(prg_rom: Vec<u8>) -> Bus {
+    fn setup_bus(prg_rom: Vec<u8>) -> Bus<'static> {
         let rom = Rom {
             prg_rom,
             chr_rom: vec![0; 8192],
             mapper: 0,
             screen_mirroring: Mirroring::Vertical,
         };
-        Bus::new(rom)
+        Bus::new(rom, |_| {} )
     }
 
     #[test]
@@ -390,14 +396,14 @@ mod tests {
 
         // Disable NMI initially
         bus.ppu.write_to_ctrl(0x00);
-        assert_eq!(bus.ppu.get_nmi_status(), false);
+        assert_eq!(bus.ppu.get_nmi_status().unwrap(), 0);
 
         // Enable NMI generation
         bus.ppu.write_to_ctrl(0b1000_0000);
         for i in 1..29781 { // Simulate a full frame
             bus.tick(1);
         }
-        assert_eq!(bus.get_nmi_status(), true);
+        assert_eq!(bus.get_nmi_status().unwrap(), 1);
     }
 
     #[test]

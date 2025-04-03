@@ -54,8 +54,8 @@ pub enum AddressingMode {
     None,
 }
 
-pub struct CPU {
-    pub bus: Bus,
+pub struct CPU<'a> {
+    pub bus: Bus<'a>,
 
     pub register_a: u8,
     pub register_x: u8,
@@ -70,7 +70,7 @@ pub struct CPU {
     pub tracer: Tracer,
 }
 
-impl BusMemory for CPU {
+impl BusMemory for CPU<'_> {
     type DisableMirroring = bool; // only used in Bus for testing purposes
 
     fn fetch_byte(&mut self, address: u16) -> u8 {
@@ -81,7 +81,7 @@ impl BusMemory for CPU {
     }
 }
 
-impl CPU {
+impl CPU<'_> {
     pub fn new(bus: Bus) -> CPU {
         let mut cpu = CPU {
             bus,
@@ -133,7 +133,10 @@ impl CPU {
     // `tick` returns (num_cycles, bytes_consumed, is_breaking)
     pub fn tick(&mut self) -> (u8, u8, bool) {
         // Handle NMI
-        if self.bus.get_nmi_status() {
+        // if self.bus.get_nmi_status() {
+        //     self.interrupt(interrupts::NMI);
+        // }
+        if let Some(_nmi) = self.bus.get_nmi_status() {
             self.interrupt(interrupts::NMI);
         }
 

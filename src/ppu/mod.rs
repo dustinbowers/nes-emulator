@@ -34,7 +34,7 @@ pub struct PPU {
     internal_data: u8,
     pub cycles: usize,
     scanline: usize,
-    nmi_interrupt: bool,
+    pub nmi_interrupt: Option<u8>,
 
     pub mirroring: Mirroring,
 }
@@ -56,7 +56,7 @@ impl PPU {
             internal_data: 0,
             cycles: 0,
             scanline: 0,
-            nmi_interrupt: false,
+            nmi_interrupt: None,
         }
     }
     pub fn tick(&mut self, cycles: usize) {
@@ -70,14 +70,14 @@ impl PPU {
                 self.status_register.set_vblank_status(true);
                 // Trigger NMI if CPU hasn't requested a break from them
                 if self.ctrl_register.generate_vblank_nmi() {
-                    self.nmi_interrupt = true;
+                    self.nmi_interrupt = Some(1);
                 }
             }
             if self.scanline >= 262 {
                 // Exit VBLANK past scanline 262
                 self.scanline = 0;
                 self.status_register.reset_vblank_status();
-                self.nmi_interrupt = false;
+                self.nmi_interrupt = None;
             }
         }
     }
@@ -90,8 +90,8 @@ impl PPU {
         data
     }
 
-    pub fn get_nmi_status(&self) -> bool {
-        self.nmi_interrupt
+    pub fn get_nmi_status(&mut self) -> Option<u8> {
+        self.nmi_interrupt.take()
     }
 
     pub fn set_oam_addr(&mut self, value: u8) {
@@ -137,7 +137,7 @@ impl PPU {
             && self.ctrl_register.generate_vblank_nmi()
             && self.status_register.is_in_vblank()
         {
-            self.nmi_interrupt = true;
+            self.nmi_interrupt = Some(1);
         }
     }
     pub fn write_to_mask(&mut self, value: u8) {

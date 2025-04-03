@@ -49,9 +49,14 @@ async fn main() {
 
 async fn play_rom(rom_path: &str) {
 
+    let mut frame = Frame::new();
     let rom_data = std::fs::read(rom_path).expect("Error reading ROM file.");
     let rom = Rom::new(&rom_data).expect("Error parsing ROM file.");
-    let bus = Bus::new(rom);
+    let bus = Bus::new(rom, |ppu| {
+        println!("callback()");
+        // draw_frame(&frame);
+        // render(ppu, &mut frame);
+    });
     let mut cpu = CPU::new(bus);
 
     if rom_path.contains("nestest.nes") {
@@ -59,9 +64,8 @@ async fn play_rom(rom_path: &str) {
     }
 
     // println!("CHR_ROM sum: {:#?}", cpu.bus.ppu.chr_rom);
-    let mut frame = Frame::new();
     loop {
-        clear_background(LIGHTGRAY);
+        // clear_background(LIGHTGRAY);
         // for i in 0..29_830 {
         //     let (_, _, is_breaking) = cpu.tick();
         //     if is_breaking {
@@ -73,6 +77,9 @@ async fn play_rom(rom_path: &str) {
             let (_, _, is_breaking) = cpu.tick();
             if cpu.bus.cycles >= 29_830 {
                 cpu.bus.cycles -= 29_830;
+            }
+            if is_breaking {
+                break_loop = true;
                 break;
             }
             if cpu.bus.ready_to_render {
@@ -80,11 +87,9 @@ async fn play_rom(rom_path: &str) {
                 cpu.bus.ready_to_render = false;
                 // println!("cpu ram: {:?}", cpu.bus.ppu.ram);
                 // println!("draw frame!");
-            }
-            if is_breaking {
-                break_loop = true;
                 break;
             }
+
         }
         if break_loop {
             break
@@ -92,7 +97,7 @@ async fn play_rom(rom_path: &str) {
         clear_background(RED);
         draw_frame(&frame);
 
-        draw_debug_overlays(&cpu);
+        // draw_debug_overlays(&cpu);
 
         // Render stats
         let status_str = format!(
@@ -112,12 +117,12 @@ async fn play_rom(rom_path: &str) {
 
 fn draw_debug_overlays(cpu: &CPU) {
     // Debug overlays
-    // let ram_px_size = 3;
-    // for (i, v) in cpu.bus.cpu_ram.data.iter().enumerate() {
-    //     let x = i % 32 * ram_px_size + 400;
-    //     let y = i / 32 * ram_px_size + 60;
-    //     draw_rectangle(x as f32, y as f32, ram_px_size as f32, ram_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
-    // }
+    let ram_px_size = 3;
+    for (i, v) in cpu.bus.cpu_ram.data.iter().enumerate() {
+        let x = i % 32 * ram_px_size + 400;
+        let y = i / 32 * ram_px_size + 60;
+        draw_rectangle(x as f32, y as f32, ram_px_size as f32, ram_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
+    }
 
     let ram_px_size = 2;
     for (i, v) in cpu.bus.ppu.ram.iter().enumerate() {
@@ -134,12 +139,12 @@ fn draw_debug_overlays(cpu: &CPU) {
         draw_rectangle(x as f32, y as f32, oam_data_px_size as f32, oam_data_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
     }
 
-    // let chr_data_px_size = 2;
-    // for (i, v) in cpu.bus.ppu.chr_rom.iter().enumerate() {
-    //     let x = i % 64 * chr_data_px_size + 100;
-    //     let y = i / 64 * chr_data_px_size + 40;
-    //     draw_rectangle(x as f32, y as f32, chr_data_px_size as f32, chr_data_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
-    // }
+    let chr_data_px_size = 2;
+    for (i, v) in cpu.bus.ppu.chr_rom.iter().enumerate() {
+        let x = i % 64 * chr_data_px_size + 100;
+        let y = i / 64 * chr_data_px_size + 40;
+        draw_rectangle(x as f32, y as f32, chr_data_px_size as f32, chr_data_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
+    }
 
     // let prog_rom_px_size = 2;
     // for (i, v) in cpu.bus.prg_rom.iter().enumerate() {
