@@ -55,6 +55,21 @@ impl ControlRegister {
         }
     }
 
+    pub fn sprite_pattern_addr(&self) -> u16 {
+        match self.contains(ControlRegister::SPRITE_PATTERN_ADDR) {
+            true => 0x1000,
+            false => 0x0
+        }
+    }
+
+    pub fn sprite_size(&self) -> u8 {
+        if !self.contains(ControlRegister::SPRITE_SIZE) {
+            8
+        } else {
+            16
+        }
+    }
+
     pub fn update(&mut self, data: u8) {
         *self = ControlRegister::from_bits_truncate(data);
     }

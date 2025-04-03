@@ -7,7 +7,7 @@ mod test {
 
     fn init_cpu(prg_rom: &[u8]) -> CPU {
         let rom = Rom::new_custom(prg_rom.to_vec(), vec![], 0, Mirroring::Vertical);
-        let mut bus = Bus::new(rom);
+        let mut bus = Bus::new(rom, |_| {});
         bus.enable_test_mode();
         let mut cpu = CPU::new(bus);
         cpu.program_counter = 0;
@@ -352,7 +352,7 @@ mod test {
         ];
 
         let rom = Rom::new_custom(program.to_vec(), vec![], 0, Mirroring::Vertical);
-        let bus = Bus::new(rom);
+        let bus = Bus::new(rom, |_| {});
         let mut cpu = CPU::new(bus);
         cpu.run();
 

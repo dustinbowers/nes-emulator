@@ -18,7 +18,7 @@ impl Frame {
         // let index = y * FRAME_COLS + x;
         // self.data[index] = color;
         if x >= FRAME_COLS || y >= FRAME_ROWS {
-            panic!("Pixel out of bounds: x={}, y={}", x, y);
+            // println!("Pixel out of bounds: x={}, y={}", x, y);
         } else {
             self.data[y * FRAME_COLS + x] = color;
         }
