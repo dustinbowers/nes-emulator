@@ -1,7 +1,8 @@
 .DS_Store
 target
-.idea
 nes6502-tests/
+mapper_docs/
 roms/
+.idea
 *.log
 *.sh

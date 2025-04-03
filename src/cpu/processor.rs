@@ -4,6 +4,7 @@ use super::{interrupts, opcodes};
 use crate::Bus;
 use bitflags::bitflags;
 use std::collections::HashMap;
+use crate::cpu::trace::Tracer;
 
 const DEBUG: bool = false;
 const CPU_PC_RESET: u16 = 0x8000;
@@ -65,6 +66,8 @@ pub struct CPU {
 
     extra_cycles: u8,
     skip_pc_advance: bool,
+
+    pub tracer: Tracer,
 }
 
 impl BusMemory for CPU {
@@ -90,6 +93,7 @@ impl CPU {
             program_counter: CPU_PC_RESET,
             extra_cycles: 0,
             skip_pc_advance: false,
+            tracer: Tracer::new(128)
         };
         cpu.program_counter = cpu.bus.fetch_u16(0xFFFC);
         cpu
@@ -138,17 +142,24 @@ impl CPU {
         self.extra_cycles = 0;
         self.skip_pc_advance = false;
         let code = self.fetch_byte(self.program_counter);
-        let opcode = *opcodes
-            .get(&code)
-            .expect(&format!("Unknown opcode: {:#x}", &code));
+        let opcode_lookup = opcodes
+            .get(&code);
+        // ;.expect(&format!("Unknown opcode: {:#x}", &code));
+        let opcode = match opcode_lookup {
+            Some(opcode) => *opcode,
+            None => {
+                self.tracer.print_trace();
+                panic!("Unknown opcode: {:02X}", &code);
+            }
+        };
 
-        if DEBUG {
+        {
             let mut operand_bytes: Vec<u8> = vec![];
             for i in 1..opcode.size {
                 let address = self.program_counter.wrapping_add(i as u16);
                 operand_bytes.push(self.fetch_byte(address));
             }
-            println!(
+            let trace = format!(
                 "({}) PC:${:04X} SP:${:02X} A:${:02X} X:${:02X} Y:${:02X} status: 0b{:08b} \tOpcode: (${:02X}) {} {:02X?}",
                 self.program_counter,
                 self.program_counter,
@@ -160,7 +171,11 @@ impl CPU {
                 self.bus.fetch_byte(self.program_counter),
                 opcode.name,
                 operand_bytes
-            )
+            );
+            if DEBUG {
+                println!("{trace}");
+            }
+            self.tracer.write(trace);
         }
         self.program_counter = self.program_counter.wrapping_add(1);
 

@@ -4,3 +4,4 @@ pub mod processor;
 
 #[cfg(test)]
 pub mod processor_tests;
+mod trace;

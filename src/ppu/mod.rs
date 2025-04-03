@@ -248,85 +248,18 @@ impl PPU {
         self.ram[address..=address+size].to_vec()
     }
 
-    // pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
-    //     // Horizontal:          Vertical:
-    //     //   [ A ] [ a ]          [ A ] [ B ]
-    //     //   [ B ] [ b ]          [ a ] [ b ]
-    //     let mirrored_ram = addr & 0b0010_1111_1111_1111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
-    //     let ram_index = mirrored_ram - 0x2000; // to ram index
-    //     let name_table = ram_index / 0x400; // to the name table index
-    //     match (&self.mirroring, name_table) {
-    //         (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800,
-    //         (Mirroring::Horizontal, 1) => ram_index - 0x400,
-    //         (Mirroring::Horizontal, 2) => ram_index - 0x400,
-    //         (Mirroring::Horizontal, 3) => ram_index - 0x800,
-    //         _ => ram_index,
-    //     }
-    // }
-
-    // pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
-    //     // Mirror addresses from 0x3000-0x3EFF down to 0x2000-0x2EFF
-    //     let mirrored_ram = addr & 0b0010_1111_1111_1111;
-    //
-    //     // Handle palette memory mirroring ($3F00-$3FFF)
-    //     if addr >= 0x3F00 {
-    //         let mirrored_addr = addr & 0x1F; // Palette is only 32 bytes
-    //         if mirrored_addr == 0x10 || mirrored_addr == 0x14 || mirrored_addr == 0x18 || mirrored_addr == 0x1C {
-    //             return 0x3F00 + (mirrored_addr - 0x10);
-    //         }
-    //         return 0x3F00 + mirrored_addr;
-    //     }
-    //
-    //     let ram_index = mirrored_ram - 0x2000; // Convert to nametable RAM index
-    //     let name_table = ram_index / NAME_TABLE_SIZE as u16; // Determine which nametable this falls into
-    //
-    //     match (&self.mirroring, name_table) {
-    //         (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800, // NT 2 -> NT 0, NT 3 -> NT 1
-    //         (Mirroring::Horizontal, 2) => ram_index - 0x800, // NT 2 -> NT 0
-    //         (Mirroring::Horizontal, 3) => ram_index - 0x400, // NT 3 -> NT 1
-    //         _ => ram_index,
-    //     }
-    // }
-
-    // pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
-    //     // Mirror addresses from 0x3000-0x3EFF down to 0x2000-0x2EFF
-    //     let mirrored_ram = addr & 0b0010_1111_1111_1111;
-    //
-    //     // Handle palette memory mirroring ($3F00-$3FFF)
-    //     if addr >= 0x3F00 {
-    //         let mirrored_addr = addr & 0x1F; // Palette is only 32 bytes
-    //         if mirrored_addr & 0x03 == 0 { // Universal background color mirroring
-    //             return 0x3F00;
-    //         }
-    //         return 0x3F00 + mirrored_addr;
-    //     }
-    //
-    //     let ram_index = mirrored_ram - 0x2000; // Convert to nametable RAM index
-    //     let name_table = ram_index / NAME_TABLE_SIZE as u16; // Determine which nametable this falls into
-    //
-    //     let mirrored_index = match (&self.mirroring, name_table) {
-    //         (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800, // NT 2 -> NT 0, NT 3 -> NT 1
-    //         (Mirroring::Horizontal, 2) => ram_index - 0x800, // NT 2 -> NT 0
-    //         (Mirroring::Horizontal, 3) => ram_index - 0x400, // NT 3 -> NT 1
-    //         _ => ram_index,
-    //     };
-    //
-    //     0x2000 + mirrored_index // Convert back to PPU address
-    // }
-
     pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
-        let mirrored_vram = addr & 0b10111111111111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
-        let vram_index = mirrored_vram - 0x2000; // to vram vector
-        let name_table = vram_index / 0x400;
+        let mirrored_ram = addr & 0x2FFF; // Correct bitmask for VRAM mirroring
+        let ram_index = mirrored_ram - 0x2000; // Map to VRAM index (0x000 - 0xFFF)
+        let name_table = (ram_index / 0x400) % 4; // Ensure name_table is within [0,3]
+
         match (&self.mirroring, name_table) {
-            (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => vram_index - 0x800,
-            (Mirroring::Horizontal, 2) => vram_index - 0x400,
-            (Mirroring::Horizontal, 1) => vram_index - 0x400,
-            (Mirroring::Horizontal, 3) => vram_index - 0x800,
-            _ => vram_index,
+            (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800,
+            (Mirroring::Horizontal, 2) => ram_index - 0x800,
+            (Mirroring::Horizontal, 3) => ram_index - 0x400,
+            _ => ram_index, // Covers Vertical (0,1) and Horizontal (0,1)
         }
     }
-
 }
 
 
