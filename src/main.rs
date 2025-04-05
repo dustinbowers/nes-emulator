@@ -19,6 +19,8 @@ use display::draw_frame;
 use display::render::render;
 use macroquad::prelude::*;
 use rom::Rom;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::{env, process};
 
 fn window_conf() -> Conf {
@@ -59,7 +61,8 @@ async fn play_rom(rom_path: &str) {
         (vec![KeyCode::D], JoypadButtons::RIGHT),
     ];
 
-    let mut frame = Frame::new();
+    // let mut frame = Frame::new();
+    let frame = Rc::new(RefCell::new(Frame::new()));
     let rom_data = std::fs::read(rom_path).expect("Error reading ROM file.");
     let rom = match Rom::new(&rom_data) {
         Ok(rom) => rom,
@@ -69,19 +72,23 @@ async fn play_rom(rom_path: &str) {
         }
     };
 
-    let bus = Bus::new(rom, |_ppu, joypad| {
-        // Handle user input
-        let keys_pressed = get_keys_down();
-        for (keys, button) in key_map.iter() {
-            let mut pressed = false;
-            for key in keys.iter() {
-                if keys_pressed.contains(&key) {
-                    pressed = true;
-                    break;
+    let bus = Bus::new(rom,
+        |ppu, joypad| {
+            render(ppu,  Rc::clone(&frame));
+
+            // Handle user input
+            let keys_pressed = get_keys_down();
+            for (keys, button) in key_map.iter() {
+
+                let mut pressed = false;
+                for key in keys.iter() {
+                    if keys_pressed.contains(&key) {
+                        pressed = true;
+                        break;
+                    }
                 }
+                joypad.set_button_status(button, pressed);
             }
-            joypad.set_button_status(button, pressed);
-        }
     });
     let mut cpu = CPU::new(bus);
 
@@ -90,20 +97,15 @@ async fn play_rom(rom_path: &str) {
     }
 
     loop {
-
         let mut break_loop = false;
         loop {
             let (_, _, is_breaking) = cpu.tick();
-            if cpu.bus.cycles >= 29_830 {
-                cpu.bus.cycles -= 29_830;
-            }
             if is_breaking {
                 break_loop = true;
                 break;
             }
-            if cpu.bus.ready_to_render {
-                render(&cpu.bus.ppu, &mut frame);
-                cpu.bus.ready_to_render = false;
+            if cpu.bus.cycles >= 29_830 {
+                cpu.bus.cycles -= 29_830;
                 break;
             }
         }
@@ -111,7 +113,7 @@ async fn play_rom(rom_path: &str) {
             break;
         }
         clear_background(RED);
-        draw_frame(&frame);
+        draw_frame(&frame.borrow());
 
         // draw_debug_overlays(&cpu);
 

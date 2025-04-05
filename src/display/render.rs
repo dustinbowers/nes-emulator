@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::rc::Rc;
 use crate::display::color_map::COLOR_MAP;
 use crate::display::frame::Frame;
 use crate::ppu::PPU;
@@ -15,7 +17,7 @@ impl ViewPort {
     }
 }
 
-pub fn render(ppu: &PPU, frame: &mut Frame) {
+pub fn render(ppu: &PPU, mut frame: Rc<RefCell<Frame>>) {
     let scroll_x = ppu.scroll_register.scroll_x as usize;
     let scroll_y = ppu.scroll_register.scroll_y as usize;
 
@@ -42,7 +44,7 @@ pub fn render(ppu: &PPU, frame: &mut Frame) {
     // Render background nametable
     render_name_table(
         ppu,
-        frame,
+        &mut frame,
         main_nametable,
         ViewPort::new(scroll_x, scroll_y, 256, 240),
         -(scroll_x as isize),
@@ -52,7 +54,7 @@ pub fn render(ppu: &PPU, frame: &mut Frame) {
     if scroll_x > 0 {
         render_name_table(
             ppu,
-            frame,
+            &mut frame,
             second_nametable,
             ViewPort::new(0, 0, scroll_x, 240),
             (256 - scroll_x) as isize,
@@ -61,7 +63,7 @@ pub fn render(ppu: &PPU, frame: &mut Frame) {
     } else if scroll_y > 0 {
         render_name_table(
             ppu,
-            frame,
+            &mut frame,
             second_nametable,
             ViewPort::new(0, 0, 256, 240),
             0,
@@ -117,7 +119,7 @@ pub fn render(ppu: &PPU, frame: &mut Frame) {
 
                 let screen_x = tile_x + pixel_x;
                 let screen_y = tile_y + pixel_y;
-                frame.set_pixel(screen_x, screen_y, *color);
+                frame.borrow_mut().set_pixel(screen_x, screen_y, *color);
             }
         }
     }
@@ -125,7 +127,7 @@ pub fn render(ppu: &PPU, frame: &mut Frame) {
 
 fn render_name_table(
     ppu: &PPU,
-    frame: &mut Frame,
+    frame: &mut Rc<RefCell<Frame>>,
     name_table: &[u8],
     view_port: ViewPort,
     offset_x: isize,
@@ -185,7 +187,7 @@ fn render_name_table(
                 {
                     let px_shifted = (px as isize + offset_x) as usize;
                     let py_shifted = (py as isize + offset_y) as usize;
-                    frame.set_pixel(px_shifted, py_shifted, *color);
+                    frame.borrow_mut().set_pixel(px_shifted, py_shifted, *color);
                 }
             }
         }
