@@ -1,9 +1,11 @@
-use std::cell::RefCell;
-use std::rc::Rc;
+use crate::cpu::processor::CPU;
 use crate::display::color_map::COLOR_MAP;
 use crate::display::frame::Frame;
 use crate::ppu::PPU;
 use crate::rom::Mirroring;
+use macroquad::prelude::draw_rectangle;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 struct ViewPort {
     x1: usize,
@@ -231,4 +233,66 @@ fn get_sprite_palette(ppu: &PPU, palette_idx: u8) -> [u8; 4] {
         ppu.palette_table[start + 1],
         ppu.palette_table[start + 2],
     ]
+}
+
+#[allow(dead_code)]
+fn draw_debug_overlays(cpu: &CPU) {
+    // Debug overlays
+
+    // let ram_px_size = 3;
+    // for (i, v) in cpu.bus.cpu_ram.data.iter().enumerate() {
+    //     let x = i % 32 * ram_px_size + 400;
+    //     let y = i / 32 * ram_px_size + 60;
+    //     draw_rectangle(x as f32, y as f32, ram_px_size as f32, ram_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
+    // }
+
+    let ram_px_size = 2;
+    for (i, v) in cpu.bus.ppu.ram.iter().enumerate() {
+        let x = i % 32 * ram_px_size;
+        let y = i / 32 * ram_px_size + 60;
+
+        draw_rectangle(
+            x as f32,
+            y as f32,
+            ram_px_size as f32,
+            ram_px_size as f32,
+            *COLOR_MAP.get_color((v % 53) as usize),
+        );
+    }
+
+    let oam_data_px_size = 2;
+    for (i, v) in cpu.bus.ppu.oam_data.iter().enumerate() {
+        let x = i % 32 * oam_data_px_size;
+        let y = i / 32 * oam_data_px_size + 200;
+        draw_rectangle(
+            x as f32,
+            y as f32,
+            oam_data_px_size as f32,
+            oam_data_px_size as f32,
+            *COLOR_MAP.get_color((v % 53) as usize),
+        );
+    }
+
+    // let chr_data_px_size = 2;
+    // for (i, v) in cpu.bus.ppu.chr_rom.iter().enumerate() {
+    //     let x = i % 64 * chr_data_px_size + 100;
+    //     let y = i / 64 * chr_data_px_size + 40;
+    //     draw_rectangle(x as f32, y as f32, chr_data_px_size as f32, chr_data_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
+    // }
+
+    // let prog_rom_px_size = 2;
+    // for (i, v) in cpu.bus.prg_rom.iter().enumerate() {
+    //     let x = i % 64 * prog_rom_px_size + 230;
+    //     let y = i / 64 * prog_rom_px_size + 40;
+    //     draw_rectangle(x as f32, y as f32, prog_rom_px_size as f32, prog_rom_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
+    // }
+
+    // let palette_table_px_size = 5;
+    // for (i, v) in cpu.bus.ppu.palette_table.iter().enumerate() {
+    //     let x = i % 32 * palette_table_px_size + 300;
+    //     let y = i / 32 * palette_table_px_size + 32;
+    //     draw_rectangle(x as f32, y as f32, palette_table_px_size as f32, palette_table_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
+    // }
+
+    // draw_rectangle(0f32, 0f32, palette_table_px_size as f32, palette_table_px_size as f32, *COLOR_MAP.get_color((cpu.bus.last_fetched_byte % 53) as usize));
 }
