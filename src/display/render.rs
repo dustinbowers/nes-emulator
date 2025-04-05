@@ -88,7 +88,7 @@ pub fn render(ppu: &PPU, frame: &mut Frame) {
         } else {
             ppu.ctrl_register.sprite_pattern_addr()
         } as usize;
-        let tile_chr_index = bank_addr + ((tile_index & 0xFE) as usize * 16);
+        let tile_chr_index = bank_addr + (tile_index as usize * 16);
         let tile = &ppu.chr_rom[tile_chr_index..tile_chr_index + 16];
 
         for y in 0..8 {
