@@ -1,10 +1,10 @@
-use crate::bus::BusMemory;
 use super::interrupts::Interrupt;
 use super::{interrupts, opcodes};
+use crate::bus::BusMemory;
+use crate::cpu::trace::Tracer;
 use crate::Bus;
 use bitflags::bitflags;
 use std::collections::HashMap;
-use crate::cpu::trace::Tracer;
 
 const DEBUG: bool = false;
 const CPU_PC_RESET: u16 = 0x8000;
@@ -93,7 +93,7 @@ impl CPU<'_> {
             program_counter: CPU_PC_RESET,
             extra_cycles: 0,
             skip_pc_advance: false,
-            tracer: Tracer::new(128)
+            tracer: Tracer::new(128),
         };
         cpu.program_counter = cpu.bus.fetch_u16(0xFFFC);
         cpu
@@ -145,8 +145,7 @@ impl CPU<'_> {
         self.extra_cycles = 0;
         self.skip_pc_advance = false;
         let code = self.fetch_byte(self.program_counter);
-        let opcode_lookup = opcodes
-            .get(&code);
+        let opcode_lookup = opcodes.get(&code);
         // ;.expect(&format!("Unknown opcode: {:#x}", &code));
         let opcode = match opcode_lookup {
             Some(opcode) => *opcode,
@@ -293,7 +292,6 @@ impl CPU<'_> {
             /////////////////////////
             // Illegal Opcodes
             /////////////////////////
-
             0xC7 | 0xD7 | 0xCF | 0xDF | 0xDB | 0xD3 | 0xC3 => {
                 // DCP => DEC oper + CMP oper
                 let dec_value = self.dec(opcode);
@@ -395,19 +393,10 @@ impl CPU<'_> {
             }
 
             0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 | 0x04 | 0x44 | 0x64 | 0x14 | 0x34 | 0x54 | 0x74
-            | 0xD4 | 0xF4 | 0x0C | 0x1A | 0x3A | 0x5A
-            | 0x7A | 0xDA | 0xFA => {
+            | 0xD4 | 0xF4 | 0x0C | 0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => {
                 // Various single and multiple-byte NOPs
             }
             _ => {}
-            //     panic!(
-            //         "{}",
-            //         format!(
-            //             "This should be impossible to reach. (Unknown opcode: ${:02X})",
-            //             code
-            //         )
-            //     )
-            // }
         }
 
         // Tick the bus for opcode cycles. Add any extra cycles from boundary_crosses and other special cases
@@ -941,8 +930,8 @@ impl CPU<'_> {
         self.set_program_counter(return_address);
 
         let mut restored_flags = Flags::from_bits_truncate(return_status);
-        restored_flags.set(Flags::BREAK, false);  // BRK flag is always cleared after RTI
-        restored_flags.set(Flags::BREAK2, true);  // BRK flag is always cleared after RTI
+        restored_flags.set(Flags::BREAK, false); // BRK flag is always cleared after RTI
+        restored_flags.set(Flags::BREAK2, true); // BRK flag is always cleared after RTI
         self.status = restored_flags;
     }
 
@@ -1005,7 +994,7 @@ impl CPU<'_> {
     }
 
     fn nop_page_cross(&mut self, opcode: &opcodes::Opcode) {
-        let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
+        let (_address, boundary_cross) = self.get_parameter_address(&opcode.mode);
         self.extra_cycles += boundary_cross as u8;
     }
 

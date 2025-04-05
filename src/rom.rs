@@ -9,6 +9,7 @@ pub enum RomError {
     OutOfBounds(String),
 }
 
+#[derive(Debug)]
 pub enum Mirroring {
     Vertical,
     Horizontal,
@@ -89,12 +90,4 @@ impl Rom {
             screen_mirroring,
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // TODO
-
 }

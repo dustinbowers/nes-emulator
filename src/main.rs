@@ -1,24 +1,25 @@
 mod bus;
+mod controller;
 mod cpu;
 mod display;
 mod memory;
 mod ppu;
 mod rom;
 
-use display::render::render;
-use std::{env, process};
-use bus::BusMemory;
-use display::consts::{PIXEL_HEIGHT, PIXEL_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH};
-use cpu::processor::CPU;
-use display::color_map::ColorMap;
-use display::draw_frame;
-use rom::Rom;
-use bus::Bus;
-use futures::executor;
-use macroquad::prelude::*;
-use std::ops::Rem;
+#[cfg(test)]
+mod bus_tests;
+
+use crate::controller::joypad::JoypadButtons;
 use crate::display::color_map::COLOR_MAP;
 use crate::display::frame::Frame;
+use bus::Bus;
+use cpu::processor::CPU;
+use display::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
+use display::draw_frame;
+use display::render::render;
+use macroquad::prelude::*;
+use rom::Rom;
+use std::{env, process};
 
 fn window_conf() -> Conf {
     Conf {
@@ -29,7 +30,6 @@ fn window_conf() -> Conf {
         ..Default::default()
     }
 }
-
 
 #[macroquad::main(window_conf)]
 async fn main() {
@@ -48,14 +48,40 @@ async fn main() {
 }
 
 async fn play_rom(rom_path: &str) {
+    let key_map: &[(Vec<KeyCode>, JoypadButtons)] = &[
+        (vec![KeyCode::K], JoypadButtons::BUTTON_A),
+        (vec![KeyCode::J], JoypadButtons::BUTTON_B),
+        (vec![KeyCode::Enter], JoypadButtons::START),
+        (vec![KeyCode::RightShift], JoypadButtons::SELECT),
+        (vec![KeyCode::W], JoypadButtons::UP),
+        (vec![KeyCode::S], JoypadButtons::DOWN),
+        (vec![KeyCode::A], JoypadButtons::LEFT),
+        (vec![KeyCode::D], JoypadButtons::RIGHT),
+    ];
 
     let mut frame = Frame::new();
     let rom_data = std::fs::read(rom_path).expect("Error reading ROM file.");
-    let rom = Rom::new(&rom_data).expect("Error parsing ROM file.");
-    let bus = Bus::new(rom, |ppu| {
-        println!("callback()");
-        // draw_frame(&frame);
-        // render(ppu, &mut frame);
+    let rom = match Rom::new(&rom_data) {
+        Ok(rom) => rom,
+        Err(msg) => {
+            println!("Error parsing rom: {:?}", msg);
+            return;
+        }
+    };
+
+    let bus = Bus::new(rom, |_ppu, joypad| {
+        // Handle user input
+        let keys_pressed = get_keys_down();
+        for (keys, button) in key_map.iter() {
+            let mut pressed = false;
+            for key in keys.iter() {
+                if keys_pressed.contains(&key) {
+                    pressed = true;
+                    break;
+                }
+            }
+            joypad.set_button_status(button, pressed);
+        }
     });
     let mut cpu = CPU::new(bus);
 
@@ -89,10 +115,9 @@ async fn play_rom(rom_path: &str) {
                 // println!("draw frame!");
                 break;
             }
-
         }
         if break_loop {
-            break
+            break;
         }
         clear_background(RED);
         draw_frame(&frame);
@@ -106,45 +131,59 @@ async fn play_rom(rom_path: &str) {
         );
         draw_text(&status_str, 5.0, 24.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0));
         let status_str = format!(
-            "addr_register: {:04X} bus_cycles: {} ppu_cycles: {}",
-            cpu.bus.ppu.addr_register.get(), cpu.bus.cycles, cpu.bus.ppu.cycles
+            "addr:{:04X} bus_cycles:{} ppu_cycles:{}",
+            cpu.bus.ppu.addr_register.get(),
+            cpu.bus.cycles,
+            cpu.bus.ppu.cycles
         );
         draw_text(&status_str, 5.0, 48.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0));
         next_frame().await;
-
     }
 }
 
+#[allow(dead_code)]
 fn draw_debug_overlays(cpu: &CPU) {
     // Debug overlays
-    let ram_px_size = 3;
-    for (i, v) in cpu.bus.cpu_ram.data.iter().enumerate() {
-        let x = i % 32 * ram_px_size + 400;
-        let y = i / 32 * ram_px_size + 60;
-        draw_rectangle(x as f32, y as f32, ram_px_size as f32, ram_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
-    }
+    // let ram_px_size = 3;
+    // for (i, v) in cpu.bus.cpu_ram.data.iter().enumerate() {
+    //     let x = i % 32 * ram_px_size + 400;
+    //     let y = i / 32 * ram_px_size + 60;
+    //     draw_rectangle(x as f32, y as f32, ram_px_size as f32, ram_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
+    // }
 
     let ram_px_size = 2;
     for (i, v) in cpu.bus.ppu.ram.iter().enumerate() {
         let x = i % 32 * ram_px_size;
         let y = i / 32 * ram_px_size + 60;
 
-        draw_rectangle(x as f32, y as f32, ram_px_size as f32, ram_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
+        draw_rectangle(
+            x as f32,
+            y as f32,
+            ram_px_size as f32,
+            ram_px_size as f32,
+            *COLOR_MAP.get_color((v % 53) as usize),
+        );
     }
 
     let oam_data_px_size = 2;
     for (i, v) in cpu.bus.ppu.oam_data.iter().enumerate() {
         let x = i % 32 * oam_data_px_size;
         let y = i / 32 * oam_data_px_size + 200;
-        draw_rectangle(x as f32, y as f32, oam_data_px_size as f32, oam_data_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
+        draw_rectangle(
+            x as f32,
+            y as f32,
+            oam_data_px_size as f32,
+            oam_data_px_size as f32,
+            *COLOR_MAP.get_color((v % 53) as usize),
+        );
     }
 
-    let chr_data_px_size = 2;
-    for (i, v) in cpu.bus.ppu.chr_rom.iter().enumerate() {
-        let x = i % 64 * chr_data_px_size + 100;
-        let y = i / 64 * chr_data_px_size + 40;
-        draw_rectangle(x as f32, y as f32, chr_data_px_size as f32, chr_data_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
-    }
+    // let chr_data_px_size = 2;
+    // for (i, v) in cpu.bus.ppu.chr_rom.iter().enumerate() {
+    //     let x = i % 64 * chr_data_px_size + 100;
+    //     let y = i / 64 * chr_data_px_size + 40;
+    //     draw_rectangle(x as f32, y as f32, chr_data_px_size as f32, chr_data_px_size as f32, *COLOR_MAP.get_color((v % 53) as usize));
+    // }
 
     // let prog_rom_px_size = 2;
     // for (i, v) in cpu.bus.prg_rom.iter().enumerate() {
@@ -163,11 +202,11 @@ fn draw_debug_overlays(cpu: &CPU) {
     // draw_rectangle(0f32, 0f32, palette_table_px_size as f32, palette_table_px_size as f32, *COLOR_MAP.get_color((cpu.bus.last_fetched_byte % 53) as usize));
 }
 
+#[allow(dead_code)]
 async fn render_sprite_banks(rom_path: &str) {
     // Load and parse ROM
     let rom_data = std::fs::read(rom_path).expect("Error reading ROM file");
     let rom = Rom::new(&rom_data).unwrap();
-
 
     let mut f: Frame = Frame::new();
     for i in 0..256 {
@@ -182,7 +221,7 @@ async fn render_sprite_banks(rom_path: &str) {
         // Handle user input
         let keys_pressed = get_keys_down();
         if keys_pressed.contains(&KeyCode::Escape) {
-            break
+            break;
         }
         draw_frame(&f);
         next_frame().await;

@@ -1,13 +1,12 @@
-use macroquad::color::Color;
 use super::color_map::COLOR_MAP;
 use super::consts::{FRAME_COLS, FRAME_ROWS};
+use macroquad::color::Color;
 
 pub struct Frame {
     pub data: Vec<Color>,
 }
 
 impl Frame {
-
     pub fn new() -> Self {
         Frame {
             data: vec![Color::new(0., 0., 0., 0.); FRAME_COLS * FRAME_ROWS],
@@ -41,9 +40,9 @@ impl Frame {
                     1 => COLOR_MAP.get_color(0x17),
                     2 => COLOR_MAP.get_color(0x28),
                     3 => COLOR_MAP.get_color(0x22),
-                    _ => panic!("Impossible color palette index")
+                    _ => panic!("Impossible color palette index"),
                 };
-                let tile_index = (tile_n * 8 + x);
+                let tile_index = tile_n * 8 + x;
 
                 let tile_x = tile_index % 232;
                 let tile_y = (tile_index / 232) * 8 + y + (bank * (80));

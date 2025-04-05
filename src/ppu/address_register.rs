@@ -1,36 +1,39 @@
 pub struct AddressRegister {
-    value: (u8, u8),
-    hi_ptr: bool,
+    t_value: (u8, u8), // (hi-byte, lo-byte)
+    w_hi_ptr: bool,
 }
 
 impl AddressRegister {
     pub fn new() -> Self {
         AddressRegister {
-            value: (0, 0), // (hi-byte, lo-byte)
-            hi_ptr: true,
+            t_value: (0, 0), // (hi-byte, lo-byte)
+            w_hi_ptr: true,
         }
     }
     pub fn set(&mut self, data: u16) {
-        self.value.0 = (data >> 8) as u8;
-        self.value.1 = (data & 0xff) as u8;
+        self.t_value.0 = (data >> 8) as u8;
+        self.t_value.1 = (data & 0xff) as u8;
     }
 
     pub fn update(&mut self, data: u8) {
-        // println!("address_register.update(${:02X}) - hi_ptr = {}, current_address = {:04X}", data, self.hi_ptr, self.get());
-        if self.hi_ptr {
-            self.value.0 = data;
+        if self.w_hi_ptr {
+            // Bit 14 is always set to 0 when writing hi-byte (effectively bit 6 of u8)
+            // See https://www.nesdev.org/wiki/PPU_registers#PPUADDR_-_VRAM_address_($2006_write)
+            let mask = 0b1011_1111;
+            let masked_data = data & mask;
+            self.t_value.0 = masked_data;
         } else {
-            self.value.1 = data;
+            self.t_value.1 = data;
         }
-        self.hi_ptr = !self.hi_ptr;
+        self.w_hi_ptr = !self.w_hi_ptr;
     }
 
     pub fn increment(&mut self, inc: u8) {
-        let lo = self.value.1;
-        self.value.1 = lo.wrapping_add(inc);
+        let lo = self.t_value.1;
+        self.t_value.1 = lo.wrapping_add(inc);
 
         if lo.wrapping_add(inc) < lo {
-            self.value.0 = self.value.0.wrapping_add(1);
+            self.t_value.0 = self.t_value.0.wrapping_add(1);
         }
         if self.get() > 0x3fff {
             self.set(self.get() & 0b11_1111_1111_1111); // mirror down if above 0x3FFF
@@ -38,13 +41,12 @@ impl AddressRegister {
     }
 
     pub fn reset_latch(&mut self) {
-        self.hi_ptr = true;
+        self.w_hi_ptr = true;
     }
 
     pub fn get(&self) -> u16 {
-        let addr = ((self.value.0 as u16) << 8) | (self.value.1 as u16);
-        addr // TOOD: handle mirroring elsewhere
-        // addr & 0x3FFF // Mirror address down to $0000-$3FFF range
+        let addr = ((self.t_value.0 as u16) << 8) | (self.t_value.1 as u16);
+        addr
     }
 }
 
@@ -72,10 +74,14 @@ mod tests {
         addr.update(0xAB); // write hi-byte
         addr.update(0xCD); // write lo-byte
         addr.update(0xEF); // Should overwrite old hi-byte
-        let want = 0xEFCD;
+        let want = 0xAFCD; // Note: Bit 14 is always set to 0 when writing hi-byte
         let got = addr.get();
-        assert_eq!(want, got, "{}",
-        format!("Want: {:04X}, Got: {:04X}", want, got));
+        assert_eq!(
+            want,
+            got,
+            "{}",
+            format!("Want: {:04X}, Got: {:04X}", want, got)
+        );
     }
 
     #[test]
@@ -111,4 +117,3 @@ mod tests {
         assert_eq!(addr.get(), 0x3400);
     }
 }
-

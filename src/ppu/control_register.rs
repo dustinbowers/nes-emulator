@@ -47,18 +47,28 @@ impl ControlRegister {
         self.contains(Self::GENERATE_NMI)
     }
 
+    pub fn get_nametable_addr(&self) -> u16 {
+        let nt_bits = self.bits() & 0b11;
+        match nt_bits {
+            0b00 => 0x2000,
+            0b01 => 0x2400,
+            0b10 => 0x2800,
+            0b11 => 0x2c00,
+            _ => panic!("impossible"),
+        }
+    }
+
     pub fn background_pattern_addr(&self) -> u16 {
-        if self.contains(Self::BACKROUND_PATTERN_ADDR) {
-            0x1000 // Use the second pattern table
-        } else {
-            0x0000 // Use the first pattern table
+        match self.contains(Self::BACKROUND_PATTERN_ADDR) {
+            true => 0x1000,
+            false => 0x0,
         }
     }
 
     pub fn sprite_pattern_addr(&self) -> u16 {
         match self.contains(ControlRegister::SPRITE_PATTERN_ADDR) {
             true => 0x1000,
-            false => 0x0
+            false => 0x0,
         }
     }
 
@@ -96,6 +106,15 @@ mod tests {
         assert!(ctrl.contains(ControlRegister::SPRITE_SIZE));
         assert!(ctrl.contains(ControlRegister::BACKROUND_PATTERN_ADDR));
         assert!(!ctrl.contains(ControlRegister::VRAM_ADD_INCREMENT));
+    }
+
+    #[test]
+    fn test_sprite_size() {
+        let mut ctrl = ControlRegister::new();
+        ctrl.update(0b0010_0000);
+        assert!(ctrl.contains(ControlRegister::SPRITE_SIZE));
+        ctrl.update(0b0000_0000);
+        assert_eq!(ctrl.contains(ControlRegister::SPRITE_SIZE), false);
     }
 
     #[test]

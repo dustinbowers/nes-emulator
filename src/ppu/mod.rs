@@ -107,11 +107,6 @@ impl PPU {
         for x in data.iter() {
             self.oam_data[self.oam_addr as usize] = *x;
             self.oam_addr = self.oam_addr.wrapping_add(1);
-            // TODO: remove
-            if *x > 0 {
-                // println!("writing OAM via DMA @ ${:04X}\n{:?}", self.oam_addr, data);
-                // panic!();
-            }
         }
     }
 
@@ -149,33 +144,6 @@ impl PPU {
             .increment(self.ctrl_register.increment_ram_addr());
     }
 
-    // pub fn read_data(&mut self) -> u8 {
-    //     let addr = self.addr_register.get();
-    //     self.increment_ram_addr();
-    //
-    //     match addr {
-    //         0..=0x1fff => {
-    //             let result = self.internal_data;
-    //             self.internal_data = self.chr_rom[addr as usize];
-    //             result
-    //         }
-    //         0x2000..=0x2fff => {
-    //             let result = self.internal_data;
-    //             self.internal_data = self.ram[self.mirror_ram_addr(addr) as usize];
-    //             result
-    //         }
-    //         0x3000..=0x3eff => panic!("Invalid address ${:04X}. (0x3000..0x3EFF is invalid)", addr),
-    //
-    //         // $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
-    //         0x3F10 | 0x3F14 | 0x3F18 | 0x3F1C => {
-    //             let mirror_address = addr - 0x10;
-    //             self.palette_table[(mirror_address - 0x3F00) as usize]
-    //         }
-    //         0x3F00..=0x3FFF => self.palette_table[(addr - 0x3F00) as usize],
-    //         _ => panic!("Invalid access to mirrored space ${:04X}", addr),
-    //
-    //     }
-    // }
     pub fn read_data(&mut self) -> u8 {
         let mut addr = self.addr_register.get();
         self.increment_ram_addr();
@@ -207,81 +175,51 @@ impl PPU {
                 self.palette_table[(mirror_address - 0x3F00) as usize]
             }
             0x3F00..=0x3FFF => {
-                self.palette_table[(addr - 0x3F00) as usize] // No buffering for palette reads
+                let mirrored_address = addr & 0x3F1F;
+                self.palette_table[(mirrored_address - 0x3F00) as usize] // No buffering for palette reads
             }
             _ => panic!("Invalid access to mirrored space ${:04X}", addr),
         }
     }
 
-
     pub fn write_to_data(&mut self, value: u8) {
         let addr = self.addr_register.get();
-        self.increment_ram_addr();
 
         match addr {
             0..=0x1FFF => {
-                // TODO: some cartridges have CHR_RAM that is writable
-                println!("Invalid PPU write to chr rom space ${:04X}", addr)
-            },
+                println!("Warning: Attempted write to CHR ROM space at {:#04X}", addr);
+            }
             0x2000..=0x2FFF => {
                 let mirrored_addr = self.mirror_ram_addr(addr);
-                // if value != 0x00 {
-                //     println!("PPU write to VRAM at ${:04X} = ${:02X}", mirrored_addr, value);
-                // }
                 self.ram[mirrored_addr as usize] = value;
-                // self.ram[addr as usize] = value;
             }
             0x3000..=0x3EFF => {
+                // unimplemented!("PPU write to invalid address: {:#04X}", addr);
                 let mirrored_addr = self.mirror_ram_addr(addr);
-                // println!("** Mirroring down: PPU write to VRAM at ${:04X} = ${:02X}", mirrored_addr, value);
                 self.ram[mirrored_addr as usize] = value;
             }
-
-            // $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
             0x3F10 | 0x3F14 | 0x3F18 | 0x3F1C => {
-                let add_mirror = addr - 0x10;
-                self.palette_table[(add_mirror - 0x3F00) as usize] = value;
+                let mirror_addr = addr & 0x3F0F;
+                self.palette_table[(mirror_addr - 0x3F00) as usize] = value;
             }
             0x3F00..=0x3FFF => {
-                self.palette_table[(addr - 0x3F00) as usize] = value;
+                //fails when addr = $3FE0
+                let mirrored_addr = addr & 0x3F1F;
+                self.palette_table[(mirrored_addr - 0x3F00) as usize] = value;
             }
-            _ => panic!("unexpected access to mirrored space {}", addr),
+            _ => panic!("Unexpected access to mirrored space: {:#06X}", addr),
         }
+
+        self.increment_ram_addr();
     }
 
     pub fn read_bytes_raw(&mut self, address: usize, size: usize) -> Vec<u8> {
-        self.ram[address..=address+size].to_vec()
+        self.ram[address..=address + size].to_vec()
     }
-
-    // pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
-    //     let mirrored_ram = addr & 0x2FFF; // Correct bitmask for VRAM mirroring
-    //     let ram_index = mirrored_ram - 0x2000; // Map to VRAM index (0x000 - 0xFFF)
-    //     let name_table = (ram_index / 0x400) % 4; // Ensure name_table is within [0,3]
-    //
-    //     match (&self.mirroring, name_table) {
-    //         (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800,
-    //         (Mirroring::Horizontal, 2) => ram_index - 0x800,
-    //         (Mirroring::Horizontal, 3) => ram_index - 0x400,
-    //         _ => ram_index, // Covers Vertical (0,1) and Horizontal (0,1)
-    //     }
-    // }
-
-    // pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
-    //     let mirrored_ram = addr & 0x3FFF; // Ensures mirroring range
-    //     let ram_index = mirrored_ram - 0x2000; // Map to VRAM index (0x000 - 0xFFF)
-    //     let name_table = (ram_index / 0x400) % 4; // Ensure name_table is within [0,3]
-    //
-    //     match (&self.mirroring, name_table) {
-    //         (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800,
-    //         (Mirroring::Horizontal, 2) => ram_index - 0x400, // Maps table 2 → 0
-    //         (Mirroring::Horizontal, 3) => ram_index - 0x400, // Maps table 3 → 1
-    //         _ => ram_index, // Covers default cases (Vertical 0,1 and Horizontal 0,1)
-    //     }
-    // }
 
     pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
         let mirrored_ram = addr & 0b10111111111111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
-        let ram_index = mirrored_ram - 0x2000; // to vram vector
+        let ram_index = mirrored_ram - 0x2000;
         let name_table = ram_index / 0x400;
         match (&self.mirroring, name_table) {
             (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800,
@@ -292,7 +230,6 @@ impl PPU {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

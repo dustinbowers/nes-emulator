@@ -4,6 +4,7 @@
 */
 
 mod bus;
+mod controller;
 mod cpu;
 mod memory;
 mod ppu;
@@ -128,7 +129,7 @@ fn read_opcode_tests(
 fn run_opcode_test(test: &OpcodeTest) {
     // Create CPU
     let rom = Rom::empty();
-    let mut bus = Bus::new(rom, |_| {});
+    let mut bus = Bus::new(rom, |_, _| {});
     bus.enable_test_mode();
     let mut cpu = CPU::new(bus);
     cpu.reset();
@@ -211,14 +212,15 @@ fn run_opcode_test(test: &OpcodeTest) {
     for (address, value) in end.ram.iter() {
         let got = cpu.fetch_byte(*address);
         let want = *value;
-        assert_eq!(got, want,
-        "{}",
-        format!(
-            "ram mismatch at ${:04X}.\n\tGot:  {:08b} ${:02X}\n\tWant: {:08b} ${:02X}",
-            address,
-            got, got,
-            want, want
-        ));
+        assert_eq!(
+            got,
+            want,
+            "{}",
+            format!(
+                "ram mismatch at ${:04X}.\n\tGot:  {:08b} ${:02X}\n\tWant: {:08b} ${:02X}",
+                address, got, got, want, want
+            )
+        );
     }
     assert_eq!(
         cpu.bus.cycles,

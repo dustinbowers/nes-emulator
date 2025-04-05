@@ -1,13 +1,12 @@
 #[cfg(test)]
 mod test {
-    use super::*;
     use crate::bus::{Bus, BusMemory};
     use crate::cpu::processor::{rotate_value_left, rotate_value_right, Flags, CPU};
     use crate::rom::{Mirroring, Rom};
 
     fn init_cpu(prg_rom: &[u8]) -> CPU {
         let rom = Rom::new_custom(prg_rom.to_vec(), vec![], 0, Mirroring::Vertical);
-        let mut bus = Bus::new(rom, |_| {});
+        let mut bus = Bus::new(rom, |_, _| {});
         bus.enable_test_mode();
         let mut cpu = CPU::new(bus);
         cpu.program_counter = 0;
@@ -351,23 +350,82 @@ mod test {
             0x02, // JAM (stop execution)
         ];
 
-        let rom = Rom::new_custom(program.to_vec(), vec![], 0, Mirroring::Vertical);
-        let bus = Bus::new(rom, |_| {});
+        let mut prg_rom = vec![0u8; 0x4000];
+        for (i, b) in program.iter().enumerate() {
+            prg_rom[i] = *b;
+        }
+
+        let rom = Rom::new_custom(prg_rom, vec![], 0, Mirroring::Vertical);
+        let bus = Bus::new(rom, |_, _| {});
         let mut cpu = CPU::new(bus);
+        cpu.program_counter = 0x8000;
         cpu.run();
 
         // Verify internal PPU address register is set to $2345
         let got = cpu.bus.ppu.addr_register.get();
         let want = 0x2345 + 2; // PPU auto-increments the address after write
-        assert_eq!(got, want, "{}",
-        format!("PPU addr_register incorrect. Got: ${:04X}, Want: ${:04X}",
-        got, want));
+        assert_eq!(
+            got,
+            want,
+            "{}",
+            format!(
+                "PPU addr_register incorrect. Got: ${:04X}, Want: ${:04X}",
+                got, want
+            )
+        );
 
         // The VRAM address we wrote to: 0x2345 should contain 0x99
         let ppu_vram = &cpu.bus.ppu.ram;
         let mirrored_addr = 0x2345 & 0x2FFF; // VRAM mirroring
         let ram_index = mirrored_addr - 0x2000;
         assert_eq!(ppu_vram[ram_index], 0x99);
-        assert_eq!(ppu_vram[ram_index+1], 0xEF);
+        assert_eq!(ppu_vram[ram_index + 1], 0xEF);
+    }
+
+    #[test]
+    fn test_sprite_vertical_flip() {
+        // This program sets up a single sprite with vertical flipping enabled
+        let program = &[
+            0xa9, 0x00, // LDA #$00    ; Y = 0
+            0x8d, 0x03, 0x20, // STA $2003   ; Set OAMADDR to 0
+            0xa9, 0x20, // LDA #$20    ; Write Y position
+            0x8d, 0x04, 0x20, // STA $2004   ; Write to OAMDATA
+            0xa9, 0x01, // LDA #$01    ; Tile index
+            0x8d, 0x04, 0x20, // STA $2004   ; Write to OAMDATA
+            0xa9, 0x80, // LDA #$80    ; Attributes: bit 7 set (vertical flip)
+            0x8d, 0x04, 0x20, // STA $2004   ; Write to OAMDATA
+            0xa9, 0x40, // LDA #$40    ; X = 64
+            0x8d, 0x04, 0x20, // STA $2004   ; Write to OAMDATA
+            0x02, // JAM (stop execution)
+        ];
+
+        let mut prg_rom = vec![0u8; 0x4000];
+        for (i, b) in program.iter().enumerate() {
+            prg_rom[i] = *b;
+        }
+
+        let rom = Rom::new_custom(prg_rom, vec![], 0, Mirroring::Vertical);
+        let bus = Bus::new(rom, |_, _| {});
+        let mut cpu = CPU::new(bus);
+        cpu.program_counter = 0x8000;
+        cpu.run();
+
+        let oam = &cpu.bus.ppu.oam_data;
+
+        // Verify sprite was written to OAM correctly
+        assert_eq!(oam[0], 0x20, "Y position incorrect");
+        assert_eq!(oam[1], 0x01, "Tile index incorrect");
+        assert_eq!(
+            oam[2], 0x80,
+            "Attribute flags incorrect (should have vertical flip)"
+        );
+        assert_eq!(oam[3], 0x40, "X position incorrect");
+
+        // Ensure vertical flip bit is set
+        let vertical_flip = oam[2] & 0x80 != 0;
+        assert!(
+            vertical_flip,
+            "Vertical flip bit not set in sprite attributes"
+        );
     }
 }
