@@ -89,15 +89,8 @@ async fn play_rom(rom_path: &str) {
         cpu.program_counter = 0xC000;
     }
 
-    // println!("CHR_ROM sum: {:#?}", cpu.bus.ppu.chr_rom);
     loop {
-        // clear_background(LIGHTGRAY);
-        // for i in 0..29_830 {
-        //     let (_, _, is_breaking) = cpu.tick();
-        //     if is_breaking {
-        //         break
-        //     }
-        // }
+
         let mut break_loop = false;
         loop {
             let (_, _, is_breaking) = cpu.tick();
@@ -111,8 +104,6 @@ async fn play_rom(rom_path: &str) {
             if cpu.bus.ready_to_render {
                 render(&cpu.bus.ppu, &mut frame);
                 cpu.bus.ready_to_render = false;
-                // println!("cpu ram: {:?}", cpu.bus.ppu.ram);
-                // println!("draw frame!");
                 break;
             }
         }
@@ -124,7 +115,7 @@ async fn play_rom(rom_path: &str) {
 
         // draw_debug_overlays(&cpu);
 
-        // Render stats
+        // Draw some states
         let status_str = format!(
             "PC: ${:04X} SP: ${:02X} A:${:02X} X:${:02X} Y:${:02X}",
             cpu.program_counter, cpu.stack_pointer, cpu.register_a, cpu.register_x, cpu.register_y
