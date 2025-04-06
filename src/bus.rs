@@ -22,7 +22,6 @@ pub struct Bus<'call> {
     pub prg_rom: Vec<u8>,
     pub ppu: PPU,
     pub disable_mirroring: bool,
-    pub ready_to_render: bool,
 
     // Some games expect an "open-bus": When reading from invalid addresses,
     // the bus should return its last-read value
@@ -64,8 +63,9 @@ impl BusMemory for Bus<'_> {
                     0x2007 => self.ppu.read_data(),
                     _ => {
                         println!(
-                            "Attempt to read from write-only PPU register ${:04X}",
-                            address
+                            "Attempt to read from write-only PPU register ${:04X}. Returning last_fetched_byte: {:02X}",
+                            address,
+                            self.last_fetched_byte
                         );
                         self.last_fetched_byte
                     }
@@ -106,7 +106,9 @@ impl BusMemory for Bus<'_> {
                 match mirror_down_address {
                     0x2000 => self.ppu.write_to_ctrl(value),
                     0x2001 => self.ppu.write_to_mask(value),
-                    0x2002 => panic!("attempt to write to PPU status register"),
+                    0x2002 => {
+                        // println!("Ignored write to $2002: {:02X}", value);
+                    }
                     0x2003 => self.ppu.set_oam_addr(value),
                     0x2004 => self.ppu.write_to_oam_data(value),
                     0x2005 => self.ppu.write_to_scroll(value),
@@ -139,10 +141,8 @@ impl BusMemory for Bus<'_> {
                 // ignore joypad 2
             }
             _ => {
-                println!(
-                    "Unhandled write to ${:04X} with value ${:02X}",
-                    address, value
-                );
+                // With NROMs these are basically NOPs
+                // Other mappers will use these when implemented
             }
         }
     }
@@ -162,7 +162,6 @@ impl<'a> Bus<'a> {
             prg_rom,
             ppu,
             disable_mirroring: false,
-            ready_to_render: false,
             last_fetched_byte: 0,
             gameloop_callback: Box::from(callback),
             joypad1: Joypad::new(),
@@ -181,8 +180,8 @@ impl<'a> Bus<'a> {
         let pre_nmi = self.ppu.nmi_interrupt.is_some();
         self.ppu.tick(cycles * 3);
         let post_nmi = self.ppu.nmi_interrupt.is_some();
+
         if !pre_nmi && post_nmi {
-            self.ready_to_render = true;
             (self.gameloop_callback)(&self.ppu, &mut self.joypad1);
         }
     }

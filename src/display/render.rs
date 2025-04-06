@@ -73,6 +73,10 @@ pub fn render(ppu: &PPU, mut frame: Rc<RefCell<Frame>>) {
         );
     }
 
+    if ppu.mask_register.show_sprites() == false {
+        return;
+    }
+
     // Render sprites
     for i in (0..ppu.oam_data.len()).step_by(4).rev() {
         let tile_y = ppu.oam_data[i + 0] as usize;
@@ -86,14 +90,38 @@ pub fn render(ppu: &PPU, mut frame: Rc<RefCell<Frame>>) {
         let sprite_palette = get_sprite_palette(ppu, palette_index);
 
         let is_8x16 = ppu.ctrl_register.sprite_size() == 16;
+        let is_second_tile = 1 - (i % 2);
         let bank_addr = if is_8x16 {
-            // (tile_index & 1) * 0x1000 // Select correct CHR-ROM bank
-            unimplemented!("is_8x16 sprite!");
+            (tile_index & 1) * 0x1000 // Select correct CHR-ROM bank
+                                      // unimplemented!("is_8x16 sprite!");
         } else {
             ppu.ctrl_register.sprite_pattern_addr()
         } as usize;
-        let tile_chr_index = bank_addr + (tile_index as usize * 16);
+        let mut tile_chr_index = bank_addr + (tile_index as usize * 16);
         let tile = &ppu.chr_rom[tile_chr_index..tile_chr_index + 16];
+
+        let tile_y = match (is_8x16, is_second_tile) {
+            (false, _) => tile_y,
+            (true, 0) => tile_y,
+            (true, 1) => tile_y + 8,
+            (_, _) => {
+                panic!("impossible");
+            }
+        };
+
+        let tile_y = if !is_8x16 {
+            tile_y
+        } else {
+            match (flip_vertical, is_second_tile) {
+                (false, 0) => tile_y,
+                (false, 1) => tile_y + 8,
+                (true, 0) => tile_y - 8,
+                (true, 1) => tile_y + 8,
+                (_, _) => {
+                    panic!("impossible");
+                }
+            }
+        };
 
         for y in 0..8 {
             let upper = tile[y];
@@ -101,6 +129,14 @@ pub fn render(ppu: &PPU, mut frame: Rc<RefCell<Frame>>) {
             for x in 0..8 {
                 let pixel_x = if flip_horizontal { 7 - x } else { x };
                 let pixel_y = if flip_vertical { 7 - y } else { y };
+
+                // let pixel_y = match (is_8x16, is_second_tile) {
+                //     (false, 0) => { pixel_y }
+                //     (false, 1) => { pixel_y + 8 }
+                //     (true, 0) => { pixel_y + 8 }
+                //     (true, 1) => { pixel_y - 8 }
+                //     (_, _) => {}
+                // }
 
                 let msb = (lower >> (7 - x)) & 1;
                 let lsb = (upper >> (7 - x)) & 1;
@@ -135,6 +171,10 @@ fn render_name_table(
     offset_x: isize,
     offset_y: isize,
 ) {
+    if ppu.mask_register.show_background() == false {
+        return;
+    }
+
     // Render Background tiles
     let bank = ppu.ctrl_register.background_pattern_addr();
     let attribute_table = &name_table[0x3c0..0x400];
@@ -143,11 +183,15 @@ fn render_name_table(
         let tile_index = ppu.ram[i] as u16;
         let tile_start = (bank + tile_index * 16) as usize;
 
-        if tile_start + 16 > ppu.chr_rom.len() {
-            println!("WARNING: Tile index {} out of bounds!", tile_index);
-            continue; // Skip if out of bounds
-        }
-        let tile = &ppu.chr_rom[tile_start..tile_start + 16];
+        // if tile_start + 16 > ppu.chr_rom.len() {
+        //     println!("WARNING: Tile index {} out of bounds!", tile_index);
+        //     continue; // Skip if out of bounds
+        // }
+        // let tile = &ppu.chr_rom[tile_start..tile_start + 16];
+        let tile = match ppu.chr_rom.is_empty() {
+            true => &ppu.chr_ram[tile_start..tile_start + 16],
+            false => &ppu.chr_rom[tile_start..tile_start + 16],
+        };
         let tile_column = i % 32;
         let tile_row = i / 32;
         let palette = get_bg_palette(ppu, attribute_table, tile_column, tile_row);
@@ -236,7 +280,7 @@ fn get_sprite_palette(ppu: &PPU, palette_idx: u8) -> [u8; 4] {
 }
 
 #[allow(dead_code)]
-fn draw_debug_overlays(cpu: &CPU) {
+pub fn draw_debug_overlays(cpu: &CPU) {
     // Debug overlays
 
     // let ram_px_size = 3;

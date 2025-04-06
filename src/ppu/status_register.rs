@@ -48,7 +48,7 @@ impl StatusRegister {
         self.contains(StatusRegister::VBLANK_STARTED)
     }
 
-    pub fn value(&self) -> u8 {
+    pub fn value(&mut self) -> u8 {
         self.bits()
     }
 }

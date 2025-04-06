@@ -36,7 +36,7 @@ impl AddressRegister {
             self.t_value.0 = self.t_value.0.wrapping_add(1);
         }
         if self.get() > 0x3fff {
-            self.set(self.get() & 0b11_1111_1111_1111); // mirror down if above 0x3FFF
+            self.set(self.get() & 0b0011_1111_1111_1111); // mirror down if above 0x3FFF
         }
     }
 
@@ -46,7 +46,7 @@ impl AddressRegister {
 
     pub fn get(&self) -> u16 {
         let addr = ((self.t_value.0 as u16) << 8) | (self.t_value.1 as u16);
-        addr
+        addr & 0b0011_1111_1111_1111
     }
 }
 

@@ -7,8 +7,14 @@
 - [x] Implement 6502 CPU (minus APU)
 - [x] Create 6502 CPU test runner for single-step tests
 - [x] Implement iNES 1.0 ROM parsing
-- [ ] Implement PPU
 - [x] Implement interrupt handling
+    - [x] Non-maskable-interrupts
+    - [x] Software-defined interrupts
+- [x] Implement user-input via Joypad 1
+- [ ] Implement PPU
+    - [x] Background nametable rendering
+    - [x] 8x8 sprite rendering (with horiz/vert flips)
+    - [ ] 8x16 sprite rendering
 - [ ] Implement APU
 
 ### Resources
