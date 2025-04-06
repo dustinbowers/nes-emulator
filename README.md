@@ -5,6 +5,9 @@
 ### TODO
 
 - [x] Implement 6502 CPU (minus APU)
+    - [x] Official opcodes
+    - [x] Unofficial opcodes
+    - [x] Ensure cycle accuracy
 - [x] Create 6502 CPU test runner for single-step tests
 - [x] Implement iNES 1.0 ROM parsing
 - [x] Implement interrupt handling
@@ -15,6 +18,7 @@
     - [x] Background nametable rendering
     - [x] 8x8 sprite rendering (with horiz/vert flips)
     - [ ] 8x16 sprite rendering
+- [x] Abstract Mapper logic into self-contained structs
 - [ ] Implement APU
 
 ### Resources
