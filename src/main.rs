@@ -12,6 +12,7 @@ mod bus_tests;
 use crate::controller::joypad::JoypadButtons;
 use crate::display::color_map::COLOR_MAP;
 use crate::display::frame::Frame;
+use crate::display::render::draw_debug_overlays;
 use bus::Bus;
 use cpu::processor::CPU;
 use display::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
@@ -72,6 +73,7 @@ async fn play_rom(rom_path: &str) {
 
     let bus = Bus::new(rom, |ppu, joypad| {
         render(ppu, Rc::clone(&frame));
+        println!(".");
 
         // Handle user input
         let keys_pressed = get_keys_down();
@@ -88,9 +90,9 @@ async fn play_rom(rom_path: &str) {
     });
     let mut cpu = CPU::new(bus);
 
-    if rom_path.contains("nestest.nes") {
-        cpu.program_counter = 0xC000;
-    }
+    // if rom_path.contains("nestest.nes") {
+    //     cpu.program_counter = 0xC000;
+    // }
 
     loop {
         let mut break_loop = false;
@@ -111,7 +113,8 @@ async fn play_rom(rom_path: &str) {
         clear_background(RED);
         draw_frame(&frame.borrow());
 
-        // draw_debug_overlays(&cpu);
+        // Debug Overlays
+        draw_debug_overlays(&cpu);
 
         // Draw some states
         let status_str = format!(

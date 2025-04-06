@@ -18,6 +18,7 @@ const PALETTE_SIZE: usize = 0x20; // Size of the palette memory
 
 pub struct PPU {
     pub chr_rom: Vec<u8>,
+    pub chr_ram: Vec<u8>,
     pub palette_table: [u8; PALETTE_SIZE],
     pub ram: [u8; RAM_SIZE],
 
@@ -41,8 +42,17 @@ pub struct PPU {
 
 impl PPU {
     pub fn new(chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        let chr_ram = match chr_rom.len() {
+            0 => vec![0u8; 0x2000],
+            _ => vec![],
+        };
+
+        println!("chr_rom.len() = {}", chr_rom.len());
+        println!("chr_ram.len() = {}", chr_ram.len());
+
         PPU {
             chr_rom,
+            chr_ram,
             mirroring,
             ram: [0; RAM_SIZE],
             oam_addr: 0,
@@ -66,18 +76,20 @@ impl PPU {
             self.scanline += 1;
             self.cycles -= 341;
             if self.scanline == 241 {
-                // Enter VBLANK on scanline 241
+                // Set VBLANK on scanline 241
                 self.status_register.set_vblank_status(true);
                 // Trigger NMI if CPU hasn't requested a break from them
                 if self.ctrl_register.generate_vblank_nmi() {
                     self.nmi_interrupt = Some(1);
                 }
-            }
-            if self.scanline >= 262 {
-                // Exit VBLANK past scanline 262
-                self.scanline = 0;
+            } else if self.scanline == 261 {
+                // Clear VBLANK on pre-render line 261
                 self.status_register.reset_vblank_status();
                 self.nmi_interrupt = None;
+            }
+            if self.scanline >= 262 {
+                // Wrap scanline
+                self.scanline = 0;
             }
         }
     }
@@ -156,7 +168,10 @@ impl PPU {
         match addr {
             0..=0x1FFF => {
                 let result = self.internal_data;
-                self.internal_data = *self.chr_rom.get(addr as usize).unwrap_or(&0);
+                self.internal_data = match self.chr_ram.is_empty() {
+                    true => *self.chr_rom.get(addr as usize).unwrap_or(&0),
+                    false => *self.chr_ram.get(addr as usize).unwrap_or(&0),
+                };
                 result
             }
             0x2000..=0x2FFF => {
@@ -178,7 +193,8 @@ impl PPU {
                 let mirrored_address = addr & 0x3F1F;
                 self.palette_table[(mirrored_address - 0x3F00) as usize] // No buffering for palette reads
             }
-            _ => panic!("Invalid access to mirrored space ${:04X}", addr),
+            // _ => panic!("Invalid access to mirrored space ${:04X}", addr),
+            _ => 0,
         }
     }
 
@@ -187,7 +203,10 @@ impl PPU {
 
         match addr {
             0..=0x1FFF => {
-                println!("Warning: Attempted write to CHR ROM space at {:#04X}", addr);
+                // println!("Info: Attempted write to CHR ROM space at {:#04X}", addr);
+                if self.chr_ram.is_empty() == false {
+                    self.chr_ram[addr as usize] = value;
+                }
             }
             0x2000..=0x2FFF => {
                 let mirrored_addr = self.mirror_ram_addr(addr);
