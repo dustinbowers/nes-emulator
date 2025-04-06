@@ -1,3 +1,5 @@
+use crate::cartridge::Cartridge;
+
 const NES_MAGIC_BYTES: &[u8; 4] = b"NES\x1A";
 const PRG_ROM_PAGE_SIZE: usize = 0x4000;
 const CHR_ROM_PAGE_SIZE: usize = 0x2000;
@@ -9,7 +11,7 @@ pub enum RomError {
     OutOfBounds(String),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Mirroring {
     Vertical,
     Horizontal,
@@ -90,4 +92,12 @@ impl Rom {
             screen_mirroring,
         }
     }
+
+    // pub fn into_cartridge(self) -> Box<dyn Cartridge> {
+    //     match self.mapper {
+    //         0 => Box::new(Nrom::new(self)),
+    //         // TODO
+    //         id => panic!("Unsupported mapper id: {}", id),
+    //     }
+    // }
 }

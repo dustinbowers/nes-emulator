@@ -1,12 +1,14 @@
 #[cfg(test)]
 mod tests {
     use crate::bus::{Bus, BusMemory};
+    use crate::cartridge::nrom::NromCart;
     use crate::rom::{Mirroring, Rom};
 
     #[test]
     fn test_bus_fetch_and_store_byte() {
         let rom = Rom::empty();
-        let mut bus = Bus::new(rom, |_, _| {});
+        let cart = NromCart::new(rom.prg_rom, rom.chr_rom, rom.screen_mirroring);
+        let mut bus = Bus::new(cart, |_, _| {});
 
         // Store a byte and verify retrieval
         bus.store_byte(5, 42);
@@ -20,7 +22,8 @@ mod tests {
             mapper: 0,
             screen_mirroring: Mirroring::Vertical,
         };
-        Bus::new(rom, |_, _| {})
+        let cart = NromCart::new(rom.prg_rom, rom.chr_rom, rom.screen_mirroring);
+        Bus::new(cart, |_, _| {})
     }
 
     #[test]

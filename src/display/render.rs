@@ -23,7 +23,7 @@ pub fn render(ppu: &PPU, mut frame: Rc<RefCell<Frame>>) {
     let scroll_x = ppu.scroll_register.scroll_x as usize;
     let scroll_y = ppu.scroll_register.scroll_y as usize;
 
-    let (main_nametable, second_nametable) = match ppu.mirroring {
+    let (main_nametable, second_nametable) = match ppu.cart.borrow().mirroring() {
         Mirroring::Vertical => match ppu.ctrl_register.get_nametable_addr() {
             0x2000 | 0x2800 => (&ppu.ram[0..0x400], &ppu.ram[0x400..0x800]),
             0x2400 | 0x2C00 => (&ppu.ram[0x400..0x800], &ppu.ram[0..0x400]),
@@ -40,7 +40,7 @@ pub fn render(ppu: &PPU, mut frame: Rc<RefCell<Frame>>) {
                 ppu.ctrl_register.get_nametable_addr()
             ),
         },
-        _ => panic!("Unsupported mirroring type: {:?}", ppu.mirroring),
+        _ => panic!("Unsupported mirroring type: {:?}", ppu.cart.borrow().mirroring()),
     };
 
     // Render background nametable
@@ -97,8 +97,8 @@ pub fn render(ppu: &PPU, mut frame: Rc<RefCell<Frame>>) {
         } else {
             ppu.ctrl_register.sprite_pattern_addr()
         } as usize;
-        let mut tile_chr_index = bank_addr + (tile_index as usize * 16);
-        let tile = &ppu.chr_rom[tile_chr_index..tile_chr_index + 16];
+        let mut tile_chr_index = (bank_addr + (tile_index as usize * 16)) as u16;
+        // let tile = &ppu.chr_rom[tile_chr_index..tile_chr_index + 16];
 
         let tile_y = match (is_8x16, is_second_tile) {
             (false, _) => tile_y,
@@ -124,11 +124,13 @@ pub fn render(ppu: &PPU, mut frame: Rc<RefCell<Frame>>) {
         };
 
         for y in 0..8 {
-            let upper = tile[y];
-            let lower = tile[y + 8];
+            // let upper = tile[y];
+            // let lower = tile[y + 8];
+            let upper = ppu.cart.borrow_mut().chr_read(tile_chr_index + y);
+            let lower = ppu.cart.borrow_mut().chr_read(tile_chr_index + y + 8);
             for x in 0..8 {
                 let pixel_x = if flip_horizontal { 7 - x } else { x };
-                let pixel_y = if flip_vertical { 7 - y } else { y };
+                let pixel_y = if flip_vertical { 7 - y } else { y } as usize;
 
                 // let pixel_y = match (is_8x16, is_second_tile) {
                 //     (false, 0) => { pixel_y }
@@ -181,17 +183,17 @@ fn render_name_table(
 
     for i in 0..0x3c0 {
         let tile_index = ppu.ram[i] as u16;
-        let tile_start = (bank + tile_index * 16) as usize;
+        let tile_start = bank + tile_index * 16;
 
         // if tile_start + 16 > ppu.chr_rom.len() {
         //     println!("WARNING: Tile index {} out of bounds!", tile_index);
         //     continue; // Skip if out of bounds
         // }
         // let tile = &ppu.chr_rom[tile_start..tile_start + 16];
-        let tile = match ppu.chr_rom.is_empty() {
-            true => &ppu.chr_ram[tile_start..tile_start + 16],
-            false => &ppu.chr_rom[tile_start..tile_start + 16],
-        };
+        // let tile = match ppu.chr_rom.is_empty() {
+        //     true => &ppu.chr_ram[tile_start..tile_start + 16],
+        //     false => &ppu.chr_rom[tile_start..tile_start + 16],
+        // };
         let tile_column = i % 32;
         let tile_row = i / 32;
         let palette = get_bg_palette(ppu, attribute_table, tile_column, tile_row);
@@ -200,8 +202,8 @@ fn render_name_table(
         let tile_row = i / 32;
 
         for y in 0..8 {
-            let upper = tile[y];
-            let lower = tile[y + 8];
+            let upper = ppu.cart.borrow_mut().chr_read(tile_start + y);
+            let lower = ppu.cart.borrow_mut().chr_read(tile_start + y + 8);
 
             for x in (0..8).rev() {
                 let value = ((lower >> (7 - x)) & 1) << 1 | ((upper >> (7 - x)) & 1); // Build pixel value
@@ -224,7 +226,7 @@ fn render_name_table(
 
                 let color = COLOR_MAP.get_color(color_index);
                 let px = tile_column * 8 + x;
-                let py = tile_row * 8 + y;
+                let py = tile_row * 8 + y as usize;
                 // frame.set_pixel(tile_column * 8 + x, tile_row * 8 + y, *color)
                 if px >= view_port.x1
                     && px <= view_port.x2

@@ -1,12 +1,14 @@
 #[cfg(test)]
 mod test {
     use crate::bus::{Bus, BusMemory};
+    use crate::cartridge::nrom::NromCart;
     use crate::cpu::processor::{rotate_value_left, rotate_value_right, Flags, CPU};
     use crate::rom::{Mirroring, Rom};
 
     fn init_cpu(prg_rom: &[u8]) -> CPU {
         let rom = Rom::new_custom(prg_rom.to_vec(), vec![], 0, Mirroring::Vertical);
-        let mut bus = Bus::new(rom, |_, _| {});
+        let cart = NromCart::new(rom.prg_rom, rom.chr_rom, rom.screen_mirroring);
+        let mut bus = Bus::new(cart, |_, _| {});
         bus.enable_test_mode();
         let mut cpu = CPU::new(bus);
         cpu.program_counter = 0;
@@ -356,7 +358,8 @@ mod test {
         }
 
         let rom = Rom::new_custom(prg_rom, vec![], 0, Mirroring::Vertical);
-        let bus = Bus::new(rom, |_, _| {});
+        let cart = NromCart::new(rom.prg_rom, rom.chr_rom, rom.screen_mirroring);
+        let bus = Bus::new(cart, |_, _| {});
         let mut cpu = CPU::new(bus);
         cpu.program_counter = 0x8000;
         cpu.run();
@@ -405,7 +408,8 @@ mod test {
         }
 
         let rom = Rom::new_custom(prg_rom, vec![], 0, Mirroring::Vertical);
-        let bus = Bus::new(rom, |_, _| {});
+        let cart = NromCart::new(rom.prg_rom, rom.chr_rom, rom.screen_mirroring);
+        let bus = Bus::new(cart, |_, _| {});
         let mut cpu = CPU::new(bus);
         cpu.program_counter = 0x8000;
         cpu.run();
