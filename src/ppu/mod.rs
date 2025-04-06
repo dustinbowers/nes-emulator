@@ -4,12 +4,15 @@ mod mask_register;
 mod scroll_register;
 mod status_register;
 
+use crate::cartridge::Cartridge;
 use crate::ppu::address_register::AddressRegister;
 use crate::ppu::control_register::ControlRegister;
 use crate::ppu::mask_register::MaskRegister;
 use crate::ppu::scroll_register::ScrollRegister;
 use crate::ppu::status_register::StatusRegister;
 use crate::rom::Mirroring;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 const OAM_SIZE: usize = 256;
 const RAM_SIZE: usize = 2048;
@@ -17,8 +20,7 @@ const NAME_TABLE_SIZE: usize = 0x400; // Size of each nametable (1 KB)
 const PALETTE_SIZE: usize = 0x20; // Size of the palette memory
 
 pub struct PPU {
-    pub chr_rom: Vec<u8>,
-    pub chr_ram: Vec<u8>,
+    pub cart: Rc<RefCell<dyn Cartridge>>,
     pub palette_table: [u8; PALETTE_SIZE],
     pub ram: [u8; RAM_SIZE],
 
@@ -36,24 +38,12 @@ pub struct PPU {
     pub cycles: usize,
     scanline: usize,
     pub nmi_interrupt: Option<u8>,
-
-    pub mirroring: Mirroring,
 }
 
 impl PPU {
-    pub fn new(chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
-        let chr_ram = match chr_rom.len() {
-            0 => vec![0u8; 0x2000],
-            _ => vec![],
-        };
-
-        println!("chr_rom.len() = {}", chr_rom.len());
-        println!("chr_ram.len() = {}", chr_ram.len());
-
+    pub fn new(cart: Rc<RefCell<dyn Cartridge>>) -> Self {
         PPU {
-            chr_rom,
-            chr_ram,
-            mirroring,
+            cart,
             ram: [0; RAM_SIZE],
             oam_addr: 0,
             oam_data: [0; OAM_SIZE],
@@ -160,18 +150,10 @@ impl PPU {
         let mut addr = self.addr_register.get();
         self.increment_ram_addr();
 
-        // Handle VRAM Mirroring (0x3000-0x3EFF → 0x2000-0x2EFF)
-        if (0x3000..=0x3EFF).contains(&addr) {
-            addr -= 0x1000;
-        }
-
         match addr {
             0..=0x1FFF => {
                 let result = self.internal_data;
-                self.internal_data = match self.chr_ram.is_empty() {
-                    true => *self.chr_rom.get(addr as usize).unwrap_or(&0),
-                    false => *self.chr_ram.get(addr as usize).unwrap_or(&0),
-                };
+                self.internal_data = self.cart.borrow_mut().chr_read(addr);
                 result
             }
             0x2000..=0x2FFF => {
@@ -193,8 +175,10 @@ impl PPU {
                 let mirrored_address = addr & 0x3F1F;
                 self.palette_table[(mirrored_address - 0x3F00) as usize] // No buffering for palette reads
             }
-            // _ => panic!("Invalid access to mirrored space ${:04X}", addr),
-            _ => 0,
+            0x8000..=0xFFFF => self.cart.borrow_mut().prg_read(addr),
+            _ => {
+                unimplemented!("read from unimplemented address ${:04X}", addr)
+            }
         }
     }
 
@@ -204,9 +188,7 @@ impl PPU {
         match addr {
             0..=0x1FFF => {
                 // println!("Info: Attempted write to CHR ROM space at {:#04X}", addr);
-                if self.chr_ram.is_empty() == false {
-                    self.chr_ram[addr as usize] = value;
-                }
+                self.cart.borrow_mut().chr_write(addr, value);
             }
             0x2000..=0x2FFF => {
                 let mirrored_addr = self.mirror_ram_addr(addr);
@@ -240,7 +222,7 @@ impl PPU {
         let mirrored_ram = addr & 0b10111111111111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
         let ram_index = mirrored_ram - 0x2000;
         let name_table = ram_index / 0x400;
-        match (&self.mirroring, name_table) {
+        match (&self.cart.borrow().mirroring(), name_table) {
             (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800,
             (Mirroring::Horizontal, 2) => ram_index - 0x400,
             (Mirroring::Horizontal, 1) => ram_index - 0x400,
@@ -253,9 +235,11 @@ impl PPU {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cartridge::nrom::NromCart;
 
     fn create_empty_ppu() -> PPU {
-        PPU::new(vec![0; 4096], Mirroring::Vertical)
+        let cart = NromCart::new(vec![0; 0x4000], vec![0; 0x4000], Mirroring::Vertical);
+        PPU::new(Rc::new(RefCell::new(cart)))
     }
 
     #[test]
@@ -263,7 +247,7 @@ mod tests {
         let mut ppu = create_empty_ppu();
         ppu.write_to_data(0x55);
         // Expecting no change in CHR ROM since it's read-only (unless CHR RAM is supported)
-        assert_ne!(ppu.chr_rom[0], 0x55);
+        assert_ne!(ppu.cart.borrow_mut().chr_read(0), 0x55);
     }
 
     #[test]

@@ -4,6 +4,7 @@
 */
 
 mod bus;
+mod cartridge;
 mod controller;
 mod cpu;
 mod memory;
@@ -12,6 +13,7 @@ mod rom;
 
 use crate::bus::Bus;
 use crate::bus::BusMemory;
+use crate::cartridge::nrom::NromCart;
 use crate::cpu::processor::{Flags, CPU};
 use crate::rom::Rom;
 use serde::Deserialize;
@@ -129,7 +131,8 @@ fn read_opcode_tests(
 fn run_opcode_test(test: &OpcodeTest) {
     // Create CPU
     let rom = Rom::empty();
-    let mut bus = Bus::new(rom, |_, _| {});
+    let cart = rom.into_cartridge();
+    let mut bus = Bus::new(cart, |_, _| {});
     bus.enable_test_mode();
     let mut cpu = CPU::new(bus);
     cpu.reset();

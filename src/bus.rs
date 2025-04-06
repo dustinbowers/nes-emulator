@@ -1,9 +1,11 @@
+use crate::cartridge::Cartridge;
 use crate::controller::joypad::Joypad;
 use crate::controller::NesController;
 use crate::memory::heap_memory::HeapMemory;
 use crate::memory::memory_trait::MemoryTrait;
 use crate::ppu::PPU;
-use crate::rom::Rom;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 const CPU_RAM_SIZE: usize = 2048;
 const CPU_RAM_START: u16 = 0x0000;
@@ -17,9 +19,10 @@ const ROM_START: u16 = 0x8000;
 const ROM_END: u16 = 0xFFFF;
 
 pub struct Bus<'call> {
+    cart: Rc<RefCell<dyn Cartridge>>,
+
     pub cpu_ram: HeapMemory<u8>,
     pub cycles: usize,
-    pub prg_rom: Vec<u8>,
     pub ppu: PPU,
     pub disable_mirroring: bool,
 
@@ -71,7 +74,7 @@ impl BusMemory for Bus<'_> {
                     }
                 }
             }
-            ROM_START..=ROM_END => self.read_prg_rom(address),
+            ROM_START..=ROM_END => self.cart.borrow_mut().prg_read(address),
 
             0x4000..=0x4015 => {
                 // ignore APU
@@ -85,6 +88,7 @@ impl BusMemory for Bus<'_> {
                 // ignore joypad 2 for now
                 0
             }
+            0x4020..=0xFFFF => self.cart.borrow_mut().prg_read(address),
             _ => self.last_fetched_byte,
         };
         self.last_fetched_byte = fetched_byte;
@@ -140,6 +144,12 @@ impl BusMemory for Bus<'_> {
             0x4017 => {
                 // ignore joypad 2
             }
+            0x4018..=0x401F => {
+                // usually disabled
+            }
+            0x4020..=0xFFFF => {
+                self.cart.borrow_mut().prg_write(address, value);
+            }
             _ => {
                 // With NROMs these are basically NOPs
                 // Other mappers will use these when implemented
@@ -149,17 +159,17 @@ impl BusMemory for Bus<'_> {
 }
 
 impl<'a> Bus<'a> {
-    pub fn new<'call, F>(rom: Rom, callback: F) -> Bus<'call>
+    pub fn new<'call, F>(cart: Rc<RefCell<dyn Cartridge>>, callback: F) -> Bus<'call>
     where
         F: FnMut(&PPU, &mut Joypad) + 'call,
     {
-        let prg_rom = rom.prg_rom.clone();
-        let ppu = PPU::new(rom.chr_rom, rom.screen_mirroring);
+        let ppu = PPU::new(Rc::clone(&cart));
 
         Bus {
+            cart,
             cpu_ram: HeapMemory::new(CPU_RAM_SIZE, 0u8),
             cycles: 0,
-            prg_rom,
+            // prg_rom,
             ppu,
             disable_mirroring: false,
             last_fetched_byte: 0,
@@ -170,7 +180,7 @@ impl<'a> Bus<'a> {
 
     pub fn enable_test_mode(&mut self) {
         self.disable_mirroring = true;
-        self.cpu_ram.data = std::mem::take(&mut self.prg_rom.clone());
+        self.cpu_ram.data = std::mem::take(&mut self.cart.borrow().get_prg_rom());
         self.cpu_ram.data.resize(1 << 16, 0u8);
     }
 
@@ -205,17 +215,5 @@ impl<'a> Bus<'a> {
     pub fn store_byte_vec(&mut self, address: u16, values: Vec<u8>) {
         self.cpu_ram
             .write_n(address as usize, &values.into_boxed_slice())
-    }
-
-    fn read_prg_rom(&self, addr: u16) -> u8 {
-        let addr = addr - 0x8000;
-
-        // Calculate the effective address with mirroring if needed
-        let effective_addr = if self.prg_rom.len() == 0x4000 && addr >= 0x4000 {
-            addr % 0x4000
-        } else {
-            addr
-        };
-        self.prg_rom[effective_addr as usize]
     }
 }
