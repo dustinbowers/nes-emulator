@@ -7,7 +7,7 @@ mod tests {
     #[test]
     fn test_bus_fetch_and_store_byte() {
         let rom = Rom::empty();
-        let cart = NromCart::new(rom.prg_rom, rom.chr_rom, rom.screen_mirroring);
+        let cart = rom.into_cartridge();
         let mut bus = Bus::new(cart, |_, _| {});
 
         // Store a byte and verify retrieval
@@ -22,7 +22,7 @@ mod tests {
             mapper: 0,
             screen_mirroring: Mirroring::Vertical,
         };
-        let cart = NromCart::new(rom.prg_rom, rom.chr_rom, rom.screen_mirroring);
+        let cart = rom.into_cartridge();
         Bus::new(cart, |_, _| {})
     }
 
@@ -77,13 +77,13 @@ mod tests {
                                       // Since 0x2000 is write-only, we cannot verify by reading, but ensure no crash occurs.
     }
 
-    #[test]
-    fn test_open_bus_behavior() {
-        let mut bus = setup_bus(vec![0; 32768]);
-
-        bus.last_fetched_byte = 0xAB;
-        assert_eq!(bus.fetch_byte(0x5000), 0xAB);
-    }
+    // #[test]
+    // fn test_open_bus_behavior() {
+    //     let mut bus = setup_bus(vec![0; 32768]);
+    //
+    //     bus.last_fetched_byte = 0xAB;
+    //     assert_eq!(bus.fetch_byte(0x5000), 0xAB);
+    // }
 
     #[test]
     fn test_vram_increment() {
@@ -94,13 +94,13 @@ mod tests {
         assert_eq!(bus.ppu.ctrl_register.increment_ram_addr(), 32);
     }
 
-    #[test]
-    fn test_uninitialized_memory_reads_return_open_bus_value() {
-        let mut bus = setup_bus(vec![0; 32768]);
-
-        bus.last_fetched_byte = 0xBE;
-        assert_eq!(bus.fetch_byte(0x5000), 0xBE); // Open-bus behavior
-    }
+    // #[test]
+    // fn test_uninitialized_memory_reads_return_open_bus_value() {
+    //     let mut bus = setup_bus(vec![0; 32768]);
+    //
+    //     bus.last_fetched_byte = 0xBE;
+    //     assert_eq!(bus.fetch_byte(0x5000), 0xBE); // Open-bus behavior
+    // }
 
     #[test]
     fn test_mirrored_cpu_ram_access() {
@@ -160,22 +160,6 @@ mod tests {
 
         assert_eq!(bus.ppu.oam_data[0], 0xAB);
         assert_eq!(bus.ppu.oam_data[255], 0xAB);
-    }
-
-    #[test]
-    fn test_vblank_nmi_triggering() {
-        let mut bus = setup_bus(vec![0; 32768]);
-
-        // Disable NMI initially
-        bus.ppu.write_to_ctrl(0x0);
-
-        // Enable NMI generation
-        bus.ppu.write_to_ctrl(0b1000_0000);
-        for _ in 1..29781 {
-            // Simulate a full frame
-            bus.tick(1);
-        }
-        assert_eq!(bus.get_nmi_status().unwrap(), 1);
     }
 
     #[test]

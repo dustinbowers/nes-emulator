@@ -1,12 +1,11 @@
-use std::cell::RefCell;
-use std::rc::Rc;
 use crate::cartridge::Cartridge;
 use crate::controller::joypad::Joypad;
 use crate::controller::NesController;
 use crate::memory::heap_memory::HeapMemory;
 use crate::memory::memory_trait::MemoryTrait;
 use crate::ppu::PPU;
-use crate::rom::Rom;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 const CPU_RAM_SIZE: usize = 2048;
 const CPU_RAM_START: u16 = 0x0000;
@@ -21,7 +20,6 @@ const ROM_END: u16 = 0xFFFF;
 
 pub struct Bus<'call> {
     cart: Rc<RefCell<dyn Cartridge>>,
-    // pub prg_rom: Vec<u8>,
 
     pub cpu_ram: HeapMemory<u8>,
     pub cycles: usize,
@@ -90,9 +88,7 @@ impl BusMemory for Bus<'_> {
                 // ignore joypad 2 for now
                 0
             }
-            0x4020..=0xFFFF => {
-                self.cart.borrow_mut().prg_read(address)
-            }
+            0x4020..=0xFFFF => self.cart.borrow_mut().prg_read(address),
             _ => self.last_fetched_byte,
         };
         self.last_fetched_byte = fetched_byte;
@@ -163,12 +159,10 @@ impl BusMemory for Bus<'_> {
 }
 
 impl<'a> Bus<'a> {
-    pub fn new<'call, F, C>(cart: C, callback: F) -> Bus<'call>
+    pub fn new<'call, F>(cart: Rc<RefCell<dyn Cartridge>>, callback: F) -> Bus<'call>
     where
-        C: Cartridge + 'static,
         F: FnMut(&PPU, &mut Joypad) + 'call,
     {
-        let cart: Rc<RefCell<dyn Cartridge>> = Rc::new(RefCell::new(cart));
         let ppu = PPU::new(Rc::clone(&cart));
 
         Bus {
@@ -222,16 +216,4 @@ impl<'a> Bus<'a> {
         self.cpu_ram
             .write_n(address as usize, &values.into_boxed_slice())
     }
-
-    // fn read_prg_rom(&self, addr: u16) -> u8 {
-    //     let addr = addr - 0x8000;
-    //
-    //     // Calculate the effective address with mirroring if needed
-    //     let effective_addr = if self.cart.borrow().prg.len() == 0x4000 && addr >= 0x4000 {
-    //         addr % 0x4000
-    //     } else {
-    //         addr
-    //     };
-    //     self.cart.borrow().prg_read(effective_addr as usize);
-    // }
 }

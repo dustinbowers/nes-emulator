@@ -4,15 +4,16 @@
 */
 
 mod bus;
+mod cartridge;
 mod controller;
 mod cpu;
 mod memory;
 mod ppu;
 mod rom;
-mod cartridge;
 
 use crate::bus::Bus;
 use crate::bus::BusMemory;
+use crate::cartridge::nrom::NromCart;
 use crate::cpu::processor::{Flags, CPU};
 use crate::rom::Rom;
 use serde::Deserialize;
@@ -21,7 +22,6 @@ use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process;
-use crate::cartridge::nrom::NromCart;
 
 #[derive(Debug, Deserialize)]
 struct OpcodeTest {
@@ -131,7 +131,7 @@ fn read_opcode_tests(
 fn run_opcode_test(test: &OpcodeTest) {
     // Create CPU
     let rom = Rom::empty();
-    let cart = NromCart::new(rom.prg_rom, rom.chr_rom, rom.screen_mirroring);
+    let cart = rom.into_cartridge();
     let mut bus = Bus::new(cart, |_, _| {});
     bus.enable_test_mode();
     let mut cpu = CPU::new(bus);

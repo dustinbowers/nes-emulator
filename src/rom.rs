@@ -1,4 +1,7 @@
+use crate::cartridge::nrom::NromCart;
 use crate::cartridge::Cartridge;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 const NES_MAGIC_BYTES: &[u8; 4] = b"NES\x1A";
 const PRG_ROM_PAGE_SIZE: usize = 0x4000;
@@ -16,6 +19,8 @@ pub enum Mirroring {
     Vertical,
     Horizontal,
     FourScreen,
+    Single0,
+    Single1,
 }
 
 pub struct Rom {
@@ -93,11 +98,21 @@ impl Rom {
         }
     }
 
-    // pub fn into_cartridge(self) -> Box<dyn Cartridge> {
-    //     match self.mapper {
-    //         0 => Box::new(Nrom::new(self)),
-    //         // TODO
-    //         id => panic!("Unsupported mapper id: {}", id),
-    //     }
-    // }
+    pub fn into_cartridge(self) -> Rc<RefCell<dyn Cartridge>> {
+        match self.mapper {
+            0 => {
+                let cart = NromCart::new(self.prg_rom, self.chr_rom, self.screen_mirroring);
+                Rc::new(RefCell::new(cart))
+            }
+
+            // TODO
+            id => panic!("Unsupported mapper id: {}", id),
+        }
+    }
+}
+
+impl Into<Rc<RefCell<dyn Cartridge>>> for Rom {
+    fn into(self) -> Rc<RefCell<dyn Cartridge>> {
+        self.into_cartridge()
+    }
 }

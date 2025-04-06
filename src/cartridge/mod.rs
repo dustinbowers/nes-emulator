@@ -1,5 +1,6 @@
 use crate::rom::Mirroring;
 
+mod mmc1;
 pub mod nrom;
 
 pub trait Cartridge {

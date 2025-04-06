@@ -11,6 +11,8 @@ mod cartridge;
 #[cfg(test)]
 mod bus_tests;
 
+use crate::cartridge::nrom::NromCart;
+use crate::cartridge::Cartridge;
 use crate::controller::joypad::JoypadButtons;
 use crate::display::color_map::COLOR_MAP;
 use crate::display::frame::Frame;
@@ -25,7 +27,6 @@ use rom::Rom;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::{env, process};
-use crate::cartridge::nrom::NromCart;
 
 fn window_conf() -> Conf {
     Conf {
@@ -74,11 +75,8 @@ async fn play_rom(rom_path: &str) {
         }
     };
 
-
-    let cart = NromCart::new(rom.prg_rom, rom.chr_rom, rom.screen_mirroring);
-    let bus = Bus::new(cart, |ppu, joypad| {
+    let bus = Bus::new(rom.into(), |ppu, joypad| {
         render(ppu, Rc::clone(&frame));
-        println!(".");
 
         // Handle user input
         let keys_pressed = get_keys_down();

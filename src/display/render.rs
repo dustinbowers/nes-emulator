@@ -40,7 +40,10 @@ pub fn render(ppu: &PPU, mut frame: Rc<RefCell<Frame>>) {
                 ppu.ctrl_register.get_nametable_addr()
             ),
         },
-        _ => panic!("Unsupported mirroring type: {:?}", ppu.cart.borrow().mirroring()),
+        _ => panic!(
+            "Unsupported mirroring type: {:?}",
+            ppu.cart.borrow().mirroring()
+        ),
     };
 
     // Render background nametable
@@ -185,15 +188,6 @@ fn render_name_table(
         let tile_index = ppu.ram[i] as u16;
         let tile_start = bank + tile_index * 16;
 
-        // if tile_start + 16 > ppu.chr_rom.len() {
-        //     println!("WARNING: Tile index {} out of bounds!", tile_index);
-        //     continue; // Skip if out of bounds
-        // }
-        // let tile = &ppu.chr_rom[tile_start..tile_start + 16];
-        // let tile = match ppu.chr_rom.is_empty() {
-        //     true => &ppu.chr_ram[tile_start..tile_start + 16],
-        //     false => &ppu.chr_rom[tile_start..tile_start + 16],
-        // };
         let tile_column = i % 32;
         let tile_row = i / 32;
         let palette = get_bg_palette(ppu, attribute_table, tile_column, tile_row);
