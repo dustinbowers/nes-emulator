@@ -20,61 +20,107 @@ impl ViewPort {
 }
 
 pub fn render(ppu: &PPU, mut frame: Rc<RefCell<Frame>>) {
-    let scroll_x = ppu.scroll_register.scroll_x as usize;
-    let scroll_y = ppu.scroll_register.scroll_y as usize;
 
-    let (main_nametable, second_nametable) = match ppu.cart.borrow().mirroring() {
-        Mirroring::Vertical => match ppu.ctrl_register.get_nametable_addr() {
-            0x2000 | 0x2800 => (&ppu.ram[0..0x400], &ppu.ram[0x400..0x800]),
-            0x2400 | 0x2C00 => (&ppu.ram[0x400..0x800], &ppu.ram[0..0x400]),
-            _ => panic!(
-                "Unexpected nametable address: {:04X}",
-                ppu.ctrl_register.get_nametable_addr()
-            ),
-        },
-        Mirroring::Horizontal => match ppu.ctrl_register.get_nametable_addr() {
-            0x2000 | 0x2400 => (&ppu.ram[0..0x400], &ppu.ram[0x400..0x800]),
-            0x2800 | 0x2C00 => (&ppu.ram[0x400..0x800], &ppu.ram[0..0x400]),
-            _ => panic!(
-                "Unexpected nametable address: {:04X}",
-                ppu.ctrl_register.get_nametable_addr()
-            ),
-        },
-        _ => panic!(
-            "Unsupported mirroring type: {:?}",
-            ppu.cart.borrow().mirroring()
-        ),
-    };
 
-    // Render background nametable
-    render_name_table(
-        ppu,
-        &mut frame,
-        main_nametable,
-        ViewPort::new(scroll_x, scroll_y, 256, 240),
-        -(scroll_x as isize),
-        -(scroll_y as isize),
-    );
+    // let (main_nametable, second_nametable) = match ppu.cart.borrow().mirroring() {
+    //     Mirroring::Vertical => match ppu.ctrl_register.get_nametable_addr() {
+    //         0x2000 | 0x2800 => (&ppu.ram[0..0x400], &ppu.ram[0x400..0x800]),
+    //         0x2400 | 0x2C00 => (&ppu.ram[0x400..0x800], &ppu.ram[0..0x400]),
+    //         _ => panic!(
+    //             "Unexpected nametable address: {:04X}",
+    //             ppu.ctrl_register.get_nametable_addr()
+    //         ),
+    //     },
+    //     Mirroring::Horizontal => match ppu.ctrl_register.get_nametable_addr() {
+    //         0x2000 | 0x2400 => (&ppu.ram[0..0x400], &ppu.ram[0x400..0x800]),
+    //         0x2800 | 0x2C00 => (&ppu.ram[0x400..0x800], &ppu.ram[0..0x400]),
+    //         _ => panic!(
+    //             "Unexpected nametable address: {:04X}",
+    //             ppu.ctrl_register.get_nametable_addr()
+    //         ),
+    //     },
+    //     _ => panic!(
+    //         "Unsupported mirroring type: {:?}",
+    //         ppu.cart.borrow().mirroring()
+    //     ),
+    // };
 
-    if scroll_x > 0 {
-        render_name_table(
-            ppu,
-            &mut frame,
-            second_nametable,
-            ViewPort::new(0, 0, scroll_x, 240),
-            (256 - scroll_x) as isize,
-            0,
-        );
-    } else if scroll_y > 0 {
-        render_name_table(
-            ppu,
-            &mut frame,
-            second_nametable,
-            ViewPort::new(0, 0, 256, 240),
-            0,
-            (240 - scroll_y) as isize,
-        );
+    if ppu.mask_register.show_background() {
+        // let scroll_x = ppu.scroll_register.scroll_x as u16;
+        // let scroll_y = ppu.scroll_register.scroll_y as u16;
+        // let offset_x = scroll_x % 256;
+        // let offset_y = scroll_y % 240;
+        // for ty in 0..=1 {
+        //     for tx in 0..=1 {
+        //         // which logical nametable to sample
+        //         let nt_x = (scroll_x / 256 + tx) % 2;
+        //         let nt_y = (scroll_y / 240 + ty) % 2;
+        //         let nametable = ppu.get_nametable(nt_x as u16, nt_y as u16);
+        //
+        //         // source viewport in that nametable
+        //         let src_x = if tx == 0 { offset_x } else { 0 };
+        //         let src_y = if ty == 0 { offset_y } else { 0 };
+        //         let width  = if tx == 0 { 256 - offset_x } else { offset_x };
+        //         let height = if ty == 0 { 240 - offset_y } else { offset_y };
+        //
+        //         // where on screen to draw it
+        //         let dest_x = (tx as isize * 256) - offset_x as isize;
+        //         let dest_y = (ty as isize * 240) - offset_y as isize;
+        //
+        //         // only draw if there’s something to draw
+        //         if width > 0 && height > 0 {
+        //             render_name_table(
+        //                 ppu,
+        //                 &mut frame,
+        //                 nametable,
+        //                 ViewPort::new(
+        //                     src_x as usize,
+        //                     src_y as usize,
+        //                     width as usize,
+        //                     height as usize),
+        //                 dest_x,
+        //                 dest_y,
+        //             );
+        //         }
+        //     }
+        // }
+        render_background(ppu, &mut frame);
     }
+
+    /// //////////////////////////
+
+
+    // // Render background nametable
+    // let scroll_x = ppu.scroll_register.scroll_x as usize;
+    // let scroll_y = ppu.scroll_register.scroll_y as usize;
+    // render_name_table(
+    //     ppu,
+    //     &mut frame,
+    //     main_nametable,
+    //     ViewPort::new(scroll_x, scroll_y, 256, 240),
+    //     -(scroll_x as isize),
+    //     -(scroll_y as isize),
+    // );
+    //
+    // if scroll_x > 0 {
+    //     render_name_table(
+    //         ppu,
+    //         &mut frame,
+    //         second_nametable,
+    //         ViewPort::new(0, 0, scroll_x, 240),
+    //         (256 - scroll_x) as isize,
+    //         0,
+    //     );
+    // } else if scroll_y > 0 {
+    //     render_name_table(
+    //         ppu,
+    //         &mut frame,
+    //         second_nametable,
+    //         ViewPort::new(0, 0, 256, 240),
+    //         0,
+    //         (240 - scroll_y) as isize,
+    //     );
+    // }
 
     if ppu.mask_register.show_sprites() == false {
         return;
@@ -168,6 +214,48 @@ pub fn render(ppu: &PPU, mut frame: Rc<RefCell<Frame>>) {
     }
 }
 
+pub fn render_background(ppu: &PPU, frame: &mut Rc<RefCell<Frame>>) {
+    let scroll_x = ppu.scroll_register.scroll_x as usize;
+    let scroll_y = ppu.scroll_register.scroll_y as usize;
+
+    let mut y = 0;
+    let mut src_y = scroll_y % 240;
+    // let mut nt_y = (scroll_y / 240) % 2;
+    let mut nt_y = (y / 240) % 2;
+
+    while y < 240 {
+        let draw_height = (240 - src_y).min(240 - y);
+
+        let mut x = 0;
+        let mut src_x = scroll_x % 256;
+        // let mut nt_x = (scroll_x / 256) % 2;
+        let mut nt_x = (x / 256) % 2;
+
+        while x < 256 {
+            let draw_width = (256 - src_x).min(256 - x);
+
+            let nametable = ppu.get_nametable(nt_x as u16, nt_y as u16);
+
+            render_name_table(
+                ppu,
+                frame,
+                nametable,
+                ViewPort::new(src_x, src_y, draw_width, draw_height),
+                x as isize,
+                y as isize,
+            );
+
+            x += draw_width;
+            src_x = 0;
+            nt_x = (nt_x + 1) % 2;
+        }
+
+        y += draw_height;
+        src_y = 0;
+        nt_y = (nt_y + 1) % 2;
+    }
+}
+
 fn render_name_table(
     ppu: &PPU,
     frame: &mut Rc<RefCell<Frame>>,
@@ -191,9 +279,6 @@ fn render_name_table(
         let tile_column = i % 32;
         let tile_row = i / 32;
         let palette = get_bg_palette(ppu, attribute_table, tile_column, tile_row);
-
-        let tile_column = i % 32;
-        let tile_row = i / 32;
 
         for y in 0..8 {
             let upper = ppu.cart.borrow_mut().chr_read(tile_start + y);

@@ -76,7 +76,7 @@ async fn play_rom(rom_path: &str) {
     };
 
     let bus = Bus::new(rom.into(), |ppu, joypad| {
-        render(ppu, Rc::clone(&frame));
+        // render(ppu, Rc::clone(&frame));
 
         // Handle user input
         let keys_pressed = get_keys_down();
@@ -108,6 +108,9 @@ async fn play_rom(rom_path: &str) {
             if cpu.bus.cycles >= 29_830 {
                 cpu.bus.cycles -= 29_830;
                 break;
+            }
+            if cpu.bus.poll_frame_complete() {
+                render(&cpu.bus.ppu, Rc::clone(&frame));
             }
         }
         if break_loop {

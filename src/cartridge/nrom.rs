@@ -10,11 +10,12 @@ pub struct NromCart {
 
 impl NromCart {
     pub fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> NromCart {
+        let chr_is_ram = chr_rom.len() == 0;
         NromCart {
             prg_rom,
-            chr: chr_rom,
+            chr: if chr_is_ram { vec![0u8; 0x2000] } else { chr_rom },
             mirroring,
-            chr_is_ram: false,
+            chr_is_ram,
         }
     }
 }

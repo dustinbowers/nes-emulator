@@ -84,6 +84,90 @@ impl PPU {
         }
     }
 
+    pub fn read_data(&mut self) -> u8 {
+        let mut addr = self.addr_register.get();
+        self.increment_ram_addr();
+
+        match addr {
+            0..=0x1FFF => {
+                let result = self.internal_data;
+                self.internal_data = self.cart.borrow_mut().chr_read(addr);
+                result
+            }
+            0x2000..=0x2FFF => {
+                let result = self.internal_data;
+                self.internal_data = self.ram[self.mirror_ram_addr(addr) as usize];
+                result
+            }
+            0x3000..=0x3EFF => {
+                let result = self.internal_data;
+                self.internal_data = self.ram[self.mirror_ram_addr(addr) as usize];
+                result
+            }
+            0x3F10 | 0x3F14 | 0x3F18 | 0x3F1C => {
+                // let mirror_address = addr - 0x10;
+                let mirror_address = addr & 0x3F0F;
+                self.palette_table[(mirror_address - 0x3F00) as usize]
+            }
+            0x3F00..=0x3FFF => {
+                let mirrored_address = addr & 0x3F1F;
+                self.palette_table[(mirrored_address - 0x3F00) as usize] // No buffering for palette reads
+            }
+            0x8000..=0xFFFF => self.cart.borrow_mut().prg_read(addr),
+            _ => {
+                unimplemented!("read from unhandled address ${:04X}", addr)
+            }
+        }
+    }
+
+    pub fn write_to_data(&mut self, value: u8) {
+        let addr = self.addr_register.get();
+
+        match addr {
+            0..=0x1FFF => {
+                // println!("Info: Attempted write to CHR ROM space at {:#04X}", addr);
+                self.cart.borrow_mut().chr_write(addr, value);
+            }
+            0x2000..=0x2FFF => {
+                let mirrored_addr = self.mirror_ram_addr(addr);
+                self.ram[mirrored_addr as usize] = value;
+            }
+            0x3000..=0x3EFF => {
+                // unimplemented!("PPU write to invalid address: {:#04X}", addr);
+                let mirrored_addr = self.mirror_ram_addr(addr);
+                self.ram[mirrored_addr as usize] = value;
+            }
+            0x3F10 | 0x3F14 | 0x3F18 | 0x3F1C => {
+                let mirror_addr = addr & 0x3F0F;
+                self.palette_table[(mirror_addr - 0x3F00) as usize] = value;
+            }
+            0x3F00..=0x3FFF => {
+                //fails when addr = $3FE0
+                let mirrored_addr = addr & 0x3F1F;
+                self.palette_table[(mirrored_addr - 0x3F00) as usize] = value;
+            }
+            _ => panic!("Unexpected access to mirrored space: {:#06X}", addr),
+        }
+        self.increment_ram_addr();
+    }
+
+    pub fn read_bytes_raw(&mut self, address: usize, size: usize) -> Vec<u8> {
+        self.ram[address..=address + size].to_vec()
+    }
+
+    pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
+        let mirrored_ram = addr & 0b10111111111111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
+        let ram_index = mirrored_ram - 0x2000;
+        let name_table = ram_index / 0x400;
+        match (&self.cart.borrow().mirroring(), name_table) {
+            (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800,
+            (Mirroring::Horizontal, 2) => ram_index - 0x400,
+            (Mirroring::Horizontal, 1) => ram_index - 0x400,
+            (Mirroring::Horizontal, 3) => ram_index - 0x800,
+            _ => ram_index,
+        }
+    }
+
     pub fn read_status(&mut self) -> u8 {
         let data = self.status_register.value();
         self.status_register.reset_vblank_status();
@@ -146,88 +230,22 @@ impl PPU {
             .increment(self.ctrl_register.increment_ram_addr());
     }
 
-    pub fn read_data(&mut self) -> u8 {
-        let mut addr = self.addr_register.get();
-        self.increment_ram_addr();
+    pub fn get_nametable(&self, nt_x: u16, nt_y: u16) -> &[u8] {
+        let mirroring = self.cart.borrow().mirroring();
 
-        match addr {
-            0..=0x1FFF => {
-                let result = self.internal_data;
-                self.internal_data = self.cart.borrow_mut().chr_read(addr);
-                result
-            }
-            0x2000..=0x2FFF => {
-                let result = self.internal_data;
-                self.internal_data = self.ram[self.mirror_ram_addr(addr) as usize];
-                result
-            }
-            0x3000..=0x3EFF => {
-                let result = self.internal_data;
-                self.internal_data = self.ram[self.mirror_ram_addr(addr) as usize];
-                result
-            }
-            0x3F10 | 0x3F14 | 0x3F18 | 0x3F1C => {
-                // let mirror_address = addr - 0x10;
-                let mirror_address = addr & 0x3F0F;
-                self.palette_table[(mirror_address - 0x3F00) as usize]
-            }
-            0x3F00..=0x3FFF => {
-                let mirrored_address = addr & 0x3F1F;
-                self.palette_table[(mirrored_address - 0x3F00) as usize] // No buffering for palette reads
-            }
-            0x8000..=0xFFFF => self.cart.borrow_mut().prg_read(addr),
-            _ => {
-                unimplemented!("read from unimplemented address ${:04X}", addr)
-            }
-        }
-    }
+        let index = match mirroring {
+            Mirroring::Vertical => nt_x % 2 + (nt_y % 2) * 2,
+            Mirroring::Horizontal => (nt_x / 2) % 2 + ((nt_y % 2) * 2),
+            Mirroring::FourScreen => (nt_x % 2) + (nt_y % 2) * 2,
+            _ => panic!("Unsupported mirroring: {:?}", mirroring),
+        };
 
-    pub fn write_to_data(&mut self, value: u8) {
-        let addr = self.addr_register.get();
-
-        match addr {
-            0..=0x1FFF => {
-                // println!("Info: Attempted write to CHR ROM space at {:#04X}", addr);
-                self.cart.borrow_mut().chr_write(addr, value);
-            }
-            0x2000..=0x2FFF => {
-                let mirrored_addr = self.mirror_ram_addr(addr);
-                self.ram[mirrored_addr as usize] = value;
-            }
-            0x3000..=0x3EFF => {
-                // unimplemented!("PPU write to invalid address: {:#04X}", addr);
-                let mirrored_addr = self.mirror_ram_addr(addr);
-                self.ram[mirrored_addr as usize] = value;
-            }
-            0x3F10 | 0x3F14 | 0x3F18 | 0x3F1C => {
-                let mirror_addr = addr & 0x3F0F;
-                self.palette_table[(mirror_addr - 0x3F00) as usize] = value;
-            }
-            0x3F00..=0x3FFF => {
-                //fails when addr = $3FE0
-                let mirrored_addr = addr & 0x3F1F;
-                self.palette_table[(mirrored_addr - 0x3F00) as usize] = value;
-            }
-            _ => panic!("Unexpected access to mirrored space: {:#06X}", addr),
-        }
-
-        self.increment_ram_addr();
-    }
-
-    pub fn read_bytes_raw(&mut self, address: usize, size: usize) -> Vec<u8> {
-        self.ram[address..=address + size].to_vec()
-    }
-
-    pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
-        let mirrored_ram = addr & 0b10111111111111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
-        let ram_index = mirrored_ram - 0x2000;
-        let name_table = ram_index / 0x400;
-        match (&self.cart.borrow().mirroring(), name_table) {
-            (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800,
-            (Mirroring::Horizontal, 2) => ram_index - 0x400,
-            (Mirroring::Horizontal, 1) => ram_index - 0x400,
-            (Mirroring::Horizontal, 3) => ram_index - 0x800,
-            _ => ram_index,
+        match index {
+            0 => &self.ram[0x000..0x400],
+            1 => &self.ram[0x400..0x800],
+            2 => &self.ram[0x000..0x400],
+            3 => &self.ram[0x400..0x800],
+            _ => unreachable!(),
         }
     }
 }

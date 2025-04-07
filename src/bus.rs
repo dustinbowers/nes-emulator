@@ -31,6 +31,7 @@ pub struct Bus<'call> {
     pub last_fetched_byte: u8,
 
     gameloop_callback: Box<dyn FnMut(&PPU, &mut Joypad) + 'call>,
+    pub frame_complete: bool,
     joypad1: Joypad,
 }
 
@@ -174,6 +175,7 @@ impl<'a> Bus<'a> {
             disable_mirroring: false,
             last_fetched_byte: 0,
             gameloop_callback: Box::from(callback),
+            frame_complete: false,
             joypad1: Joypad::new(),
         }
     }
@@ -215,5 +217,13 @@ impl<'a> Bus<'a> {
     pub fn store_byte_vec(&mut self, address: u16, values: Vec<u8>) {
         self.cpu_ram
             .write_n(address as usize, &values.into_boxed_slice())
+    }
+
+    pub fn poll_frame_complete(&mut self) -> bool {
+        let result = self.frame_complete;
+        if self.frame_complete {
+            self.frame_complete = false;
+        }
+        result
     }
 }

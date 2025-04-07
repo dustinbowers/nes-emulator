@@ -101,7 +101,12 @@ impl Rom {
     pub fn into_cartridge(self) -> Rc<RefCell<dyn Cartridge>> {
         match self.mapper {
             0 => {
-                let cart = NromCart::new(self.prg_rom, self.chr_rom, self.screen_mirroring);
+                let chr_rom_len = self.chr_rom.len();
+                let mut cart = NromCart::new(self.prg_rom, self.chr_rom, self.screen_mirroring);
+                if chr_rom_len == 0 {
+                    println!("Nrom, setting chr_is_ram = true");
+                    cart.chr_is_ram = true;
+                }
                 Rc::new(RefCell::new(cart))
             }
 

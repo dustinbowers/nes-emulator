@@ -66,6 +66,7 @@ pub struct CPU<'a> {
 
     extra_cycles: u8,
     skip_pc_advance: bool,
+    nmi_in_progress: bool,
 
     pub tracer: Tracer,
 }
@@ -93,6 +94,7 @@ impl CPU<'_> {
             program_counter: CPU_PC_RESET,
             extra_cycles: 0,
             skip_pc_advance: false,
+            nmi_in_progress: false,
             tracer: Tracer::new(128),
         };
         cpu.program_counter = cpu.bus.fetch_u16(0xFFFC);
@@ -107,6 +109,7 @@ impl CPU<'_> {
         self.program_counter = CPU_PC_RESET;
         self.status = Flags::from_bits_truncate(0b0010_0010);
         self.extra_cycles = 0;
+        self.nmi_in_progress = false;
         self.skip_pc_advance = false;
     }
 
@@ -138,6 +141,7 @@ impl CPU<'_> {
         // }
         if let Some(_nmi) = self.bus.get_nmi_status() {
             self.interrupt(interrupts::NMI);
+            self.nmi_in_progress = true;
         }
 
         let ref opcodes: HashMap<u8, &'static opcodes::Opcode> = *opcodes::OPCODES_MAP;
@@ -178,6 +182,10 @@ impl CPU<'_> {
                 println!("{trace}");
             }
             self.tracer.write(trace);
+        }
+        if self.nmi_in_progress && opcode.value == 0x40 {
+            self.nmi_in_progress = false;
+            self.bus.frame_complete = true;
         }
         self.program_counter = self.program_counter.wrapping_add(1);
 
