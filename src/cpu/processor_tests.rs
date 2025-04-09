@@ -1,11 +1,21 @@
 #[cfg(test)]
 mod test {
-    use crate::bus::{Bus, BusMemory};
+    use crate::bus::Bus;
     use crate::cartridge::nrom::NromCart;
     use crate::cpu::processor::{rotate_value_left, rotate_value_right, Flags, CPU};
     use crate::rom::{Mirroring, Rom};
 
     fn init_cpu(prg_rom: &[u8]) -> CPU {
+        let rom = Rom::new_custom(prg_rom.to_vec(), vec![], 0, Mirroring::Vertical);
+        let cart = rom.into_cartridge();
+        let mut bus = Bus::new(cart, |_, _| {});
+        bus.enable_test_mode();
+        let mut cpu = CPU::new(bus);
+        cpu.program_counter = 0;
+        cpu
+    }
+
+    fn init_cpu2(prg_rom: &[u8]) -> CPU {
         let rom = Rom::new_custom(prg_rom.to_vec(), vec![], 0, Mirroring::Vertical);
         let cart = rom.into_cartridge();
         let mut bus = Bus::new(cart, |_, _| {});
