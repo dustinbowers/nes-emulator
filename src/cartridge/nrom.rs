@@ -13,7 +13,11 @@ impl NromCart {
         let chr_is_ram = chr_rom.len() == 0;
         NromCart {
             prg_rom,
-            chr: if chr_is_ram { vec![0u8; 0x2000] } else { chr_rom },
+            chr: if chr_is_ram {
+                vec![0u8; 0x2000]
+            } else {
+                chr_rom
+            },
             mirroring,
             chr_is_ram,
         }
@@ -51,9 +55,5 @@ impl Cartridge for NromCart {
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring.clone()
-    }
-
-    fn get_prg_rom(&self) -> Vec<u8> {
-        self.prg_rom.clone()
     }
 }
