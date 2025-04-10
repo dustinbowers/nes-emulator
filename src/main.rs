@@ -8,8 +8,6 @@ mod rom;
 
 mod cartridge;
 
-#[cfg(test)]
-mod bus_tests;
 mod nes;
 
 use crate::cartridge::nrom::NromCart;

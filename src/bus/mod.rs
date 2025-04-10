@@ -5,6 +5,11 @@ use crate::cpu::processor::{CpuBusInterface, CPU};
 use crate::ppu::{PpuBusInterface, PPU};
 use crate::rom::Mirroring;
 
+pub mod simple_bus;
+
+#[cfg(test)]
+mod bus_tests;
+
 const CPU_RAM_SIZE: usize = 2048;
 const CPU_RAM_START: u16 = 0x0000;
 const CPU_RAM_END: u16 = 0x1FFF;
@@ -54,6 +59,20 @@ impl Bus {
         bus.ppu.connect_bus(bus_ptr as *mut dyn PpuBusInterface);
 
         bus
+    }
+
+    /// `tick` drives CPU/PPU forward. Returns (num_cpu_cycles, is_breaking)
+    pub fn tick(&mut self) -> (u8, bool) {
+        let (tick_cycles, _, is_breaking) = self.cpu.tick();
+
+        for _ in 0..3 {
+            self.ppu.tick();
+        }
+
+        // TODO: APU tick
+
+        self.cycles += tick_cycles as usize;
+        (tick_cycles, is_breaking)
     }
 }
 

@@ -1,36 +1,9 @@
 #[cfg(test)]
 mod test {
+    use crate::bus::simple_bus::SimpleBus;
     use crate::cpu::processor::{
         rotate_value_left, rotate_value_right, CpuBusInterface, Flags, CPU,
     };
-
-    struct SimpleBus {
-        cpu_ram: Vec<u8>,
-        cpu: CPU,
-    }
-    impl SimpleBus {
-        pub fn new(program: Vec<u8>) -> SimpleBus {
-            let mut bus = SimpleBus {
-                cpu_ram: vec![0; 0xFFFF],
-                cpu: CPU::new(),
-            };
-            for i in 0..program.len() {
-                bus.cpu_ram[i] = program[i];
-            }
-            bus
-        }
-    }
-    impl CpuBusInterface for SimpleBus {
-        fn cpu_bus_read(&mut self, addr: u16) -> u8 {
-            self.cpu_ram[addr as usize]
-        }
-        fn cpu_bus_write(&mut self, addr: u16, value: u8) {
-            self.cpu_ram[addr as usize] = value;
-        }
-        fn signal_nmi(&mut self) {
-            unimplemented!();
-        }
-    }
 
     fn init_cpu_and_bus(program: &[u8]) -> SimpleBus {
         let mut bus = SimpleBus::new(program.to_vec());
