@@ -11,36 +11,31 @@ use crate::ppu::mask_register::MaskRegister;
 use crate::ppu::scroll_register::ScrollRegister;
 use crate::ppu::status_register::StatusRegister;
 use crate::rom::Mirroring;
-use std::cell::RefCell;
-use std::rc::Rc;
-use crate::bus::Bus;
 
 const OAM_SIZE: usize = 256;
 const RAM_SIZE: usize = 2048;
 const NAME_TABLE_SIZE: usize = 0x400; // Size of each nametable (1 KB)
 const PALETTE_SIZE: usize = 0x20; // Size of the palette memory
 
-pub trait PpuInterface {
-    fn read(&mut self, addr: u16) -> u8;
-    fn write(&mut self, addr: u16, value: u8);
+pub trait PpuBusInterface {
+    fn chr_read(&mut self, addr: u16) -> u8;
+    fn chr_write(&mut self, addr: u16, value: u8);
+    fn mirroring(&mut self) -> Mirroring;
+    fn nmi(&mut self);
 }
 
 pub struct PPU {
-    // pub cart: Rc<RefCell<dyn Cartridge>>,
-    // bus: *mut Bus,
-    bus: Option<*mut dyn PpuInterface>,
+    bus: Option<*mut dyn PpuBusInterface>,
     pub palette_table: [u8; PALETTE_SIZE],
-    pub ram: [u8; RAM_SIZE],
+    pub ram: [u8; RAM_SIZE], // $2007 (R - latched)
 
-    pub oam_addr: u8,
-    pub oam_data: [u8; 256], // Object Attribute Memory
-
-    // Registers
-    pub addr_register: AddressRegister,
-    pub ctrl_register: ControlRegister,
-    pub mask_register: MaskRegister,
-    pub scroll_register: ScrollRegister,
-    pub status_register: StatusRegister,
+    pub ctrl_register: ControlRegister,  // $2000 (W)
+    pub mask_register: MaskRegister,     // $2001 (w)
+    pub status_register: StatusRegister, // $2002 (R)
+    pub oam_addr: u8,                    // $2003 (W)
+    pub oam_data: [u8; 256],             // $2004 (R/W) Object Attribute Memory
+    pub scroll_register: ScrollRegister, // $2005 (W - latched)
+    pub addr_register: AddressRegister,  // $2006 (W - latched)
 
     internal_data: u8,
     pub cycles: usize,
@@ -69,37 +64,34 @@ impl PPU {
     }
 
     /// `connect_bus` MUST be called after constructing PPU
-    pub fn connect_bus(&mut self, bus: *mut dyn PpuInterface) {
+    pub fn connect_bus(&mut self, bus: *mut dyn PpuBusInterface) {
         self.bus = Some(bus);
     }
 
-    /// `read` reads from parent Bus. This is safe because Bus owns CPU
-    fn read(&self, addr: u16) -> u8 {
-        match self.bus {
-            Some(bus_ptr) => {
-                unsafe { (*bus_ptr).read(addr) }
-            }
-            None => {
-                eprintln!("ERROR: PPU not connected to Bus!");
+    pub fn read_register(&mut self, addr: u16) -> u8 {
+        match addr & 0x2007 {
+            0x2002 => self.read_status(),
+            0x2004 => self.read_oam_data(),
+            0x2007 => self.read_memory(),
+            _ => {
+                println!("Unhandled PPU read at: {addr:04X}");
                 0
             }
         }
     }
 
-    /// `write` reads from parent Bus. This is safe because Bus owns CPU
-    fn write(&self, addr: u16, data: u8) {
-        match self.bus {
-            Some(bus_ptr) => {
-                unsafe { (*bus_ptr).write(addr, data); }
-            }
-            None => {
-                eprintln!("ERROR: PPU not connected to Bus!");
-            }
+    pub fn write_register(&mut self, addr: u16, value: u8) {
+        match addr & 0x2007 {
+            0x2000 => self.write_to_ctrl(value),
+            0x2001 => self.write_to_mask(value),
+            0x2003 => self.set_oam_addr(value),
+            0x2004 => self.write_to_oam_data(value),
+            0x2005 => self.write_to_scroll(value),
+            0x2006 => self.write_to_addr(value),
+            0x2007 => self.write_memory(value),
+            _ => println!("Unhandled PPU write at: {addr:04X} = {value:02X}"),
         }
     }
-}
-
-impl PPU {
 
     pub fn tick(&mut self) {
         self.cycles += 1;
@@ -197,20 +189,100 @@ impl PPU {
     //     self.ram[address..=address + size].to_vec()
     // }
     //
-    // pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
-    //     let mirrored_ram = addr & 0b10111111111111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
-    //     let ram_index = mirrored_ram - 0x2000;
-    //     let name_table = ram_index / 0x400;
-    //     match (&self.cart.borrow().mirroring(), name_table) {
-    //         (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800,
-    //         (Mirroring::Horizontal, 2) => ram_index - 0x400,
-    //         (Mirroring::Horizontal, 1) => ram_index - 0x400,
-    //         (Mirroring::Horizontal, 3) => ram_index - 0x800,
-    //         _ => ram_index,
-    //     }
-    // }
+}
 
-    pub fn read_status(&mut self) -> u8 {
+// Private implementations
+impl PPU {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        match self.bus {
+            Some(bus_ptr) => unsafe { (*bus_ptr).chr_read(addr) },
+            None => {
+                eprintln!("Invalid PPU::chr_read at address: {:04X}", addr);
+                0
+            }
+        }
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        match self.bus {
+            Some(bus_ptr) => unsafe { (*bus_ptr).chr_write(addr, value) },
+            None => {
+                eprintln!("Invalid PPU::chr_write at address: {:04X}", addr);
+            }
+        }
+    }
+
+    fn mirroring(&mut self) -> Mirroring {
+        match self.bus {
+            Some(bus_ptr) => unsafe { (*bus_ptr).mirroring() },
+            None => {
+                eprintln!("Unable to detect Cartridge mirroring mode");
+                Mirroring::Vertical
+            }
+        }
+    }
+
+    fn read_memory(&mut self) -> u8 {
+        let addr = self.addr_register.get() & 0x3FFF;
+
+        let result = match addr {
+            0..=0x1FFF => self.chr_read(addr),
+            0x2000..=0x2FFF => {
+                let prev = self.internal_data;
+                self.internal_data = self.ram[addr as usize];
+                prev
+            }
+            0x3000..=0x3EFF => {
+                // Mirror of 0x2000-0x2FFF
+                let prev = self.internal_data;
+                self.internal_data = self.ram[addr as usize - 0x1000];
+                prev
+            }
+            0x3F00..=0x3FFF => {
+                // Palette RAM (32 bytes mirrored every $20)
+                let mirrored_addr = (addr - 0x3F00) % 0x20;
+                self.palette_table[mirrored_addr as usize]
+            }
+            _ => {
+                eprintln!("Unhandled PPU::read_memory() at {:04X}", addr);
+                0
+            }
+        };
+
+        self.increment_addr();
+        result
+    }
+
+    fn write_memory(&mut self, value: u8) {
+        let addr = self.addr_register.get() & 0x3FFF;
+
+        match addr {
+            0..=0x1FFF => {
+                self.chr_write(addr, value);
+            }
+            0x2000..=0x2FFF => {
+                self.ram[addr as usize] = value;
+            }
+            0x3000..=0x3EFF => {
+                // Mirror of 0x2000-0x2FFF
+                self.ram[addr as usize - 0x1000] = value;
+            }
+            0x3F00..=0x3FFF => {
+                let mirrored_addr = (addr - 0x3F00) % 0x20;
+                self.palette_table[mirrored_addr as usize] = value;
+            }
+            _ => {
+                eprintln!("Unhandled PPU::write_memory() at {:04X}", addr);
+            }
+        }
+
+        self.increment_addr();
+    }
+}
+
+// Helpers
+impl PPU {
+    fn read_status(&mut self) -> u8 {
         let data = self.status_register.value();
         self.status_register.reset_vblank_status();
         self.addr_register.reset_latch();
@@ -218,39 +290,39 @@ impl PPU {
         data
     }
 
-    pub fn get_nmi_status(&mut self) -> Option<u8> {
+    fn get_nmi_status(&mut self) -> Option<u8> {
         self.nmi_interrupt.take()
     }
 
-    pub fn set_oam_addr(&mut self, value: u8) {
+    fn set_oam_addr(&mut self, value: u8) {
         self.oam_addr = value;
     }
 
-    pub fn write_to_oam_data(&mut self, value: u8) {
+    fn read_oam_data(&self) -> u8 {
+        self.oam_data[self.oam_addr as usize]
+    }
+
+    fn write_to_oam_data(&mut self, value: u8) {
         self.oam_data[self.oam_addr as usize] = value;
         self.oam_addr = self.oam_addr.wrapping_add(1);
     }
 
-    pub fn write_to_oam_dma(&mut self, data: &[u8; 256]) {
+    fn write_to_oam_dma(&mut self, data: &[u8; 256]) {
         for x in data.iter() {
             self.oam_data[self.oam_addr as usize] = *x;
             self.oam_addr = self.oam_addr.wrapping_add(1);
         }
     }
 
-    pub fn read_oam_data(&self) -> u8 {
-        self.oam_data[self.oam_addr as usize]
-    }
-
-    pub fn write_to_scroll(&mut self, value: u8) {
+    fn write_to_scroll(&mut self, value: u8) {
         self.scroll_register.write(value);
     }
 
-    pub fn set_ppu_addr(&mut self, value: u8) {
+    fn write_to_addr(&mut self, value: u8) {
         // println!("ppu.set_ppu_addr(${:02X})", value);
         self.addr_register.update(value);
     }
-    pub fn write_to_ctrl(&mut self, value: u8) {
+    fn write_to_ctrl(&mut self, value: u8) {
         // Automatically generate NMI if:
         //      - PPU is in VBLANK
         //      - GENERATE_NMI toggles from 0 to 1
@@ -263,13 +335,26 @@ impl PPU {
             self.nmi_interrupt = Some(1);
         }
     }
-    pub fn write_to_mask(&mut self, value: u8) {
+    fn write_to_mask(&mut self, value: u8) {
         self.mask_register.update(value);
     }
 
-    fn increment_ram_addr(&mut self) {
+    fn increment_addr(&mut self) {
         self.addr_register
-            .increment(self.ctrl_register.increment_ram_addr());
+            .increment(self.ctrl_register.addr_increment());
+    }
+
+    fn mirror_ram_addr(&mut self, addr: u16) -> u16 {
+        let mirrored_ram = addr & 0b10111111111111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
+        let ram_index = mirrored_ram - 0x2000;
+        let name_table = ram_index / 0x400;
+        match (self.mirroring(), name_table) {
+            (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => ram_index - 0x800,
+            (Mirroring::Horizontal, 2) => ram_index - 0x400,
+            (Mirroring::Horizontal, 1) => ram_index - 0x400,
+            (Mirroring::Horizontal, 3) => ram_index - 0x800,
+            _ => ram_index,
+        }
     }
 
     // pub fn get_nametable(&self, nt_x: u16, nt_y: u16) -> &[u8] {

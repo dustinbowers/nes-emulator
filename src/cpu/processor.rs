@@ -1,7 +1,6 @@
 use super::interrupts::Interrupt;
 use super::{interrupts, opcodes};
 use crate::cpu::trace::Tracer;
-use crate::Bus;
 use bitflags::bitflags;
 use std::collections::HashMap;
 
@@ -53,14 +52,14 @@ pub enum AddressingMode {
     None,
 }
 
-pub trait CpuInterface {
-    fn read(&mut self, addr: u16) -> u8;
-    fn write(&mut self, addr: u16, value: u8);
-    fn signal_nmi(&mut self);
+pub trait CpuBusInterface {
+    fn cpu_bus_read(&mut self, addr: u16) -> u8;
+    fn cpu_bus_write(&mut self, addr: u16, value: u8);
+    // fn signal_nmi(&mut self);
 }
 
 pub struct CPU {
-    pub bus: Option<*mut dyn CpuInterface>,
+    pub bus: Option<*mut dyn CpuBusInterface>,
 
     pub register_a: u8,
     pub register_x: u8,
@@ -72,29 +71,15 @@ pub struct CPU {
     skip_cycles: u8,
     extra_cycles: u8,
     skip_pc_advance: bool,
-    // nmi_in_progress: bool,
-
+    // TODO: nmi_in_progress: bool,
     nmi_pending: bool,
     irq_pending: bool,
     pub tracer: Tracer,
 }
 
-
-
-// impl BusMemory for CPU {
-//     type DisableMirroring = bool; // only used in Bus for testing purposes
-//
-//     fn fetch_byte(&mut self, address: u16) -> u8 {
-//         self.read(address)
-//     }
-//     fn store_byte(&mut self, address: u16, value: u8) {
-//         self.write(address, value);
-//     }
-// }
-
 impl CPU {
     pub fn new() -> CPU {
-        let mut cpu = CPU {
+        let cpu = CPU {
             bus: None,
             register_a: 0,
             register_x: 0,
@@ -113,25 +98,27 @@ impl CPU {
     }
 
     /// `connect_bus` MUST be called after constructing CPU
-    pub fn connect_bus(&mut self, bus: *mut dyn CpuInterface) {
+    pub fn connect_bus(&mut self, bus: *mut dyn CpuBusInterface) {
         self.bus = Some(bus);
-        self.program_counter = self.read_u16(0xFFFC);
+        self.program_counter = self.bus_read_u16(0xFFFC);
     }
 
-    /// `read` is safe because Bus owns CPU
-    fn read(&self, addr: u16) -> u8 {
-        unsafe { (*self.bus.unwrap()).read(addr) }
+    /// `bus_read` is safe because Bus owns CPU
+    fn bus_read(&self, addr: u16) -> u8 {
+        unsafe { (*self.bus.unwrap()).cpu_bus_read(addr) }
     }
 
-    fn read_u16(&self, addr: u16) -> u16 {
-        let lo = self.read(addr) as u16;
-        let hi = self.read(addr.wrapping_add(1)) as u16;
+    fn bus_read_u16(&self, addr: u16) -> u16 {
+        let lo = self.bus_read(addr) as u16;
+        let hi = self.bus_read(addr.wrapping_add(1)) as u16;
         (hi << 8) | lo
     }
 
-    /// `write` is safe because Bus owns CPU
-    fn write(&self, addr: u16, data: u8) {
-        unsafe { (*self.bus.unwrap()).write(addr, data); }
+    /// `bus_write` is safe because Bus owns CPU
+    pub fn bus_write(&self, addr: u16, data: u8) {
+        unsafe {
+            (*self.bus.unwrap()).cpu_bus_write(addr, data);
+        }
     }
 
     pub fn reset(&mut self) {
@@ -142,7 +129,6 @@ impl CPU {
         self.program_counter = CPU_PC_RESET;
         self.status = Flags::from_bits_truncate(0b0010_0010);
         self.extra_cycles = 0;
-        // self.nmi_in_progress = false;
         self.nmi_pending = false;
         self.irq_pending = false;
         self.skip_pc_advance = false;
@@ -157,16 +143,9 @@ impl CPU {
         }
     }
 
-    // pub async fn run_with_callback(&mut self, mut callback: impl AsyncFnMut(&mut CPU) -> ())
-    // {
-    //     loop {
-    //         callback.async_call_mut((&mut self,)).await;
-    //         let (cycles, bytes_consumed, should_break) = self.tick();
-    //         if should_break {
-    //             break;
-    //         }
-    //     }
-    // }
+    pub fn trigger_nmi(&mut self) {
+        self.nmi_pending = true;
+    }
 
     // `tick` returns (num_cycles, bytes_consumed, is_breaking)
     pub fn tick(&mut self) -> (u8, u8, bool) {
@@ -187,7 +166,7 @@ impl CPU {
 
         self.extra_cycles = 0;
         self.skip_pc_advance = false;
-        let code = self.read(self.program_counter);
+        let code = self.bus_read(self.program_counter);
         let opcode_lookup = opcodes.get(&code);
         // ;.expect(&format!("Unknown opcode: {:#x}", &code));
         let opcode = match opcode_lookup {
@@ -202,7 +181,7 @@ impl CPU {
             let mut operand_bytes: Vec<u8> = vec![];
             for i in 1..opcode.size {
                 let address = self.program_counter.wrapping_add(i as u16);
-                operand_bytes.push(self.read(address));
+                operand_bytes.push(self.bus_read(address));
             }
             let trace = format!(
                 "({}) PC:${:04X} SP:${:02X} A:${:02X} X:${:02X} Y:${:02X} status: 0b{:08b} \tOpcode: (${:02X}) {} {:02X?}",
@@ -213,7 +192,7 @@ impl CPU {
                 self.register_x,
                 self.register_y,
                 self.status.bits(),
-                self.read(self.program_counter),
+                self.bus_read(self.program_counter),
                 opcode.name,
                 operand_bytes
             );
@@ -461,40 +440,40 @@ impl CPU {
     /////////////////////
     fn get_parameter_address(&mut self, mode: &AddressingMode) -> (u16, bool) {
         match mode {
-            AddressingMode::Absolute => (self.read_u16(self.program_counter), false),
+            AddressingMode::Absolute => (self.bus_read_u16(self.program_counter), false),
             AddressingMode::Immediate => (self.program_counter, false),
-            AddressingMode::ZeroPage => (self.read(self.program_counter) as u16, false),
+            AddressingMode::ZeroPage => (self.bus_read(self.program_counter) as u16, false),
             AddressingMode::ZeroPageX => {
-                let base = self.read(self.program_counter);
+                let base = self.bus_read(self.program_counter);
                 let addr = base.wrapping_add(self.register_x) as u16;
                 (addr, false)
             }
             AddressingMode::ZeroPageY => {
-                let base = self.read(self.program_counter);
+                let base = self.bus_read(self.program_counter);
                 let addr = base.wrapping_add(self.register_y) as u16;
                 (addr, false)
             }
             AddressingMode::AbsoluteX => {
-                let base = self.read_u16(self.program_counter);
+                let base = self.bus_read_u16(self.program_counter);
                 let addr = base.wrapping_add(self.register_x as u16);
                 (addr, is_boundary_crossed(base, addr))
             }
             AddressingMode::AbsoluteY => {
-                let base = self.read_u16(self.program_counter);
+                let base = self.bus_read_u16(self.program_counter);
                 let addr = base.wrapping_add(self.register_y as u16);
                 (addr, is_boundary_crossed(base, addr))
             }
             AddressingMode::IndirectX => {
-                let base = self.read(self.program_counter);
+                let base = self.bus_read(self.program_counter);
                 let addr = base.wrapping_add(self.register_x); // Zero-page wrapping
-                let lo = self.read(addr as u16) as u16;
-                let hi = self.read(addr.wrapping_add(1) as u16) as u16; // Zero-page wrap +1 as well
+                let lo = self.bus_read(addr as u16) as u16;
+                let hi = self.bus_read(addr.wrapping_add(1) as u16) as u16; // Zero-page wrap +1 as well
                 (hi << 8 | lo, false)
             }
             AddressingMode::IndirectY => {
-                let base = self.read(self.program_counter) as u16;
-                let lo = self.read(base) as u16;
-                let hi = self.read((base as u8).wrapping_add(1) as u16) as u16;
+                let base = self.bus_read(self.program_counter) as u16;
+                let lo = self.bus_read(base) as u16;
+                let hi = self.bus_read((base as u8).wrapping_add(1) as u16) as u16;
                 let dynamic_base = hi << 8 | lo;
                 let addr = dynamic_base.wrapping_add(self.register_y as u16);
                 (addr, is_boundary_crossed(dynamic_base, addr))
@@ -506,19 +485,19 @@ impl CPU {
                   on a page boundary (e.g. $xxFF where xx is any value from $00 to $FF). In this case fetches
                   the LSB from $xxFF as expected but takes the MSB from $xx00.
                 */
-                let indirect_vec = self.read_u16(self.program_counter);
+                let indirect_vec = self.bus_read_u16(self.program_counter);
                 let address = if indirect_vec & 0x00FF == 0x00FF {
-                    let lo = self.read(indirect_vec) as u16;
-                    let hi = self.read(indirect_vec & 0xFF00) as u16;
+                    let lo = self.bus_read(indirect_vec) as u16;
+                    let hi = self.bus_read(indirect_vec & 0xFF00) as u16;
                     (hi << 8) | lo
                 } else {
-                    self.read_u16(indirect_vec)
+                    self.bus_read_u16(indirect_vec)
                 };
                 (address, false)
             }
             AddressingMode::Relative => {
                 // Note: Branch opcodes exclusively use this address mode
-                let offset = self.read(self.program_counter) as i8; // sign-extend u8 to i8
+                let offset = self.bus_read(self.program_counter) as i8; // sign-extend u8 to i8
                 let base_pc = self.program_counter.wrapping_add(1); // the relative address is based on a PC /after/ the current opcode
                 let target_address = base_pc.wrapping_add_signed(offset as i16);
                 let boundary_crossed = is_boundary_crossed(base_pc, target_address);
@@ -550,7 +529,7 @@ impl CPU {
 
     fn stack_push(&mut self, value: u8) {
         let address = CPU_STACK_BASE.wrapping_add(self.stack_pointer as u16);
-        self.write(address, value);
+        self.bus_write(address, value);
         self.stack_pointer = self.stack_pointer.wrapping_sub(1);
     }
 
@@ -563,7 +542,7 @@ impl CPU {
 
     fn stack_pop(&mut self) -> u8 {
         self.stack_pointer = self.stack_pointer.wrapping_add(1);
-        self.read(CPU_STACK_BASE.wrapping_add(self.stack_pointer as u16))
+        self.bus_read(CPU_STACK_BASE.wrapping_add(self.stack_pointer as u16))
     }
 
     fn stack_pop_u16(&mut self) -> u16 {
@@ -605,7 +584,7 @@ impl CPU {
 
     fn compare(&mut self, opcode: &opcodes::Opcode, compare_value: u8) {
         let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let value = self.read(address);
+        let value = self.bus_read(address);
         self.status.set(Flags::CARRY, compare_value >= value);
         self.update_zero_and_negative_flags(compare_value.wrapping_sub(value));
         self.extra_cycles += boundary_crossed as u8;
@@ -631,7 +610,7 @@ impl CPU {
         self.status.set(Flags::INTERRUPT_DISABLE, true); // Disable interrupts while handling one
 
         self.extra_cycles += interrupt.cpu_cycles;
-        let jmp_address = self.read_u16(interrupt.vector_addr);
+        let jmp_address = self.bus_read_u16(interrupt.vector_addr);
         self.set_program_counter(jmp_address);
     }
 
@@ -641,7 +620,7 @@ impl CPU {
         let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
         self.extra_cycles += boundary_cross as u8; // boundary_cross adds 1 extra cycle
 
-        let param = self.read(address);
+        let param = self.bus_read(address);
         self.set_register_a(param);
     }
 
@@ -649,7 +628,7 @@ impl CPU {
         let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
         self.extra_cycles += boundary_cross as u8; // boundary_cross adds 1 extra cycle
 
-        let param = self.read(address);
+        let param = self.bus_read(address);
         self.set_register_x(param);
     }
 
@@ -657,23 +636,23 @@ impl CPU {
         let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
         self.extra_cycles += boundary_cross as u8; // boundary_cross adds 1 extra cycle
 
-        let param = self.read(address);
+        let param = self.bus_read(address);
         self.set_register_y(param);
     }
 
     fn sta(&mut self, opcode: &opcodes::Opcode) {
         let (address, _) = self.get_parameter_address(&opcode.mode);
-        self.write(address, self.register_a);
+        self.bus_write(address, self.register_a);
     }
 
     fn stx(&mut self, opcode: &opcodes::Opcode) {
         let (address, _) = self.get_parameter_address(&opcode.mode);
-        self.write(address, self.register_x);
+        self.bus_write(address, self.register_x);
     }
 
     fn sty(&mut self, opcode: &opcodes::Opcode) {
         let (address, _) = self.get_parameter_address(&opcode.mode);
-        self.write(address, self.register_y);
+        self.bus_write(address, self.register_y);
     }
 
     fn tax(&mut self) {
@@ -787,10 +766,10 @@ impl CPU {
             }
             _ => {
                 let (address, _) = self.get_parameter_address(&opcode.mode);
-                let mut value = self.read(address);
+                let mut value = self.bus_read(address);
                 let carry = value & 0x80 != 0;
                 value <<= 1;
-                self.write(address, value);
+                self.bus_write(address, value);
                 self.update_zero_and_negative_flags(value);
                 self.status.set(Flags::CARRY, carry);
                 value
@@ -810,10 +789,10 @@ impl CPU {
             }
             _ => {
                 let (address, _) = self.get_parameter_address(&opcode.mode);
-                let mut value = self.read(address);
+                let mut value = self.bus_read(address);
                 let carry = value & 1 != 0;
                 value >>= 1;
-                self.write(address, value);
+                self.bus_write(address, value);
                 self.update_zero_and_negative_flags(value);
                 self.status.set(Flags::CARRY, carry);
                 value
@@ -833,9 +812,9 @@ impl CPU {
             }
             _ => {
                 let (address, _) = self.get_parameter_address(&opcode.mode);
-                let value = self.read(address);
+                let value = self.bus_read(address);
                 let (result, new_carry) = rotate_value_left(value, curr_carry);
-                self.write(address, result);
+                self.bus_write(address, result);
                 self.update_zero_and_negative_flags(result);
                 self.status.set(Flags::CARRY, new_carry);
                 result
@@ -854,9 +833,9 @@ impl CPU {
             }
             _ => {
                 let (address, _) = self.get_parameter_address(&opcode.mode);
-                let value = self.read(address);
+                let value = self.bus_read(address);
                 let (result, new_carry) = rotate_value_right(value, curr_carry);
-                self.write(address, result);
+                self.bus_write(address, result);
                 self.update_zero_and_negative_flags(result);
                 self.status.set(Flags::CARRY, new_carry);
             }
@@ -866,9 +845,9 @@ impl CPU {
     fn inc(&mut self, opcode: &opcodes::Opcode) -> u8 {
         // Increment value at Memory
         let (address, _) = self.get_parameter_address(&opcode.mode);
-        let mut value = self.read(address);
+        let mut value = self.bus_read(address);
         value = value.wrapping_add(1);
-        self.write(address, value);
+        self.bus_write(address, value);
         self.update_zero_and_negative_flags(value);
         value
     }
@@ -876,9 +855,9 @@ impl CPU {
     fn dec(&mut self, opcode: &opcodes::Opcode) -> u8 {
         // Decrement value at Memory
         let (address, _) = self.get_parameter_address(&opcode.mode);
-        let mut value = self.read(address);
+        let mut value = self.bus_read(address);
         value = value.wrapping_sub(1);
-        self.write(address, value);
+        self.bus_write(address, value);
         self.update_zero_and_negative_flags(value);
         value
     }
@@ -901,7 +880,7 @@ impl CPU {
     fn adc(&mut self, opcode: &opcodes::Opcode) {
         // Add with Carry
         let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let value = self.read(address);
+        let value = self.bus_read(address);
         self.add_to_register_a(value);
         self.extra_cycles += boundary_crossed as u8;
     }
@@ -909,7 +888,7 @@ impl CPU {
     fn sbc(&mut self, opcode: &opcodes::Opcode) {
         // Subtract with Carry
         let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let value = self.read(address);
+        let value = self.bus_read(address);
         self.sub_from_register_a(value);
         self.extra_cycles += boundary_crossed as u8;
     }
@@ -917,7 +896,7 @@ impl CPU {
     fn and(&mut self, opcode: &opcodes::Opcode) {
         // Logical AND on accumulator
         let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let value = self.read(address);
+        let value = self.bus_read(address);
         self.set_register_a(self.register_a & value);
         self.extra_cycles += boundary_crossed as u8;
     }
@@ -925,7 +904,7 @@ impl CPU {
     fn eor(&mut self, opcode: &opcodes::Opcode) {
         // Logical Exclusive OR on accumulator
         let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let value = self.read(address);
+        let value = self.bus_read(address);
         self.set_register_a(self.register_a ^ value);
         self.extra_cycles += boundary_crossed as u8;
     }
@@ -933,7 +912,7 @@ impl CPU {
     fn ora(&mut self, opcode: &opcodes::Opcode) {
         // Logical OR on accumulator
         let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let value = self.read(address);
+        let value = self.bus_read(address);
         self.set_register_a(self.register_a | value);
         self.extra_cycles += boundary_crossed as u8;
     }
@@ -1023,7 +1002,7 @@ impl CPU {
     fn bit(&mut self, opcode: &opcodes::Opcode) {
         // Bit Test
         let (address, _) = self.get_parameter_address(&opcode.mode);
-        let value = self.read(address);
+        let value = self.bus_read(address);
         let result = value & self.register_a;
         self.status.set(Flags::ZERO, result == 0);
 
@@ -1055,12 +1034,12 @@ impl CPU {
         */
         let (address, _) = self.get_parameter_address(&opcode.mode);
         let result = self.register_a & self.register_x;
-        self.write(address, result);
+        self.bus_write(address, result);
     }
 
     fn sbx(&mut self, opcode: &opcodes::Opcode) {
         let (address, _) = self.get_parameter_address(&opcode.mode);
-        let value = self.read(address);
+        let value = self.bus_read(address);
 
         let and_result = self.register_a & self.register_x;
         let result = and_result.wrapping_sub(value);
@@ -1077,7 +1056,7 @@ impl CPU {
 
     fn anc(&mut self, opcode: &opcodes::Opcode) {
         let (address, _) = self.get_parameter_address(&opcode.mode);
-        let value = self.read(address);
+        let value = self.bus_read(address);
         self.set_register_a(self.register_a & value);
         self.status
             .set(Flags::CARRY, self.register_a & 0b1000_0000 != 0);
@@ -1086,7 +1065,7 @@ impl CPU {
     fn arr(&mut self, opcode: &opcodes::Opcode) {
         // ARR => AND + ROR with special flag behavior
         let (address, _) = self.get_parameter_address(&opcode.mode);
-        let value = self.read(address);
+        let value = self.bus_read(address);
         self.register_a &= value;
 
         // Perform ROR (Rotate Right) with Carry
@@ -1135,7 +1114,7 @@ impl CPU {
     fn las(&mut self, opcode: &opcodes::Opcode) {
         // LAS (LAR) => AND with SP, store in A, X, SP
         let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let value = self.read(address);
+        let value = self.bus_read(address);
         self.set_register_a(value);
 
         // Perform AND operation with the stack pointer

@@ -17,16 +17,13 @@ use crate::cartridge::Cartridge;
 use crate::controller::joypad::JoypadButtons;
 use crate::display::color_map::COLOR_MAP;
 use crate::display::frame::Frame;
-// use crate::display::render::draw_debug_overlays;
+use crate::nes::NES;
 use bus::Bus;
 use cpu::processor::CPU;
 use display::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
 use display::draw_frame;
-// use display::render::render;
 use macroquad::prelude::*;
 use rom::Rom;
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::{env, process};
 
 fn window_conf() -> Conf {
@@ -50,8 +47,30 @@ async fn main() {
     }
     let rom_path = &args[1];
 
-    // play_rom(rom_path).await;
-    render_sprite_banks(rom_path).await;
+    play_rom(rom_path).await;
+    // render_sprite_banks(rom_path).await;
+}
+
+async fn play_rom(rom_path: &str) {
+    let rom_data = std::fs::read(rom_path).expect("Error reading ROM file.");
+    let rom = match Rom::new(&rom_data) {
+        Ok(rom) => rom,
+        Err(msg) => {
+            println!("Error parsing rom: {:?}", msg);
+            return;
+        }
+    };
+
+    let cart = rom.into_cartridge();
+    let mut nes = NES::new(cart);
+    loop {
+        clear_background(RED);
+        let is_breaking = nes.tick();
+        if is_breaking {
+            break;
+        }
+        next_frame().await;
+    }
 }
 
 // async fn play_rom(rom_path: &str) {

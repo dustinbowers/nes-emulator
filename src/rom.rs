@@ -1,7 +1,5 @@
 use crate::cartridge::nrom::NromCart;
 use crate::cartridge::Cartridge;
-use std::cell::RefCell;
-use std::rc::Rc;
 
 const NES_MAGIC_BYTES: &[u8; 4] = b"NES\x1A";
 const PRG_ROM_PAGE_SIZE: usize = 0x4000;
@@ -75,15 +73,6 @@ impl Rom {
         })
     }
 
-    pub fn empty() -> Rom {
-        Rom {
-            prg_rom: vec![],
-            chr_rom: vec![],
-            mapper: 0,
-            screen_mirroring: Mirroring::Vertical,
-        }
-    }
-
     pub fn new_custom(
         prg_rom: Vec<u8>,
         chr_rom: Vec<u8>,
@@ -98,7 +87,7 @@ impl Rom {
         }
     }
 
-    pub fn into_cartridge(self) -> Rc<RefCell<dyn Cartridge>> {
+    pub fn into_cartridge(self) -> Box<dyn Cartridge> {
         match self.mapper {
             0 => {
                 let chr_rom_len = self.chr_rom.len();
@@ -107,7 +96,7 @@ impl Rom {
                     println!("Nrom, setting chr_is_ram = true");
                     cart.chr_is_ram = true;
                 }
-                Rc::new(RefCell::new(cart))
+                Box::new(cart)
             }
 
             // TODO
@@ -116,8 +105,8 @@ impl Rom {
     }
 }
 
-impl Into<Rc<RefCell<dyn Cartridge>>> for Rom {
-    fn into(self) -> Rc<RefCell<dyn Cartridge>> {
+impl Into<Box<dyn Cartridge>> for Rom {
+    fn into(self) -> Box<dyn Cartridge> {
         self.into_cartridge()
     }
 }
