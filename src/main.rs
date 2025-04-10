@@ -8,8 +8,6 @@ mod rom;
 
 mod cartridge;
 
-#[cfg(test)]
-mod bus_tests;
 mod nes;
 
 use crate::cartridge::nrom::NromCart;
@@ -61,14 +59,15 @@ async fn play_rom(rom_path: &str) {
         }
     };
 
-    let cart = rom.into_cartridge();
+    println!("making NES...");
+    let mut cart = rom.into_cartridge();
+    println!("cart at 0x8000 = ${:02X}", cart.prg_read(0x8000));
+
+    println!("cart ptr: {:?}", &cart as *const _);
     let mut nes = NES::new(cart);
     loop {
-        clear_background(RED);
-        let is_breaking = nes.tick();
-        if is_breaking {
-            break;
-        }
+        println!("main loop tick...");
+        nes.tick();
         next_frame().await;
     }
 }

@@ -1,6 +1,7 @@
 use crate::cartridge::Cartridge;
 use crate::rom::Mirroring;
 
+#[derive(Debug)]
 pub struct NromCart {
     pub chr: Vec<u8>,
     pub chr_is_ram: bool,
@@ -40,13 +41,16 @@ impl Cartridge for NromCart {
     fn prg_read(&mut self, addr: u16) -> u8 {
         let addr = addr as usize - 0x8000;
 
+        println!("nrom::prg_read({:04X})", addr);
         let addr = if self.prg_rom.len() == 0x4000 {
             addr % 0x4000 // mirror if only 16KB PRG
         } else {
             addr
         };
 
-        self.prg_rom[addr]
+        let b = self.prg_rom[addr];
+        println!("prg_read({:04X}) returning {:02X}", addr, b);
+        b
     }
 
     fn prg_write(&mut self, _: u16, _data: u8) {

@@ -5,6 +5,11 @@ use crate::cpu::processor::{CpuBusInterface, CPU};
 use crate::ppu::{PpuBusInterface, PPU};
 use crate::rom::Mirroring;
 
+pub mod simple_bus;
+
+#[cfg(test)]
+mod bus_tests;
+
 const CPU_RAM_SIZE: usize = 2048;
 const CPU_RAM_START: u16 = 0x0000;
 const CPU_RAM_END: u16 = 0x1FFF;
@@ -34,8 +39,9 @@ pub struct Bus {
 }
 
 impl Bus {
-    pub fn new(cartridge: Box<dyn Cartridge>) -> Self {
-        let mut bus = Bus {
+    pub fn new(cartridge: Box<dyn Cartridge>) -> &'static mut Bus {
+        println!("Bus::new() - cartridge ptr: {:?}", &cartridge as *const _);
+        let mut bus = Box::new(Bus {
             cart: cartridge,
             cpu_ram: [0; CPU_RAM_SIZE],
             cycles: 0,
@@ -44,22 +50,36 @@ impl Bus {
             disable_mirroring: false,
             last_fetched_byte: 0,
             controller1: Box::new(Joypad::new()),
-        };
+        });
 
         // Safety: This raw pointer should remain stable
-        let bus_ptr = &mut bus as *mut Bus;
+        let bus_ptr: *mut Bus = &mut *bus;
 
         // Give PPU a pointer back to the Bus (for NMI/IRQ signaling)
         bus.cpu.connect_bus(bus_ptr as *mut dyn CpuBusInterface);
         bus.ppu.connect_bus(bus_ptr as *mut dyn PpuBusInterface);
 
-        bus
+        Box::leak(bus)
+    }
+
+    /// `tick` drives CPU/PPU forward. Returns (num_cpu_cycles, is_breaking)
+    pub fn tick(&mut self) -> (u8, bool) {
+        let (tick_cycles, _, is_breaking) = self.cpu.tick();
+
+        for _ in 0..3 {
+            self.ppu.tick();
+        }
+
+        // TODO: APU tick
+
+        self.cycles += tick_cycles as usize;
+        (tick_cycles, is_breaking)
     }
 }
 
 impl CpuBusInterface for Bus {
     fn cpu_bus_read(&mut self, addr: u16) -> u8 {
-        println!("\tCpuInterface::read()");
+        println!("\tCpuInterface::read(${:04X})", addr);
         match addr {
             CPU_RAM_START..=CPU_RAM_END => {
                 // RAM mirrored every 0x0800
@@ -88,7 +108,14 @@ impl CpuBusInterface for Bus {
                 // Open bus
                 unimplemented!("Invalid CPU address read: ${:04X}", addr);
             }
-            CART_START..=CART_END => self.cart.prg_read(addr),
+            CART_START..=CART_END => {
+                println!("Bus::cpu_bus_read(${:04X}) - ROM", addr);
+                // println!("{:?}", *self.cart);
+                println!("cart ptr: {:?}", &self.cart as *const _);
+                let byte = self.cart.prg_read(addr);
+                println!("byte from prg_rom: ${:02X}", byte);
+                byte
+            },
             _ => 0,
         }
     }

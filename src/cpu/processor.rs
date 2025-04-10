@@ -4,7 +4,7 @@ use crate::cpu::trace::Tracer;
 use bitflags::bitflags;
 use std::collections::HashMap;
 
-const DEBUG: bool = false;
+const DEBUG: bool = true;
 const CPU_PC_RESET: u16 = 0x8000;
 const CPU_STACK_RESET: u8 = 0xFF;
 const CPU_STACK_BASE: u16 = 0x0100;
@@ -104,11 +104,11 @@ impl CPU {
     }
 
     /// `bus_read` is safe because Bus owns CPU
-    fn bus_read(&self, addr: u16) -> u8 {
+    pub fn bus_read(&self, addr: u16) -> u8 {
         unsafe { (*self.bus.unwrap()).cpu_bus_read(addr) }
     }
 
-    fn bus_read_u16(&self, addr: u16) -> u16 {
+    pub fn bus_read_u16(&self, addr: u16) -> u16 {
         let lo = self.bus_read(addr) as u16;
         let hi = self.bus_read(addr.wrapping_add(1)) as u16;
         (hi << 8) | lo
@@ -129,6 +129,7 @@ impl CPU {
         self.program_counter = CPU_PC_RESET;
         self.status = Flags::from_bits_truncate(0b0010_0010);
         self.extra_cycles = 0;
+        self.skip_cycles = 0;
         self.nmi_pending = false;
         self.irq_pending = false;
         self.skip_pc_advance = false;

@@ -3,6 +3,7 @@ use crate::rom::Mirroring;
 mod mmc1;
 pub mod nrom;
 
+
 pub trait Cartridge {
     /// Read a byte from CHR space ($0000–$1FFF)
     fn chr_read(&mut self, addr: u16) -> u8;
