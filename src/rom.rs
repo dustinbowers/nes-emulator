@@ -1,4 +1,5 @@
 use crate::cartridge::nrom::NromCart;
+use crate::cartridge::mmc1::Mmc1;
 use crate::cartridge::Cartridge;
 
 const NES_MAGIC_BYTES: &[u8; 4] = b"NES\x1A";
@@ -97,6 +98,10 @@ impl Rom {
                     println!("Nrom, setting chr_is_ram = true");
                     cart.chr_is_ram = true;
                 }
+                Box::new(cart)
+            }
+            1 => {
+                let cart = Mmc1::new(self.prg_rom, self.chr_rom, 0x2000);
                 Box::new(cart)
             }
 

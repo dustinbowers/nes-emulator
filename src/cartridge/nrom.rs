@@ -41,7 +41,6 @@ impl Cartridge for NromCart {
     fn prg_read(&mut self, addr: u16) -> u8 {
         let addr = addr as usize - 0x8000;
 
-        println!("nrom::prg_read({:04X})", addr);
         let addr = if self.prg_rom.len() == 0x4000 {
             addr % 0x4000 // mirror if only 16KB PRG
         } else {
@@ -49,7 +48,6 @@ impl Cartridge for NromCart {
         };
 
         let b = self.prg_rom[addr];
-        println!("prg_read({:04X}) returning {:02X}", addr, b);
         b
     }
 

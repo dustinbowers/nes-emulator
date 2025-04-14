@@ -23,6 +23,7 @@ use display::draw_frame;
 use macroquad::prelude::*;
 use rom::Rom;
 use std::{env, process};
+use crate::display::consts::{PIXEL_HEIGHT, PIXEL_WIDTH};
 
 fn window_conf() -> Conf {
     Conf {
@@ -61,13 +62,82 @@ async fn play_rom(rom_path: &str) {
 
     println!("making NES...");
     let mut cart = rom.into_cartridge();
-    println!("cart at 0x8000 = ${:02X}", cart.prg_read(0x8000));
-
-    println!("cart ptr: {:?}", &cart as *const _);
     let mut nes = NES::new(cart);
+    let mut run_frames = 1000;
     loop {
-        println!("main loop tick...");
-        nes.tick();
+
+        if run_frames > 0 {
+            while !nes.tick() {}
+            // run_frames -= 1;
+        }
+
+        clear_background(RED);
+        let frame = nes.get_frame_buffer();
+        for (i, c) in frame.iter().enumerate() {
+            let x = (i % 256) as f32;
+            let y = (i / 256) as f32;
+            let color = COLOR_MAP.get_color(*c as usize);
+            draw_rectangle(x * PIXEL_WIDTH, y * PIXEL_HEIGHT, PIXEL_WIDTH, PIXEL_HEIGHT, *color);
+        }
+
+        //
+        // Handle user input
+        //
+        let key_map: &[(Vec<KeyCode>, JoypadButtons)] = &[
+            (vec![KeyCode::K], JoypadButtons::BUTTON_A),
+            (vec![KeyCode::J], JoypadButtons::BUTTON_B),
+            (vec![KeyCode::Enter], JoypadButtons::START),
+            (vec![KeyCode::RightShift], JoypadButtons::SELECT),
+            (vec![KeyCode::W], JoypadButtons::UP),
+            (vec![KeyCode::S], JoypadButtons::DOWN),
+            (vec![KeyCode::A], JoypadButtons::LEFT),
+            (vec![KeyCode::D], JoypadButtons::RIGHT),
+        ];
+        // Handle user input
+        let keys_pressed = get_keys_down();
+        for (keys, button) in key_map.iter() {
+            let mut pressed = false;
+            for key in keys.iter() {
+                if keys_pressed.contains(&key) {
+                    pressed = true;
+                    break;
+                }
+            }
+            nes.bus.controller1.set_button_status(button, pressed);
+        }
+
+
+        //
+        // DEBUG RENDERING
+        //
+
+        // Draw some states
+        let status_str = format!(
+            "PC: ${:04X} SP: ${:02X} A:${:02X} X:${:02X} Y:${:02X}",
+            nes.bus.cpu.program_counter,
+            nes.bus.cpu.stack_pointer,
+            nes.bus.cpu.register_a,
+            nes.bus.cpu.register_x,
+            nes.bus.cpu.register_y
+        );
+        draw_text(&status_str, 5.0, 24.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0));
+
+        let status_str = format!(
+            "addr:{:04X} bus_cycles:{} ppu_cycles:{}",
+            nes.bus.ppu.scroll_register.get_addr(),
+            nes.bus.cycles,
+            nes.bus.ppu.cycles
+        );
+        draw_text(&status_str, 5.0, 48.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0));
+
+        let ram_px_size = 3;
+        for (i, v) in nes.bus.ppu.ram.iter().enumerate() {
+            let x = i % 32 * ram_px_size + 400;
+            let y = i / 32 * ram_px_size + 60;
+            draw_rectangle(x as f32, y as f32, ram_px_size as f32, ram_px_size as f32, *COLOR_MAP.get_color(((v+1) % 53) as usize));
+        }
+
+        // println!("draw frame!");
         next_frame().await;
     }
 }

@@ -1,10 +1,11 @@
-use super::interrupts::Interrupt;
+use super::interrupts::{Interrupt, InterruptType};
 use super::{interrupts, opcodes};
 use crate::cpu::trace::Tracer;
 use bitflags::bitflags;
 use std::collections::HashMap;
 
-const DEBUG: bool = true;
+// const DEBUG: bool = true;
+const DEBUG: bool = false;
 const CPU_PC_RESET: u16 = 0x8000;
 const CPU_STACK_RESET: u8 = 0xFF;
 const CPU_STACK_BASE: u16 = 0x0100;
@@ -55,7 +56,6 @@ pub enum AddressingMode {
 pub trait CpuBusInterface {
     fn cpu_bus_read(&mut self, addr: u16) -> u8;
     fn cpu_bus_write(&mut self, addr: u16, value: u8);
-    // fn signal_nmi(&mut self);
 }
 
 pub struct CPU {
@@ -71,9 +71,10 @@ pub struct CPU {
     skip_cycles: u8,
     extra_cycles: u8,
     skip_pc_advance: bool,
-    // TODO: nmi_in_progress: bool,
+
     nmi_pending: bool,
-    irq_pending: bool,
+    interrupt_stack: Vec<InterruptType>,
+
     pub tracer: Tracer,
 }
 
@@ -90,9 +91,9 @@ impl CPU {
             skip_cycles: 0,
             extra_cycles: 0,
             skip_pc_advance: false,
-            nmi_pending: false,
             tracer: Tracer::new(128),
-            irq_pending: false,
+            nmi_pending: false,
+            interrupt_stack: vec![],
         };
         cpu
     }
@@ -130,9 +131,10 @@ impl CPU {
         self.status = Flags::from_bits_truncate(0b0010_0010);
         self.extra_cycles = 0;
         self.skip_cycles = 0;
-        self.nmi_pending = false;
-        self.irq_pending = false;
         self.skip_pc_advance = false;
+
+        self.nmi_pending = false; // PPU will notify CPU when NMI needs handling
+        self.interrupt_stack = vec![]; // This prevents nested NMI (while allowing nested BRKs)
     }
 
     pub fn run(&mut self) {
@@ -150,26 +152,24 @@ impl CPU {
 
     // `tick` returns (num_cycles, bytes_consumed, is_breaking)
     pub fn tick(&mut self) -> (u8, u8, bool) {
-        // Handle NMI
-        // if self.bus.get_nmi_status() {
-        //     self.interrupt(interrupts::NMI);
-        // }
-        // if let Some(_nmi) = self.bus.get_nmi_status() {
-        //     self.interrupt(interrupts::NMI);
-        //     // self.nmi_in_progress = true;
-        // }
-
+        // Stall for previous cycles from last instruction
         if self.skip_cycles > 0 {
             self.skip_cycles -= 1;
             return (0, 0, false);
         }
+
+        // If we're not already handling NMI, immediately handle it
+        if self.interrupt_stack.contains(&InterruptType::NMI) == false && self.nmi_pending {
+            self.nmi_pending = false;
+            self.handle_interrupt(interrupts::NMI);
+        }
+
         let ref opcodes: HashMap<u8, &'static opcodes::Opcode> = *opcodes::OPCODES_MAP;
 
         self.extra_cycles = 0;
         self.skip_pc_advance = false;
         let code = self.bus_read(self.program_counter);
         let opcode_lookup = opcodes.get(&code);
-        // ;.expect(&format!("Unknown opcode: {:#x}", &code));
         let opcode = match opcode_lookup {
             Some(opcode) => *opcode,
             None => {
@@ -179,6 +179,7 @@ impl CPU {
         };
 
         {
+            // Build debug trace
             let mut operand_bytes: Vec<u8> = vec![];
             for i in 1..opcode.size {
                 let address = self.program_counter.wrapping_add(i as u16);
@@ -202,9 +203,7 @@ impl CPU {
             }
             self.tracer.write(trace);
         }
-        // if self.nmi_in_progress && opcode.value == 0x40 {
-        //     self.nmi_in_progress = false;
-        // }
+
         self.program_counter = self.program_counter.wrapping_add(1);
 
         match code {
@@ -404,7 +403,7 @@ impl CPU {
 
             0x8B | 0xAB | 0x9F | 0x93 | 0x9E | 0x9C | 0x9B => {
                 // Unstable and highly-unstable opcodes (Purposely unimplemented)
-                panic!(
+                println!(
                     "{}",
                     &format!(
                         "Instruction 0x{:02X} unimplemented. It's too unstable!",
@@ -600,7 +599,16 @@ impl CPU {
         }
     }
 
-    fn interrupt(&mut self, interrupt: Interrupt) {
+    fn handle_interrupt(&mut self, interrupt: Interrupt) {
+        // TODO: remove this sanity check
+        if interrupt.interrupt_type == InterruptType::NMI
+            && self.interrupt_stack.contains(&InterruptType::NMI)
+        {
+            panic!("Error: Nested NMI detected! This should be impossible");
+        }
+
+        self.interrupt_stack.push(interrupt.interrupt_type);
+
         self.stack_push_u16(self.program_counter);
 
         let mut status_flags = Flags::from_bits_truncate(self.status.bits());
@@ -938,18 +946,9 @@ impl CPU {
         self.set_program_counter(address);
     }
 
-    // fn rti(&mut self) {
-    //     // Return from Interrupt
-    //     // NOTE: Note that unlike RTS, the return address on the stack is the actual address rather than the address-1
-    //     // self.plp(); // pop stack into status flags
-    //
-    //     let return_address = self.stack_pop_u16();
-    //     self.set_program_counter(return_address);
-    //     self.status.set(Flags::BREAK, false);
-    //     // self.status.set(Flags::BREAK2, true);
-    // }
     fn rti(&mut self) {
         // Return from Interrupt
+        // NOTE: Note that unlike RTS, the return address on the stack is the actual address rather than the address-1
         let return_status = self.stack_pop(); // Restore status flags first
         let return_address = self.stack_pop_u16(); // Restore PC
 
@@ -957,8 +956,11 @@ impl CPU {
 
         let mut restored_flags = Flags::from_bits_truncate(return_status);
         restored_flags.set(Flags::BREAK, false); // BRK flag is always cleared after RTI
-        restored_flags.set(Flags::BREAK2, true); // BRK flag is always cleared after RTI
+        restored_flags.set(Flags::BREAK2, true); // BRK2 flag is always cleared after RTI
         self.status = restored_flags;
+
+        // Pop the most recent interrupt type
+        self.interrupt_stack.pop();
     }
 
     fn bne(&mut self, opcode: &opcodes::Opcode) {
@@ -1086,16 +1088,11 @@ impl CPU {
         self.status.set(Flags::OVERFLOW, bit6 ^ bit5);
     }
 
-    // fn brk(&mut self) {
-    //     if !self.status.contains(Flags::INTERRUPT_DISABLE) {
-    //         self.interrupt(interrupts::BRK);
-    //     }
-    // }
-
     fn brk(&mut self) {
         // BRK - Software-defined Interrupt
         self.program_counter = self.program_counter.wrapping_add(1); // BRK has an implied operand, so increment PC before pushing
-        self.interrupt(interrupts::BRK);
+        self.interrupt_stack.push(InterruptType::BRK);
+        self.handle_interrupt(interrupts::BRK);
     }
 
     fn sre(&mut self, opcode: &opcodes::Opcode) {

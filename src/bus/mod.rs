@@ -13,11 +13,9 @@ mod bus_tests;
 const CPU_RAM_SIZE: usize = 2048;
 const CPU_RAM_START: u16 = 0x0000;
 const CPU_RAM_END: u16 = 0x1FFF;
-// const CPU_MIRROR_MASK: u16 = 0b0000_0111_1111_1111;
 
 const PPU_REGISTERS_START: u16 = 0x2000;
 const PPU_REGISTERS_END: u16 = 0x3FFF;
-// const PPU_MIRROR_MASK: u16 = 0b0010_0000_0000_0111;
 const CART_START: u16 = 0x4200;
 const CART_END: u16 = 0xFFFF;
 
@@ -34,13 +32,12 @@ pub struct Bus {
     // i.e. invalid reads return last-read byte
     pub last_fetched_byte: u8,
 
-    controller1: Box<dyn NesController>,
+    pub controller1: Box<Joypad>,
     // TODO: controller2: Box<dyn NexController>,
 }
 
 impl Bus {
     pub fn new(cartridge: Box<dyn Cartridge>) -> &'static mut Bus {
-        println!("Bus::new() - cartridge ptr: {:?}", &cartridge as *const _);
         let mut bus = Box::new(Bus {
             cart: cartridge,
             cpu_ram: [0; CPU_RAM_SIZE],
@@ -79,7 +76,6 @@ impl Bus {
 
 impl CpuBusInterface for Bus {
     fn cpu_bus_read(&mut self, addr: u16) -> u8 {
-        println!("\tCpuInterface::read(${:04X})", addr);
         match addr {
             CPU_RAM_START..=CPU_RAM_END => {
                 // RAM mirrored every 0x0800
@@ -109,19 +105,15 @@ impl CpuBusInterface for Bus {
                 unimplemented!("Invalid CPU address read: ${:04X}", addr);
             }
             CART_START..=CART_END => {
-                println!("Bus::cpu_bus_read(${:04X}) - ROM", addr);
-                // println!("{:?}", *self.cart);
-                println!("cart ptr: {:?}", &self.cart as *const _);
                 let byte = self.cart.prg_read(addr);
-                println!("byte from prg_rom: ${:02X}", byte);
                 byte
-            },
+            }
             _ => 0,
         }
     }
 
     fn cpu_bus_write(&mut self, addr: u16, value: u8) {
-        println!("\tCpuInterface::write()");
+        // println!("\tCpuInterface::write()");
         match addr {
             CPU_RAM_START..=CPU_RAM_END => {
                 let mirrored = addr & 0x07FF;

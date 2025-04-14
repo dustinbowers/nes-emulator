@@ -1,8 +1,7 @@
 use crate::rom::Mirroring;
 
-mod mmc1;
+pub mod mmc1;
 pub mod nrom;
-
 
 pub trait Cartridge {
     /// Read a byte from CHR space ($0000–$1FFF)
@@ -17,7 +16,4 @@ pub trait Cartridge {
 
     /// Get the current mirroring mode
     fn mirroring(&self) -> Mirroring;
-
-    // Get a clone of PRG_ROM
-    // fn get_prg_rom(&self) -> Vec<u8>;
 }

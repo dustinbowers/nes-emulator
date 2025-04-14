@@ -18,7 +18,7 @@ mod test {
         let mut total_cycles = 0;
         loop {
             let (cycles, _, is_breaking) = bus.cpu.tick();
-            total_cycles += (cycles as usize);
+            total_cycles += cycles as usize;
             if is_breaking {
                 break;
             }
@@ -127,7 +127,7 @@ mod test {
     fn test_0xb5_lda_absolute_load_data() {
         let program = &[
             0xAD, // LDA absolute (5 cycles)
-            0xEF, //
+            0xEF, // (+1 extra cycle for cross_boundary address)
             0xBE, // Loading from little endian $EFBE which will actually be $BEEF
             0xAA, // TAX (1 cycle)
             0x02, // JAM
@@ -137,7 +137,7 @@ mod test {
         let cycles = run_test_program(&mut bus);
         assert_eq!(bus.cpu.register_a, 0x42);
         assert_eq!(bus.cpu.register_x, 0x42);
-        assert_eq!(cycles, 5 + 1);
+        assert_eq!(cycles, 5 + 1 + 1);
         assert_eq!(bus.cpu.status.contains(Flags::ZERO), false);
         assert_eq!(bus.cpu.status.contains(Flags::NEGATIVE), false);
     }

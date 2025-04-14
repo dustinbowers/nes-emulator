@@ -12,18 +12,26 @@ impl NES {
     }
 
     pub fn tick(&mut self) -> bool {
-        println!("NES::tick()");
         // CPU
         let (_, _, is_breaking) = self.bus.cpu.tick();
 
-        // PPU
-        println!("NES::tick - starting ppu ticks");
-        self.bus.ppu.tick();
-        self.bus.ppu.tick();
-        self.bus.ppu.tick();
+        // PPU ticks 3 times per CPU cycle
+        let mut frame_ready = false;
+        for _ in 0..3 {
+            if self.bus.ppu.tick() {
+                frame_ready = true;
+            }
+        }
 
         // TODO: APU
 
-        is_breaking
+        // if frame_ready {
+        //     panic!("frame_ready!");
+        // }
+        frame_ready
+    }
+
+    pub fn get_frame_buffer(&self) -> &[u8; 256 * 240] {
+        return &self.bus.ppu.frame_buffer
     }
 }

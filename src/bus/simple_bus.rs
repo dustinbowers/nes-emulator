@@ -1,4 +1,7 @@
+use crate::bus::Bus;
 use crate::cpu::processor::{CpuBusInterface, CPU};
+use crate::ppu::PpuBusInterface;
+use crate::rom::Mirroring;
 
 pub struct SimpleBus {
     pub cpu_ram: [u8; 0x10000],
@@ -6,7 +9,7 @@ pub struct SimpleBus {
     pub cycles: usize,
 }
 impl SimpleBus {
-    pub fn new(program: Vec<u8>) -> SimpleBus {
+    pub fn new(program: Vec<u8>, ) -> SimpleBus {
         let mut bus = SimpleBus {
             cpu_ram: [0; 0x10000],
             cpu: CPU::new(),
@@ -38,3 +41,17 @@ impl CpuBusInterface for SimpleBus {
         self.cpu_ram[addr as usize] = value;
     }
 }
+// impl PpuBusInterface for SimpleBus {
+//     fn chr_read(&mut self, addr: u16) -> u8 {
+//         self.cart.chr_read(addr)
+//     }
+//     fn chr_write(&mut self, addr: u16, value: u8) {
+//         self.cart.chr_write(addr, value);
+//     }
+//     fn mirroring(&mut self) -> Mirroring {
+//         self.cart.mirroring()
+//     }
+//     fn nmi(&mut self) {
+//         self.cpu.trigger_nmi();
+//     }
+// }

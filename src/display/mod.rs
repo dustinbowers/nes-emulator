@@ -1,7 +1,6 @@
 pub mod color_map;
 pub mod consts;
 pub mod frame;
-pub mod render;
 
 use consts::{PIXEL_HEIGHT, PIXEL_WIDTH};
 use frame::Frame;
