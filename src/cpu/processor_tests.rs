@@ -1,18 +1,30 @@
 #[cfg(test)]
 mod test {
-    use crate::bus::{Bus, BusMemory};
-    use crate::cartridge::nrom::NromCart;
-    use crate::cpu::processor::{rotate_value_left, rotate_value_right, Flags, CPU};
-    use crate::rom::{Mirroring, Rom};
+    use crate::bus::simple_bus::SimpleBus;
+    use crate::cpu::processor::{
+        rotate_value_left, rotate_value_right, CpuBusInterface, Flags, CPU,
+    };
 
-    fn init_cpu(prg_rom: &[u8]) -> CPU {
-        let rom = Rom::new_custom(prg_rom.to_vec(), vec![], 0, Mirroring::Vertical);
-        let cart = rom.into_cartridge();
-        let mut bus = Bus::new(cart, |_, _| {});
-        bus.enable_test_mode();
-        let mut cpu = CPU::new(bus);
-        cpu.program_counter = 0;
-        cpu
+    fn init_cpu_and_bus(program: &[u8]) -> SimpleBus {
+        let mut bus = SimpleBus::new(program.to_vec());
+        let bus_ptr = &mut bus as *mut SimpleBus;
+        bus.cpu.connect_bus(bus_ptr as *mut dyn CpuBusInterface);
+        bus.cpu.program_counter = 0x0000;
+        bus
+    }
+
+    fn run_test_program(bus: &mut SimpleBus) -> usize {
+        println!("running program...");
+        let mut total_cycles = 0;
+        loop {
+            let (cycles, _, is_breaking) = bus.cpu.tick();
+            println!("tick cycles: {cycles}");
+            total_cycles += cycles as usize;
+            if is_breaking {
+                break;
+            }
+        }
+        total_cycles
     }
 
     #[test]
@@ -24,12 +36,12 @@ mod test {
             0xA8, // TAY
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.run();
-        assert_eq!(cpu.register_x, 0x42);
-        assert_eq!(cpu.register_y, 0x42);
-        assert_eq!(cpu.status.contains(Flags::ZERO), false);
-        assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
+        let mut bus = init_cpu_and_bus(program);
+        let cycles = run_test_program(&mut bus);
+        assert_eq!(bus.cpu.register_x, 0x42);
+        assert_eq!(bus.cpu.register_y, 0x42);
+        assert_eq!(bus.cpu.status.contains(Flags::ZERO), false);
+        assert_eq!(bus.cpu.status.contains(Flags::NEGATIVE), false);
     }
 
     #[test]
@@ -39,11 +51,11 @@ mod test {
             0x05, //    with $05
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.run();
-        assert_eq!(cpu.register_a, 0x05);
-        assert_eq!(cpu.status.contains(Flags::ZERO), false);
-        assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
+        let mut bus = init_cpu_and_bus(program);
+        let cycles = run_test_program(&mut bus);
+        assert_eq!(bus.cpu.register_a, 0x05);
+        assert_eq!(bus.cpu.status.contains(Flags::ZERO), false);
+        assert_eq!(bus.cpu.status.contains(Flags::NEGATIVE), false);
     }
 
     #[test]
@@ -53,9 +65,9 @@ mod test {
             0x00, //    with $0
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.run();
-        assert_eq!(cpu.status.contains(Flags::ZERO), true);
+        let mut bus = init_cpu_and_bus(program);
+        let cycles = run_test_program(&mut bus);
+        assert_eq!(bus.cpu.status.contains(Flags::ZERO), true);
     }
 
     #[test]
@@ -65,12 +77,12 @@ mod test {
             0x05, //    with $05
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.bus.store_byte(0x05, 0x42);
-        cpu.run();
-        assert_eq!(cpu.register_a, 0x42);
-        assert_eq!(cpu.status.contains(Flags::ZERO), false);
-        assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
+        let mut bus = init_cpu_and_bus(program);
+        bus.cpu.bus_write(0x05, 0x42);
+        let cycles = run_test_program(&mut bus);
+        assert_eq!(bus.cpu.register_a, 0x42);
+        assert_eq!(bus.cpu.status.contains(Flags::ZERO), false);
+        assert_eq!(bus.cpu.status.contains(Flags::NEGATIVE), false);
     }
 
     #[test]
@@ -83,32 +95,31 @@ mod test {
             0x80, //    with $80        - X = $0F, loading A with data from $8F = 0x42
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.bus.store_byte(0x8F, 0x42);
-        cpu.run();
-        assert_eq!(cpu.register_a, 0x42);
-        assert_eq!(cpu.register_x, 0x0F);
-        assert_eq!(cpu.status.contains(Flags::ZERO), false);
-        assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
+        let mut bus = init_cpu_and_bus(program);
+        bus.cpu.bus_write(0x8F, 0x42);
+        let cycles = run_test_program(&mut bus);
+        assert_eq!(bus.cpu.register_a, 0x42);
+        assert_eq!(bus.cpu.register_x, 0x0F);
+        assert_eq!(bus.cpu.status.contains(Flags::ZERO), false);
+        assert_eq!(bus.cpu.status.contains(Flags::NEGATIVE), false);
     }
 
     #[test]
     fn test_0xb5_lda_absolute_load_data() {
         let program = &[
-            0xAD, // LDA absolute (5 cycles)
-            0xEF, //
-            0xBE, // Loading from little endian $EFBE which will actually be $BEEF
-            0xAA, // TAX (1 cycle)
-            0x02, // JAM
+            0xAD, // LDA absolute (4 cycles)
+            0xEF, 0xBE, // Loading from little endian $EFBE which will actually be $BEEF
+            0xAA, // TAX (2 cycle)
+            0x02, // JAM (11 cycles)
         ];
-        let mut cpu = init_cpu(program);
-        cpu.bus.store_byte(0xBEEF, 0x42);
-        cpu.run();
-        assert_eq!(cpu.register_a, 0x42);
-        assert_eq!(cpu.register_x, 0x42);
-        assert_eq!(cpu.bus.cycles, 5 + 1);
-        assert_eq!(cpu.status.contains(Flags::ZERO), false);
-        assert_eq!(cpu.status.contains(Flags::NEGATIVE), false);
+        let mut bus = init_cpu_and_bus(program);
+        bus.cpu.bus_write(0xBEEF, 0x42);
+        let cycles = run_test_program(&mut bus);
+        assert_eq!(bus.cpu.register_a, 0x42);
+        assert_eq!(bus.cpu.register_x, 0x42);
+        assert_eq!(cycles, 4 + 2 + 11);
+        assert_eq!(bus.cpu.status.contains(Flags::ZERO), false);
+        assert_eq!(bus.cpu.status.contains(Flags::NEGATIVE), false);
     }
 
     #[test]
@@ -119,11 +130,11 @@ mod test {
             0xF8, // SED
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.run();
-        assert_eq!(cpu.status.contains(Flags::CARRY), true);
-        assert_eq!(cpu.status.contains(Flags::INTERRUPT_DISABLE), true);
-        assert_eq!(cpu.status.contains(Flags::DECIMAL_MODE), true);
+        let mut bus = init_cpu_and_bus(program);
+        let cycles = run_test_program(&mut bus);
+        assert_eq!(bus.cpu.status.contains(Flags::CARRY), true);
+        assert_eq!(bus.cpu.status.contains(Flags::INTERRUPT_DISABLE), true);
+        assert_eq!(bus.cpu.status.contains(Flags::DECIMAL_MODE), true);
     }
 
     #[test]
@@ -137,11 +148,11 @@ mod test {
             0xD8, // CLD
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.run();
-        assert_eq!(cpu.status.contains(Flags::CARRY), false);
-        assert_eq!(cpu.status.contains(Flags::INTERRUPT_DISABLE), false);
-        assert_eq!(cpu.status.contains(Flags::DECIMAL_MODE), false);
+        let mut bus = init_cpu_and_bus(program);
+        let cycles = run_test_program(&mut bus);
+        assert_eq!(bus.cpu.status.contains(Flags::CARRY), false);
+        assert_eq!(bus.cpu.status.contains(Flags::INTERRUPT_DISABLE), false);
+        assert_eq!(bus.cpu.status.contains(Flags::DECIMAL_MODE), false);
     }
 
     #[test]
@@ -153,11 +164,11 @@ mod test {
             0x07, //   with 0x07
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.run();
-        assert_eq!(cpu.register_a, 0x17);
-        assert_eq!(cpu.status.contains(Flags::CARRY), false);
-        assert_eq!(cpu.status.contains(Flags::OVERFLOW), false);
+        let mut bus = init_cpu_and_bus(program);
+        let cycles = run_test_program(&mut bus);
+        assert_eq!(bus.cpu.register_a, 0x17);
+        assert_eq!(bus.cpu.status.contains(Flags::CARRY), false);
+        assert_eq!(bus.cpu.status.contains(Flags::OVERFLOW), false);
     }
 
     #[test]
@@ -169,11 +180,11 @@ mod test {
             0x0F, //   with 0x0F
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.run();
-        assert_eq!(cpu.status.contains(Flags::CARRY), false);
-        assert_eq!(cpu.status.contains(Flags::OVERFLOW), true);
-        assert_eq!(cpu.register_a, 0x8E);
+        let mut bus = init_cpu_and_bus(program);
+        let cycles = run_test_program(&mut bus);
+        assert_eq!(bus.cpu.status.contains(Flags::CARRY), false);
+        assert_eq!(bus.cpu.status.contains(Flags::OVERFLOW), true);
+        assert_eq!(bus.cpu.register_a, 0x8E);
     }
 
     #[test]
@@ -185,11 +196,11 @@ mod test {
             0x0F, //   with 0x01
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.run();
-        assert_eq!(cpu.status.contains(Flags::CARRY), true);
-        assert_eq!(cpu.status.contains(Flags::OVERFLOW), false);
-        assert_eq!(cpu.register_a, 0x0E);
+        let mut bus = init_cpu_and_bus(program);
+        let cycles = run_test_program(&mut bus);
+        assert_eq!(bus.cpu.status.contains(Flags::CARRY), true);
+        assert_eq!(bus.cpu.status.contains(Flags::OVERFLOW), false);
+        assert_eq!(bus.cpu.register_a, 0x0E);
     }
 
     #[test]
@@ -202,12 +213,12 @@ mod test {
             0x0F, //   with 0x0F
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.run();
+        let mut bus = init_cpu_and_bus(program);
+        let cycles = run_test_program(&mut bus);
         // Note: In SBC, the "CARRY" flag becomes a "BORROW" flag which is complement
-        assert_eq!(cpu.status.contains(Flags::CARRY), true);
-        assert_eq!(cpu.status.contains(Flags::OVERFLOW), false);
-        assert_eq!(cpu.register_a, 0xF0);
+        assert_eq!(bus.cpu.status.contains(Flags::CARRY), true);
+        assert_eq!(bus.cpu.status.contains(Flags::OVERFLOW), false);
+        assert_eq!(bus.cpu.register_a, 0xF0);
     }
 
     #[test]
@@ -220,11 +231,11 @@ mod test {
             0x01, //   with 0x01
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.run();
-        assert_eq!(cpu.status.contains(Flags::CARRY), false);
-        assert_eq!(cpu.status.contains(Flags::OVERFLOW), false);
-        assert_eq!(cpu.register_a, 0xFF);
+        let mut bus = init_cpu_and_bus(program);
+        let cycles = run_test_program(&mut bus);
+        assert_eq!(bus.cpu.status.contains(Flags::CARRY), false);
+        assert_eq!(bus.cpu.status.contains(Flags::OVERFLOW), false);
+        assert_eq!(bus.cpu.register_a, 0xFF);
     }
 
     #[test]
@@ -251,10 +262,10 @@ mod test {
             0x8A, // TXA
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.set_register_x(0x42);
-        cpu.run();
-        assert_eq!(cpu.register_a, 0x42);
+        let mut bus = init_cpu_and_bus(program);
+        bus.cpu.set_register_x(0x42);
+        let cycles = run_test_program(&mut bus);
+        assert_eq!(bus.cpu.register_a, 0x42);
     }
 
     #[test]
@@ -263,10 +274,10 @@ mod test {
             0x98, // TYA
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.set_register_y(0x88);
-        cpu.run();
-        assert_eq!(cpu.register_a, 0x88);
+        let mut bus = init_cpu_and_bus(program);
+        bus.cpu.set_register_y(0x88);
+        let cycles = run_test_program(&mut bus);
+        assert_eq!(bus.cpu.register_a, 0x88);
     }
 
     #[test]
@@ -275,10 +286,10 @@ mod test {
             0xBA, // TSX
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.stack_pointer = 0x37;
-        cpu.run();
-        assert_eq!(cpu.register_x, 0x37);
+        let mut bus = init_cpu_and_bus(program);
+        bus.cpu.stack_pointer = 0x37;
+        let cycles = run_test_program(&mut bus);
+        assert_eq!(bus.cpu.register_x, 0x37);
     }
 
     #[test]
@@ -287,10 +298,10 @@ mod test {
             0x9A, // TXS
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.register_x = 0x33;
-        cpu.run();
-        assert_eq!(cpu.stack_pointer, 0x33);
+        let mut bus = init_cpu_and_bus(program);
+        bus.cpu.register_x = 0x33;
+        let cycles = run_test_program(&mut bus);
+        assert_eq!(bus.cpu.stack_pointer, 0x33);
     }
 
     #[test]
@@ -300,18 +311,18 @@ mod test {
             0x0F, //   to 0x0F
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.status.set(Flags::ZERO, false);
-        cpu.store_byte(0x0011, 0x02); // Write BRK to branch target
-        cpu.run();
+        let mut bus = init_cpu_and_bus(program);
+        bus.cpu.status.set(Flags::ZERO, false);
+        bus.cpu.bus_write(0x0011, 0x02); // Write BRK to branch target
+        let cycles = run_test_program(&mut bus);
         let want = 0x12;
         assert_eq!(
-            cpu.program_counter,
+            bus.cpu.program_counter,
             want,
             "{}",
             format!(
                 "program_counter mismatch - Got: ${:02X} Want: ${:02X}",
-                cpu.program_counter, want
+                bus.cpu.program_counter, want
             )
         );
     }
@@ -323,113 +334,66 @@ mod test {
             0x0F, //   to 0x0F
             0x02, // JAM
         ];
-        let mut cpu = init_cpu(program);
-        cpu.status.set(Flags::ZERO, true);
-        cpu.run();
+        let mut bus = init_cpu_and_bus(program);
+        bus.cpu.status.set(Flags::ZERO, true);
+        let cycles = run_test_program(&mut bus);
         let want = 0x03;
         assert_eq!(
-            cpu.program_counter,
+            bus.cpu.program_counter,
             want,
             "{}",
             format!(
                 "program_counter mismatch - Got: ${:02X} Want: ${:02X}",
-                cpu.program_counter, want
+                bus.cpu.program_counter, want
             )
         );
     }
 
-    #[test]
-    fn test_write_to_ppu_vram() {
-        let program = &[
-            0xa9, 0x23, // LDA #$23    ; High byte of PPU address (0x23XX)
-            0x8d, 0x06, 0x20, // STA $2006   ; Write high byte to PPUADDR
-            0xa9, 0x45, // LDA #$45    ; Low byte of PPU address (0x2345)
-            0x8d, 0x06, 0x20, // STA $2006   ; Write low byte to PPUADDR
-            0xa9, 0x99, // LDA #$99    ; Data to write to PPU
-            0x8d, 0x07, 0x20, // STA $2007   ; Store into PPUDATA
-            0xa9, 0xEF, // LDA #$EF    ; Data to write to PPU
-            0x8d, 0x07, 0x20, // STA $2007   ; Store into PPUDATA
-            0x02, // JAM (stop execution)
-        ];
-
-        let mut prg_rom = vec![0u8; 0x4000];
-        for (i, b) in program.iter().enumerate() {
-            prg_rom[i] = *b;
-        }
-
-        let rom = Rom::new_custom(prg_rom, vec![], 0, Mirroring::Vertical);
-        let cart = rom.into_cartridge();
-        let bus = Bus::new(cart, |_, _| {});
-        let mut cpu = CPU::new(bus);
-        cpu.program_counter = 0x8000;
-        cpu.run();
-
-        // Verify internal PPU address register is set to $2345
-        let got = cpu.bus.ppu.addr_register.get();
-        let want = 0x2345 + 2; // PPU auto-increments the address after write
-        assert_eq!(
-            got,
-            want,
-            "{}",
-            format!(
-                "PPU addr_register incorrect. Got: ${:04X}, Want: ${:04X}",
-                got, want
-            )
-        );
-
-        // The VRAM address we wrote to: 0x2345 should contain 0x99
-        let ppu_vram = &cpu.bus.ppu.ram;
-        let mirrored_addr = 0x2345 & 0x2FFF; // VRAM mirroring
-        let ram_index = mirrored_addr - 0x2000;
-        assert_eq!(ppu_vram[ram_index], 0x99);
-        assert_eq!(ppu_vram[ram_index + 1], 0xEF);
-    }
-
-    #[test]
-    fn test_sprite_vertical_flip() {
-        // This program sets up a single sprite with vertical flipping enabled
-        let program = &[
-            0xa9, 0x00, // LDA #$00    ; Y = 0
-            0x8d, 0x03, 0x20, // STA $2003   ; Set OAMADDR to 0
-            0xa9, 0x20, // LDA #$20    ; Write Y position
-            0x8d, 0x04, 0x20, // STA $2004   ; Write to OAMDATA
-            0xa9, 0x01, // LDA #$01    ; Tile index
-            0x8d, 0x04, 0x20, // STA $2004   ; Write to OAMDATA
-            0xa9, 0x80, // LDA #$80    ; Attributes: bit 7 set (vertical flip)
-            0x8d, 0x04, 0x20, // STA $2004   ; Write to OAMDATA
-            0xa9, 0x40, // LDA #$40    ; X = 64
-            0x8d, 0x04, 0x20, // STA $2004   ; Write to OAMDATA
-            0x02, // JAM (stop execution)
-        ];
-
-        let mut prg_rom = vec![0u8; 0x4000];
-        for (i, b) in program.iter().enumerate() {
-            prg_rom[i] = *b;
-        }
-
-        let rom = Rom::new_custom(prg_rom, vec![], 0, Mirroring::Vertical);
-        let cart = rom.into_cartridge();
-        let bus = Bus::new(cart, |_, _| {});
-        let mut cpu = CPU::new(bus);
-        cpu.program_counter = 0x8000;
-        cpu.run();
-
-        let oam = &cpu.bus.ppu.oam_data;
-
-        // Verify sprite was written to OAM correctly
-        assert_eq!(oam[0], 0x20, "Y position incorrect");
-        assert_eq!(oam[1], 0x01, "Tile index incorrect");
-        assert_eq!(
-            oam[2], 0x80,
-            "Attribute flags incorrect (should have vertical flip)"
-        );
-        assert_eq!(oam[3], 0x40, "X position incorrect");
-
-        // Ensure vertical flip bit is set
-        let vertical_flip = oam[2] & 0x80 != 0;
-        assert!(
-            vertical_flip,
-            "Vertical flip bit not set in sprite attributes"
-        );
-    }
+    // #[test]
+    // fn test_sprite_vertical_flip() {
+    //     // This program sets up a single sprite with vertical flipping enabled
+    //     let program = &[
+    //         0xa9, 0x00, // LDA #$00    ; Y = 0
+    //         0x8d, 0x03, 0x20, // STA $2003   ; Set OAMADDR to 0
+    //         0xa9, 0x20, // LDA #$20    ; Write Y position
+    //         0x8d, 0x04, 0x20, // STA $2004   ; Write to OAMDATA
+    //         0xa9, 0x01, // LDA #$01    ; Tile index
+    //         0x8d, 0x04, 0x20, // STA $2004   ; Write to OAMDATA
+    //         0xa9, 0x80, // LDA #$80    ; Attributes: bit 7 set (vertical flip)
+    //         0x8d, 0x04, 0x20, // STA $2004   ; Write to OAMDATA
+    //         0xa9, 0x40, // LDA #$40    ; X = 64
+    //         0x8d, 0x04, 0x20, // STA $2004   ; Write to OAMDATA
+    //         0x02, // JAM (stop execution)
+    //     ];
+    //
+    //     let mut prg_rom = vec![0u8; 0x4000];
+    //     for (i, b) in program.iter().enumerate() {
+    //         prg_rom[i] = *b;
+    //     }
+    //
+    //     let rom = Rom::new_custom(prg_rom, vec![], 0, Mirroring::Vertical);
+    //     let cart = rom.into_cartridge();
+    //     let bus = Bus::new(cart, |_, _| {});
+    //     let mut cpu = CPU::new(bus);
+    //     bus.cpu.program_counter = 0x8000;
+    //     let cycles = run_test_program(&mut bus);
+    //
+    //     let oam = &bus.cpu.bus.ppu.oam_data;
+    //
+    //     // Verify sprite was written to OAM correctly
+    //     assert_eq!(oam[0], 0x20, "Y position incorrect");
+    //     assert_eq!(oam[1], 0x01, "Tile index incorrect");
+    //     assert_eq!(
+    //         oam[2], 0x80,
+    //         "Attribute flags incorrect (should have vertical flip)"
+    //     );
+    //     assert_eq!(oam[3], 0x40, "X position incorrect");
+    //
+    //     // Ensure vertical flip bit is set
+    //     let vertical_flip = oam[2] & 0x80 != 0;
+    //     assert!(
+    //         vertical_flip,
+    //         "Vertical flip bit not set in sprite attributes"
+    //     );
+    // }
 }

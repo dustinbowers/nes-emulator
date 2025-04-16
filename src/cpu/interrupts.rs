@@ -1,12 +1,12 @@
 // See: https://www.nesdev.org/wiki/CPU_interrupts#IRQ_and_NMI_tick-by-tick_execution
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub enum InterruptType {
     NMI, // Non-maskable interrupt (triggered from PPU at VBLANK)
     BRK, // Software-defined interrupt
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub struct Interrupt {
     pub interrupt_type: InterruptType,
     pub vector_addr: u16,

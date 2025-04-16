@@ -11,10 +11,10 @@ mod memory;
 mod ppu;
 mod rom;
 
+use crate::bus::simple_bus::SimpleBus;
 use crate::bus::Bus;
-use crate::bus::BusMemory;
 use crate::cartridge::nrom::NromCart;
-use crate::cpu::processor::{Flags, CPU};
+use crate::cpu::processor::{CpuBusInterface, Flags, CPU};
 use crate::rom::Rom;
 use serde::Deserialize;
 use std::env;
@@ -95,9 +95,14 @@ fn main() {
     // Read, parse, and run tests
     match read_opcode_tests(&dir_path, opcode) {
         Ok(tests) => {
+            // Create and init the testing bus
+            let mut bus = SimpleBus::new(vec![0u8; 0xFFFF]);
+            let bus_ptr = &mut bus as *mut SimpleBus;
+            bus.cpu.connect_bus(bus_ptr as *mut dyn CpuBusInterface);
+
             for (i, opcode_test) in tests.iter().enumerate() {
                 println!("\n====== Running 0x{:02X} test #{} ====== ", opcode, i + 1);
-                run_opcode_test(opcode_test);
+                run_opcode_test(&mut bus, opcode_test);
                 println!(" Pass!");
             }
         }
@@ -128,92 +133,87 @@ fn read_opcode_tests(
     Ok(tests)
 }
 
-fn run_opcode_test(test: &OpcodeTest) {
-    // Create CPU
-    let rom = Rom::empty();
-    let cart = rom.into_cartridge();
-    let mut bus = Bus::new(cart, |_, _| {});
-    bus.enable_test_mode();
-    let mut cpu = CPU::new(bus);
-    cpu.reset();
+fn run_opcode_test(bus: &mut SimpleBus, test: &OpcodeTest) {
+    bus.reset();
 
     // Set initial state of CPU and memory
     let start = &test.initial_state;
-    cpu.program_counter = start.pc;
-    cpu.stack_pointer = start.s;
-    cpu.register_a = start.a;
-    cpu.register_x = start.x;
-    cpu.register_y = start.y;
-    cpu.status = Flags::from_bits_truncate(start.p);
-    println!("RAM data:");
+    bus.cpu.program_counter = start.pc;
+    bus.cpu.stack_pointer = start.s;
+    bus.cpu.register_a = start.a;
+    bus.cpu.register_x = start.x;
+    bus.cpu.register_y = start.y;
+    bus.cpu.status = Flags::from_bits_truncate(start.p);
+
+    // println!("RAM data:");
     for (address, value) in start.ram.iter() {
-        cpu.store_byte(*address, *value);
-        println!("\t${:04X} = ${:02X} (0b{:08b})", *address, *value, *value);
+        bus.cpu.bus_write(*address, *value);
+        // println!("\t${:04X} = ${:02X} (0b{:08b})", *address, *value, *value);
     }
 
     // Single-step
-    cpu.tick();
+    bus.tick();
 
     // Confirm final state is correct
     let end = &test.final_state;
     let expected_cycles = test.cycles.len();
     assert_eq!(
-        cpu.program_counter,
+        bus.cpu.program_counter,
         end.pc,
         "{}",
         format!(
             "program_counter mismatch - Got: ${:02X} Want: ${:02X}",
-            cpu.program_counter, end.pc
+            bus.cpu.program_counter, end.pc
         )
     );
     assert_eq!(
-        cpu.stack_pointer,
+        bus.cpu.stack_pointer,
         end.s,
         "{}",
         format!(
             "stack_pointer mismatch - Got: ${:02X} Want: ${:02X}",
-            cpu.stack_pointer, end.s
+            bus.cpu.stack_pointer, end.s
         )
     );
     assert_eq!(
-        cpu.register_a,
+        bus.cpu.register_a,
         end.a,
         "{}",
         format!(
             "register_a mismatch - Got: ${:02X} Want: ${:02X}",
-            cpu.register_a, end.a
+            bus.cpu.register_a, end.a
         )
     );
     assert_eq!(
-        cpu.register_x,
+        bus.cpu.register_x,
         end.x,
         "{}",
         format!(
             "register_x mismatch - Got: ${:02X} Want: ${:02X}",
-            cpu.register_x, end.x
+            bus.cpu.register_x, end.x
         )
     );
     assert_eq!(
-        cpu.register_y,
+        bus.cpu.register_y,
         end.y,
         "{}",
         format!(
             "register_y mismatch - Got: ${:02X} Want: ${:02X}",
-            cpu.register_y, end.y
+            bus.cpu.register_y, end.y
         )
     );
     assert_eq!(
-        cpu.status.bits(),
+        bus.cpu.status.bits(),
         end.p,
         "{}",
         format!(
             "status flag mismatch.\n\tGot:  {:08b}\n\tWant: {:08b}",
-            cpu.status.bits(),
+            bus.cpu.status.bits(),
             end.p
         )
     );
     for (address, value) in end.ram.iter() {
-        let got = cpu.fetch_byte(*address);
+        let got = bus.cpu.bus_read(*address);
         let want = *value;
         assert_eq!(
             got,
@@ -226,12 +226,12 @@ fn run_opcode_test(test: &OpcodeTest) {
         );
     }
     assert_eq!(
-        cpu.bus.cycles,
+        bus.cycles,
         expected_cycles,
         "{}",
         format!(
             "cycle count mismatch - Got: {} Want: {}",
-            cpu.bus.cycles, expected_cycles
+            bus.cycles, expected_cycles
         )
     );
 }

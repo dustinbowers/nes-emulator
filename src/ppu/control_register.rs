@@ -36,7 +36,7 @@ impl ControlRegister {
         ControlRegister::from_bits_truncate(0b00000000)
     }
 
-    pub fn increment_ram_addr(&self) -> u8 {
+    pub fn addr_increment(&self) -> u8 {
         match self.contains(ControlRegister::VRAM_ADD_INCREMENT) {
             true => 32,
             false => 1,
@@ -93,7 +93,7 @@ mod tests {
     fn test_default_control_register() {
         let ctrl = ControlRegister::new();
         assert_eq!(ctrl.bits(), 0);
-        assert_eq!(ctrl.increment_ram_addr(), 1);
+        assert_eq!(ctrl.addr_increment(), 1);
         assert_eq!(ctrl.generate_vblank_nmi(), false);
         assert_eq!(ctrl.background_pattern_addr(), 0x0000);
     }
@@ -120,10 +120,10 @@ mod tests {
     #[test]
     fn test_vram_increment() {
         let mut ctrl = ControlRegister::new();
-        assert_eq!(ctrl.increment_ram_addr(), 1);
+        assert_eq!(ctrl.addr_increment(), 1);
 
         ctrl.update(ControlRegister::VRAM_ADD_INCREMENT.bits());
-        assert_eq!(ctrl.increment_ram_addr(), 32);
+        assert_eq!(ctrl.addr_increment(), 32);
     }
 
     #[test]

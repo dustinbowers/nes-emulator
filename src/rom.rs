@@ -1,7 +1,7 @@
+use crate::cartridge::mmc1::Mmc1;
 use crate::cartridge::nrom::NromCart;
 use crate::cartridge::Cartridge;
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::fmt::{Display, Formatter};
 
 const NES_MAGIC_BYTES: &[u8; 4] = b"NES\x1A";
 const PRG_ROM_PAGE_SIZE: usize = 0x4000;
@@ -11,7 +11,16 @@ const CHR_ROM_PAGE_SIZE: usize = 0x2000;
 pub enum RomError {
     InvalidFormat(String),
     UnsupportedVersion(String),
-    OutOfBounds(String),
+    // OutOfBounds(String),
+}
+impl Display for RomError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RomError::InvalidFormat(msg) => write!(f, "{}", msg),
+            RomError::UnsupportedVersion(msg) => write!(f, "{}", msg),
+            // RomError::OutOfBounds(msg) => write!(f, "{}", msg),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -75,15 +84,6 @@ impl Rom {
         })
     }
 
-    pub fn empty() -> Rom {
-        Rom {
-            prg_rom: vec![],
-            chr_rom: vec![],
-            mapper: 0,
-            screen_mirroring: Mirroring::Vertical,
-        }
-    }
-
     pub fn new_custom(
         prg_rom: Vec<u8>,
         chr_rom: Vec<u8>,
@@ -98,16 +98,21 @@ impl Rom {
         }
     }
 
-    pub fn into_cartridge(self) -> Rc<RefCell<dyn Cartridge>> {
+    pub fn into_cartridge(self) -> Box<dyn Cartridge> {
         match self.mapper {
             0 => {
                 let chr_rom_len = self.chr_rom.len();
+                println!("rom::into_cartridge() - chr_rom_len = {}", chr_rom_len);
                 let mut cart = NromCart::new(self.prg_rom, self.chr_rom, self.screen_mirroring);
                 if chr_rom_len == 0 {
                     println!("Nrom, setting chr_is_ram = true");
                     cart.chr_is_ram = true;
                 }
-                Rc::new(RefCell::new(cart))
+                Box::new(cart)
+            }
+            1 => {
+                let cart = Mmc1::new(self.prg_rom, self.chr_rom, 0x2000);
+                Box::new(cart)
             }
 
             // TODO
@@ -116,8 +121,8 @@ impl Rom {
     }
 }
 
-impl Into<Rc<RefCell<dyn Cartridge>>> for Rom {
-    fn into(self) -> Rc<RefCell<dyn Cartridge>> {
+impl Into<Box<dyn Cartridge>> for Rom {
+    fn into(self) -> Box<dyn Cartridge> {
         self.into_cartridge()
     }
 }
