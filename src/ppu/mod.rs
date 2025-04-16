@@ -195,6 +195,10 @@ impl PPU {
 impl PPU {
     #[inline]
     fn render_scanline(&mut self) {
+        if !self.mask_register.rendering_enabled() {
+            println!("render_scanline() - rendering disabled. skipping");
+            return;
+        }
         let scanline = self.scanline;
 
         // At dot 257: copy horizontal bits from t to v

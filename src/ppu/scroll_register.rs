@@ -68,10 +68,16 @@ impl ScrollRegister {
             let fine_y = (data & 0b0000_0111) as u16; // bits 0–2
             let coarse_y = ((data >> 3) & 0b1_1111) as u16; // bits 3–7
 
-            // Preserve NT bits (10–11) and coarse X (0–4)
-            self.t = (self.t & !0b0111_1111_1110_0000) // clears fine Y and coarse Y, preserves NT and coarse X
-                | (coarse_y << 5)
-                | (fine_y << 12);
+            // // Preserve NT bits (10–11) and coarse X (0–4)
+            // self.t = (self.t & !0b0111_1111_1110_0000) // clears fine Y and coarse Y, preserves NT and coarse X
+            //     | (coarse_y << 5)
+            //     | (fine_y << 12);
+
+            // Clear fine Y (bits 12–14) and coarse Y (5–9), keep everything else
+            self.t &= !(0b111 << 12); // clear fine Y
+            self.t &= !(0b11111 << 5); // clear coarse Y
+            self.t |= coarse_y << 5;
+            self.t |= fine_y << 12;
         }
 
         self.w = !self.w;
@@ -80,7 +86,9 @@ impl ScrollRegister {
     pub fn write_to_addr(&mut self, data: u8) {
         if !self.w {
             // First write (high byte of address)
-            self.t = (self.t & 0x00FF) | (((data as u16) & 0x3F) << 8);
+            // self.t = (self.t & 0x00FF) | (((data as u16) & 0x3F) << 8);
+            self.t &= 0x00FF;
+            self.t |= (data as u16 & 0x3F) << 8;
         } else {
             // Second write (low byte of address)
             self.t = (self.t & 0xFF00) | (data as u16);
