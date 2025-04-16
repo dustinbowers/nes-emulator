@@ -3,6 +3,7 @@ target
 nes6502-tests/
 mapper_docs/
 roms/
+logs/
 .idea
 *.log
 *.sh

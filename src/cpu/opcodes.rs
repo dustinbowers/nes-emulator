@@ -257,7 +257,6 @@ const OPCODES: &[Opcode] = &[
     Opcode::new(0x7C, "*NOP", 3, 4, AddressingMode::AbsoluteX), // cycles +1 if page crossed
     Opcode::new(0xDC, "*NOP", 3, 4, AddressingMode::AbsoluteX), // cycles +1 if page crossed
     Opcode::new(0xFC, "*NOP", 3, 4, AddressingMode::AbsoluteX), // cycles +1 if page crossed
-    Opcode::new(0x02, "*NOP", 1, 2, AddressingMode::None),
     Opcode::new(0x12, "*NOP", 1, 2, AddressingMode::None),
     Opcode::new(0x22, "*NOP", 1, 2, AddressingMode::None),
     Opcode::new(0x32, "*NOP", 1, 2, AddressingMode::None),
@@ -362,6 +361,19 @@ const OPCODES: &[Opcode] = &[
 
     // LAS => LDA/TSX oper
     Opcode::new(0xBB, "*LAS", 3,4, AddressingMode::AbsoluteY), // cycles +1 if page page crossed
+
+    // Kill for debugging (technically this entry is never accessed)
+    Opcode::new(0x02, "*KIL/JAM", 1,11, AddressingMode::None),
+
+    //
+    // Too Unstable to implement
+    Opcode::new(0x8B, "*UNSTABLE", 1,1, AddressingMode::None),
+    Opcode::new(0xAB, "*UNSTABLE", 1,1, AddressingMode::None),
+    Opcode::new(0x9F, "*UNSTABLE", 1,1, AddressingMode::None),
+    Opcode::new(0x93, "*UNSTABLE", 1,1, AddressingMode::None),
+    Opcode::new(0x9E, "*UNSTABLE", 1,1, AddressingMode::None),
+    Opcode::new(0x9C, "*UNSTABLE", 1,1, AddressingMode::None),
+    Opcode::new(0x9B, "*UNSTABLE", 1,1, AddressingMode::None),
 
 ];
 

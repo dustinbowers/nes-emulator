@@ -18,6 +18,7 @@ mod test {
         let mut total_cycles = 0;
         loop {
             let (cycles, _, is_breaking) = bus.cpu.tick();
+            println!("tick cycles: {cycles}");
             total_cycles += cycles as usize;
             if is_breaking {
                 break;
@@ -25,26 +26,6 @@ mod test {
         }
         total_cycles
     }
-
-    // fn init_cpu(prg_rom: &[u8]) -> CPU {
-    //     let rom = Rom::new_custom(prg_rom.to_vec(), vec![], 0, Mirroring::Vertical);
-    //     let cart = rom.into_cartridge();
-    //     let mut bus = Bus::new(cart, |_, _| {});
-    //     bus.enable_test_mode();
-    //     let mut cpu = CPU::new(bus);
-    //     bus.cpu.program_counter = 0;
-    //     cpu
-    // }
-    //
-    // fn init_cpu2(prg_rom: &[u8]) -> CPU {
-    //     let rom = Rom::new_custom(prg_rom.to_vec(), vec![], 0, Mirroring::Vertical);
-    //     let cart = rom.into_cartridge();
-    //     let mut bus = Bus::new(cart, |_, _| {});
-    //     bus.enable_test_mode();
-    //     let mut cpu = CPU::new(bus);
-    //     bus.cpu.program_counter = 0;
-    //     cpu
-    // }
 
     #[test]
     fn test_0xaa_tax_0xa8_tay() {
@@ -126,18 +107,17 @@ mod test {
     #[test]
     fn test_0xb5_lda_absolute_load_data() {
         let program = &[
-            0xAD, // LDA absolute (5 cycles)
-            0xEF, // (+1 extra cycle for cross_boundary address)
-            0xBE, // Loading from little endian $EFBE which will actually be $BEEF
-            0xAA, // TAX (1 cycle)
-            0x02, // JAM
+            0xAD, // LDA absolute (4 cycles)
+            0xEF, 0xBE, // Loading from little endian $EFBE which will actually be $BEEF
+            0xAA, // TAX (2 cycle)
+            0x02, // JAM (11 cycles)
         ];
         let mut bus = init_cpu_and_bus(program);
         bus.cpu.bus_write(0xBEEF, 0x42);
         let cycles = run_test_program(&mut bus);
         assert_eq!(bus.cpu.register_a, 0x42);
         assert_eq!(bus.cpu.register_x, 0x42);
-        assert_eq!(cycles, 5 + 1 + 1);
+        assert_eq!(cycles, 4 + 2 + 11);
         assert_eq!(bus.cpu.status.contains(Flags::ZERO), false);
         assert_eq!(bus.cpu.status.contains(Flags::NEGATIVE), false);
     }
@@ -368,53 +348,6 @@ mod test {
             )
         );
     }
-
-    // #[test]
-    // fn test_write_to_ppu_vram() {
-    //     let program = &[
-    //         0xa9, 0x23, // LDA #$23    ; High byte of PPU address (0x23XX)
-    //         0x8d, 0x06, 0x20, // STA $2006   ; Write high byte to PPUADDR
-    //         0xa9, 0x45, // LDA #$45    ; Low byte of PPU address (0x2345)
-    //         0x8d, 0x06, 0x20, // STA $2006   ; Write low byte to PPUADDR
-    //         0xa9, 0x99, // LDA #$99    ; Data to write to PPU
-    //         0x8d, 0x07, 0x20, // STA $2007   ; Store into PPUDATA
-    //         0xa9, 0xEF, // LDA #$EF    ; Data to write to PPU
-    //         0x8d, 0x07, 0x20, // STA $2007   ; Store into PPUDATA
-    //         0x02, // JAM (stop execution)
-    //     ];
-    //
-    //     let mut prg_rom = vec![0u8; 0x4000];
-    //     for (i, b) in program.iter().enumerate() {
-    //         prg_rom[i] = *b;
-    //     }
-    //
-    //     let rom = Rom::new_custom(prg_rom, vec![], 0, Mirroring::Vertical);
-    //     let cart = rom.into_cartridge();
-    //     let bus = Bus::new(cart, |_, _| {});
-    //     let mut cpu = CPU::new(bus);
-    //     bus.cpu.program_counter = 0x8000;
-    //     let cycles = run_test_program(&mut bus);
-    //
-    //     // Verify internal PPU address register is set to $2345
-    //     let got = bus.cpu.bus.ppu.addr_register.get();
-    //     let want = 0x2345 + 2; // PPU auto-increments the address after write
-    //     assert_eq!(
-    //         got,
-    //         want,
-    //         "{}",
-    //         format!(
-    //             "PPU addr_register incorrect. Got: ${:04X}, Want: ${:04X}",
-    //             got, want
-    //         )
-    //     );
-    //
-    //     // The VRAM address we wrote to: 0x2345 should contain 0x99
-    //     let ppu_vram = &bus.cpu.bus.ppu.ram;
-    //     let mirrored_addr = 0x2345 & 0x2FFF; // VRAM mirroring
-    //     let ram_index = mirrored_addr - 0x2000;
-    //     assert_eq!(ppu_vram[ram_index], 0x99);
-    //     assert_eq!(ppu_vram[ram_index + 1], 0xEF);
-    // }
 
     // #[test]
     // fn test_sprite_vertical_flip() {

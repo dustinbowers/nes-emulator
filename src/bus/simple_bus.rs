@@ -9,7 +9,7 @@ pub struct SimpleBus {
     pub cycles: usize,
 }
 impl SimpleBus {
-    pub fn new(program: Vec<u8>, ) -> SimpleBus {
+    pub fn new(program: Vec<u8>) -> SimpleBus {
         let mut bus = SimpleBus {
             cpu_ram: [0; 0x10000],
             cpu: CPU::new(),

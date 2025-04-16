@@ -4,8 +4,8 @@ use crate::cpu::trace::Tracer;
 use bitflags::bitflags;
 use std::collections::HashMap;
 
-// const DEBUG: bool = true;
-const DEBUG: bool = false;
+const DEBUG: bool = true;
+// const DEBUG: bool = false;
 const CPU_PC_RESET: u16 = 0x8000;
 const CPU_STACK_RESET: u8 = 0xFF;
 const CPU_STACK_BASE: u16 = 0x0100;
@@ -159,7 +159,7 @@ impl CPU {
         }
 
         // If we're not already handling NMI, immediately handle it
-        if self.interrupt_stack.contains(&InterruptType::NMI) == false && self.nmi_pending {
+        if !self.interrupt_stack.contains(&InterruptType::NMI) && self.nmi_pending {
             self.nmi_pending = false;
             self.handle_interrupt(interrupts::NMI);
         }
@@ -391,7 +391,7 @@ impl CPU {
                 // JAM - This freezes the CPU
                 // NOTE: I'm hijacking this opcode for use in processor_tests
                 //       0x02 now breaks the normal run() loop{}
-                return (1, 1, true);
+                return (11, 1, true);
             }
             0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2 | 0xF2 => {
                 // JAM - These instructions freeze the CPU
@@ -403,7 +403,7 @@ impl CPU {
 
             0x8B | 0xAB | 0x9F | 0x93 | 0x9E | 0x9C | 0x9B => {
                 // Unstable and highly-unstable opcodes (Purposely unimplemented)
-                println!(
+                panic!(
                     "{}",
                     &format!(
                         "Instruction 0x{:02X} unimplemented. It's too unstable!",
@@ -1091,7 +1091,6 @@ impl CPU {
     fn brk(&mut self) {
         // BRK - Software-defined Interrupt
         self.program_counter = self.program_counter.wrapping_add(1); // BRK has an implied operand, so increment PC before pushing
-        self.interrupt_stack.push(InterruptType::BRK);
         self.handle_interrupt(interrupts::BRK);
     }
 

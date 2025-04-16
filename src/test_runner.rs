@@ -144,10 +144,11 @@ fn run_opcode_test(bus: &mut SimpleBus, test: &OpcodeTest) {
     bus.cpu.register_x = start.x;
     bus.cpu.register_y = start.y;
     bus.cpu.status = Flags::from_bits_truncate(start.p);
-    println!("RAM data:");
+
+    // println!("RAM data:");
     for (address, value) in start.ram.iter() {
         bus.cpu.bus_write(*address, *value);
-        println!("\t${:04X} = ${:02X} (0b{:08b})", *address, *value, *value);
+        // println!("\t${:04X} = ${:02X} (0b{:08b})", *address, *value, *value);
     }
 
     // Single-step

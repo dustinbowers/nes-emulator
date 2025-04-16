@@ -56,6 +56,7 @@ impl Cartridge for NromCart {
     }
 
     fn mirroring(&self) -> Mirroring {
+        // TODO: avoid .clone() here
         self.mirroring.clone()
     }
 }

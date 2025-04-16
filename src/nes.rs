@@ -32,6 +32,6 @@ impl NES {
     }
 
     pub fn get_frame_buffer(&self) -> &[u8; 256 * 240] {
-        return &self.bus.ppu.frame_buffer
+        return &self.bus.ppu.frame_buffer;
     }
 }

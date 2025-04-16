@@ -5,6 +5,7 @@ use crate::cpu::processor::{CpuBusInterface, CPU};
 use crate::ppu::{PpuBusInterface, PPU};
 use crate::rom::Mirroring;
 
+mod mod_tests;
 pub mod simple_bus;
 
 #[cfg(test)]
@@ -123,13 +124,25 @@ impl CpuBusInterface for Bus {
                 self.ppu.write_register(addr, value);
             }
             0x4014 => {
+                // TODO later: implement this realistically
+                // NES pauses CPU for 512 cycles during DMA
+
                 // OAM DMA transfer
-                // TODO: implement this realistically
+                let hi: u16 = (value as u16) << 8;
+                let mut buffer: [u8; 256] = [0; 256];
+
+                for i in 0..256 {
+                    buffer[i] = self.cpu_bus_read(hi + i as u16);
+                }
+                self.ppu.write_to_oam_dma(&buffer);
             }
             0x4016 => {
                 self.controller1.write(value);
             }
-            0x4017 => { /* self.controller2.write(value) */ }
+            0x4017 => {
+                // TODO: later
+                /* self.controller2.write(value) */
+            }
             0x4018..=0x401F => { /* Open bus */ }
             CART_START..=CART_END => self.cart.prg_write(addr, value),
             _ => {

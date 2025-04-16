@@ -1,6 +1,7 @@
-use crate::cartridge::nrom::NromCart;
 use crate::cartridge::mmc1::Mmc1;
+use crate::cartridge::nrom::NromCart;
 use crate::cartridge::Cartridge;
+use std::fmt::{Display, Formatter};
 
 const NES_MAGIC_BYTES: &[u8; 4] = b"NES\x1A";
 const PRG_ROM_PAGE_SIZE: usize = 0x4000;
@@ -10,7 +11,16 @@ const CHR_ROM_PAGE_SIZE: usize = 0x2000;
 pub enum RomError {
     InvalidFormat(String),
     UnsupportedVersion(String),
-    OutOfBounds(String),
+    // OutOfBounds(String),
+}
+impl Display for RomError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RomError::InvalidFormat(msg) => write!(f, "{}", msg),
+            RomError::UnsupportedVersion(msg) => write!(f, "{}", msg),
+            // RomError::OutOfBounds(msg) => write!(f, "{}", msg),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

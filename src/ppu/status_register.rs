@@ -32,20 +32,16 @@ impl StatusRegister {
         self.set(StatusRegister::VBLANK_STARTED, status);
     }
 
+    pub fn reset_vblank_status(&mut self) {
+        self.remove(StatusRegister::VBLANK_STARTED);
+    }
+
     pub fn set_sprite_zero_hit(&mut self, status: bool) {
         self.set(StatusRegister::SPRITE_ZERO_HIT, status);
     }
 
     pub fn set_sprite_overflow(&mut self, status: bool) {
         self.set(StatusRegister::SPRITE_OVERFLOW, status);
-    }
-
-    pub fn reset_vblank_status(&mut self) {
-        self.remove(StatusRegister::VBLANK_STARTED);
-    }
-
-    pub fn is_in_vblank(&self) -> bool {
-        self.contains(StatusRegister::VBLANK_STARTED)
     }
 
     pub fn value(&mut self) -> u8 {

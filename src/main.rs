@@ -14,8 +14,10 @@ use crate::cartridge::nrom::NromCart;
 use crate::cartridge::Cartridge;
 use crate::controller::joypad::JoypadButtons;
 use crate::display::color_map::COLOR_MAP;
+use crate::display::consts::{PIXEL_HEIGHT, PIXEL_WIDTH};
 use crate::display::frame::Frame;
 use crate::nes::NES;
+use crate::rom::RomError;
 use bus::Bus;
 use cpu::processor::CPU;
 use display::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
@@ -23,7 +25,6 @@ use display::draw_frame;
 use macroquad::prelude::*;
 use rom::Rom;
 use std::{env, process};
-use crate::display::consts::{PIXEL_HEIGHT, PIXEL_WIDTH};
 
 fn window_conf() -> Conf {
     Conf {
@@ -54,8 +55,8 @@ async fn play_rom(rom_path: &str) {
     let rom_data = std::fs::read(rom_path).expect("Error reading ROM file.");
     let rom = match Rom::new(&rom_data) {
         Ok(rom) => rom,
-        Err(msg) => {
-            println!("Error parsing rom: {:?}", msg);
+        Err(rom_error) => {
+            println!("Error parsing rom: {:}", rom_error);
             return;
         }
     };
@@ -63,13 +64,8 @@ async fn play_rom(rom_path: &str) {
     println!("making NES...");
     let mut cart = rom.into_cartridge();
     let mut nes = NES::new(cart);
-    let mut run_frames = 1000;
     loop {
-
-        if run_frames > 0 {
-            while !nes.tick() {}
-            // run_frames -= 1;
-        }
+        while !nes.tick() {}
 
         clear_background(RED);
         let frame = nes.get_frame_buffer();
@@ -77,7 +73,13 @@ async fn play_rom(rom_path: &str) {
             let x = (i % 256) as f32;
             let y = (i / 256) as f32;
             let color = COLOR_MAP.get_color(*c as usize);
-            draw_rectangle(x * PIXEL_WIDTH, y * PIXEL_HEIGHT, PIXEL_WIDTH, PIXEL_HEIGHT, *color);
+            draw_rectangle(
+                x * PIXEL_WIDTH,
+                y * PIXEL_HEIGHT,
+                PIXEL_WIDTH,
+                PIXEL_HEIGHT,
+                *color,
+            );
         }
 
         //
@@ -106,12 +108,7 @@ async fn play_rom(rom_path: &str) {
             nes.bus.controller1.set_button_status(button, pressed);
         }
 
-
-        //
-        // DEBUG RENDERING
-        //
-
-        // Draw some states
+        // Draw some info
         let status_str = format!(
             "PC: ${:04X} SP: ${:02X} A:${:02X} X:${:02X} Y:${:02X}",
             nes.bus.cpu.program_counter,
@@ -130,103 +127,51 @@ async fn play_rom(rom_path: &str) {
         );
         draw_text(&status_str, 5.0, 48.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0));
 
-        let ram_px_size = 3;
-        for (i, v) in nes.bus.ppu.ram.iter().enumerate() {
-            let x = i % 32 * ram_px_size + 400;
-            let y = i / 32 * ram_px_size + 60;
-            draw_rectangle(x as f32, y as f32, ram_px_size as f32, ram_px_size as f32, *COLOR_MAP.get_color(((v+1) % 53) as usize));
+        //
+        // DEBUG RENDERING
+        //
+        let palette_table_px_size = 5;
+        for (i, v) in nes.bus.ppu.palette_table.iter().enumerate() {
+            let x = i % 32 * palette_table_px_size + 300;
+            let y = i / 32 * palette_table_px_size + 32;
+            draw_rectangle(
+                x as f32,
+                y as f32,
+                palette_table_px_size as f32,
+                palette_table_px_size as f32,
+                *COLOR_MAP.get_color((v % 53) as usize),
+            );
         }
 
-        // println!("draw frame!");
+        let ram_px_size = 2;
+        for (i, v) in nes.bus.ppu.ram.iter().enumerate() {
+            let x = i % 32 * ram_px_size;
+            let y = i / 32 * ram_px_size + 60;
+            draw_rectangle(
+                x as f32,
+                y as f32,
+                ram_px_size as f32,
+                ram_px_size as f32,
+                *COLOR_MAP.get_color((v % 53) as usize),
+            );
+        }
+
+        let oam_px_size = 3;
+        for (i, v) in nes.bus.ppu.oam_data.iter().enumerate() {
+            let x = i % 32 * oam_px_size + 10;
+            let y = i / 32 * oam_px_size + 300;
+            draw_rectangle(
+                x as f32,
+                y as f32,
+                oam_px_size as f32,
+                oam_px_size as f32,
+                *COLOR_MAP.get_color(((v) % 53) as usize),
+            );
+        }
+
         next_frame().await;
     }
 }
-
-// async fn play_rom(rom_path: &str) {
-//     let key_map: &[(Vec<KeyCode>, JoypadButtons)] = &[
-//         (vec![KeyCode::K], JoypadButtons::BUTTON_A),
-//         (vec![KeyCode::J], JoypadButtons::BUTTON_B),
-//         (vec![KeyCode::Enter], JoypadButtons::START),
-//         (vec![KeyCode::RightShift], JoypadButtons::SELECT),
-//         (vec![KeyCode::W], JoypadButtons::UP),
-//         (vec![KeyCode::S], JoypadButtons::DOWN),
-//         (vec![KeyCode::A], JoypadButtons::LEFT),
-//         (vec![KeyCode::D], JoypadButtons::RIGHT),
-//     ];
-//
-//     let frame = Rc::new(RefCell::new(Frame::new()));
-//     let rom_data = std::fs::read(rom_path).expect("Error reading ROM file.");
-//     let rom = match Rom::new(&rom_data) {
-//         Ok(rom) => rom,
-//         Err(msg) => {
-//             println!("Error parsing rom: {:?}", msg);
-//             return;
-//         }
-//     };
-//
-//     let bus = Bus::new(rom.into(), |ppu, joypad| {
-//         // render(ppu, Rc::clone(&frame));
-//
-//         // Handle user input
-//         let keys_pressed = get_keys_down();
-//         for (keys, button) in key_map.iter() {
-//             let mut pressed = false;
-//             for key in keys.iter() {
-//                 if keys_pressed.contains(&key) {
-//                     pressed = true;
-//                     break;
-//                 }
-//             }
-//             joypad.set_button_status(button, pressed);
-//         }
-//     });
-//     let mut cpu = CPU::new(bus);
-//
-//     // if rom_path.contains("nestest.nes") {
-//     //     cpu.program_counter = 0xC000;
-//     // }
-//
-//     loop {
-//         let mut break_loop = false;
-//         loop {
-//             let (_, _, is_breaking) = cpu.tick();
-//             if is_breaking {
-//                 break_loop = true;
-//                 break;
-//             }
-//             if cpu.bus.cycles >= 29_830 {
-//                 cpu.bus.cycles -= 29_830;
-//                 break;
-//             }
-//             if cpu.bus.poll_frame_complete() {
-//                 render(&cpu.bus.ppu, Rc::clone(&frame));
-//             }
-//         }
-//         if break_loop {
-//             break;
-//         }
-//         clear_background(RED);
-//         draw_frame(&frame.borrow());
-//
-//         // Debug Overlays
-//         draw_debug_overlays(&cpu);
-//
-//         // Draw some states
-//         let status_str = format!(
-//             "PC: ${:04X} SP: ${:02X} A:${:02X} X:${:02X} Y:${:02X}",
-//             cpu.program_counter, cpu.stack_pointer, cpu.register_a, cpu.register_x, cpu.register_y
-//         );
-//         draw_text(&status_str, 5.0, 24.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0));
-//         let status_str = format!(
-//             "addr:{:04X} bus_cycles:{} ppu_cycles:{}",
-//             cpu.bus.ppu.addr_register.get(),
-//             cpu.bus.cycles,
-//             cpu.bus.ppu.cycles
-//         );
-//         draw_text(&status_str, 5.0, 48.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0));
-//         next_frame().await;
-//     }
-// }
 
 #[allow(dead_code)]
 async fn render_sprite_banks(rom_path: &str) {

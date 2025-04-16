@@ -38,6 +38,10 @@ impl MaskRegister {
         MaskRegister::from_bits_truncate(0)
     }
 
+    pub fn update(&mut self, data: u8) {
+        *self = MaskRegister::from_bits_truncate(data);
+    }
+
     pub fn is_grayscale(&self) -> bool {
         self.contains(MaskRegister::GREYSCALE)
     }
@@ -58,6 +62,11 @@ impl MaskRegister {
         self.contains(MaskRegister::SHOW_SPRITES)
     }
 
+    pub fn rendering_enabled(&self) -> bool {
+        self.show_background() || self.show_sprites()
+    }
+
+    // TODO: Maybe?
     // pub fn emphasise(&self) -> Vec<Color> {
     //     let mut result = Vec::<Color>::new();
     //     if self.contains(MaskRegister::EMPHASISE_RED) {
@@ -71,8 +80,4 @@ impl MaskRegister {
     //     }
     //     result
     // }
-
-    pub fn update(&mut self, data: u8) {
-        *self = MaskRegister::from_bits_truncate(data);
-    }
 }
