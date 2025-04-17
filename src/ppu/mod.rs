@@ -38,8 +38,21 @@ pub struct PPU {
 
     internal_data: u8,
     pub cycles: usize,
-    pub(crate) scanline: usize,
+    pub scanline: usize,
     pub frame_buffer: [u8; 256 * 240],
+
+    bg_pattern_shift_low: u16,
+    bg_pattern_shift_high: u16,
+    bg_attr_shift_low: u16,
+    bg_attr_shift_high: u16,
+
+    bg_attr_latch_low: u8,
+    bg_attr_latch_high: u8,
+
+    next_tile_id: u8,
+    next_tile_attr: u8,
+    next_tile_lsb: u8,
+    next_tile_msb: u8,
 }
 
 impl PPU {
@@ -58,6 +71,19 @@ impl PPU {
             cycles: 0,
             scanline: 0,
             frame_buffer: [0u8; 256 * 240],
+
+            bg_pattern_shift_low: 0,
+            bg_pattern_shift_high: 0,
+
+            bg_attr_shift_low: 0,
+            bg_attr_shift_high: 0,
+            bg_attr_latch_low: 0,
+            bg_attr_latch_high: 0,
+
+            next_tile_id: 0,
+            next_tile_attr: 0,
+            next_tile_lsb: 0,
+            next_tile_msb: 0,
         }
     }
 
@@ -111,40 +137,64 @@ impl PPU {
     pub fn tick(&mut self) -> bool {
         // --- Start of visible scanline (0–239) or pre-render line (261)
         let rendering_enabled = self.mask_register.rendering_enabled();
+        let dot = self.cycles;
+        let row = self.scanline;
 
-        // --- Pre-render scanline logic
-        if self.scanline == 261 {
-            if self.cycles == 1 {
-                // println!("scanline = {}, cycles = {}", self.scanline, self.cycles);
-                // These happen unconditionally
-                self.status_register.reset_vblank_status();
-                self.status_register.set_sprite_zero_hit(false);
-                self.status_register.set_sprite_overflow(false);
-                self.scroll_register.reset_latch();
+        if rendering_enabled && row < 240 {
+            if dot > 0 && dot <= 256 {
+                self.shift_background_registers(); // Shift the registers for next dot
+                let bg_color = self.render_dot();
+                self.frame_buffer[row * 256 + (dot - 1)] = bg_color;
             }
+        }
 
-            // Scroll copy only happens when rendering is enabled
-            if rendering_enabled && (280..=304).contains(&self.cycles) {
-                // println!(
-                //     ">> copying vertical bits: v = {:04X} <- t = {:04X} at scanline {} cycle {}",
-                //     self.scroll_register.v,
-                //     self.scroll_register.t,
-                //     self.scanline,
-                //     self.cycles
-                // );
-                self.scroll_register.copy_vertical_bits();
+        if rendering_enabled && (row <= 239 || row == 261) {
+            if dot % 8 == 0 && dot >= 1 && dot <= 256 {
+                self.scroll_register.increment_x();
             }
-        } else if (0..240).contains(&self.scanline) && rendering_enabled {
-            if self.cycles == 0 {
-                self.render_scanline();
-            }
-            if self.cycles == 256 {
-                // println!(">> increment_y before: v = {:04X}", self.scroll_register.v);
+            if dot == 256 {
                 self.scroll_register.increment_y();
-                // println!(">> increment_y after: v = {:04X}", self.scroll_register.v);
             }
-            if self.cycles == 257 {
+            if dot == 257 && row < 240 {
                 self.scroll_register.copy_horizontal_bits();
+            }
+        }
+
+        if row == 261 {
+            match dot {
+                1 => {
+                    self.status_register.reset_vblank_status();
+                    self.status_register.set_sprite_zero_hit(false);
+                    self.status_register.set_sprite_overflow(false);
+                    self.scroll_register.reset_latch();
+                }
+                280..=304 => {
+                    if rendering_enabled {
+                        self.scroll_register.copy_vertical_bits();
+                    }
+                }
+                _ => {}
+            };
+        }
+
+        if rendering_enabled
+            && (
+                (row < 240 && dot >= 1 && dot <= 256) ||        // visible scanlines
+                (row == 261 && dot >= 321 && dot <= 336)
+                // prefetch during pre-render
+                // (dot >= 261 && dot <= 320)               // TODO: sprite fetching
+            )
+        {
+            // Tile fetch and register reload timing
+            if dot >= 1 && dot <= 336 {
+                match dot % 8 {
+                    1 => self.fetch_name_table_byte(),
+                    3 => self.fetch_attribute_byte(),
+                    5 => self.fetch_tile_low_byte(),
+                    7 => self.fetch_tile_high_byte(),
+                    0 => self.load_background_registers(),
+                    _ => {}
+                }
             }
         }
 
@@ -179,8 +229,11 @@ impl PPU {
     }
 
     pub fn run_until_vblank(&mut self) {
-        // Tick the PPU until we enter vblank at beginning scanline 241
-        while !(self.scanline == 241 && self.cycles == 1) {
+        // Tick the PPU until VBLANK
+        while !self
+            .status_register
+            .contains(StatusRegister::VBLANK_STARTED)
+        {
             self.tick();
         }
     }
@@ -195,105 +248,34 @@ impl PPU {
 
 // Private implementations
 impl PPU {
-    #[inline]
-    fn render_scanline(&mut self) {
-        // DEBUG testing...
-        assert!(self.scanline < 240);
-        if self.scanline >= 240 {
-            return; // Prevent writing to invalid scanlines
-        }
-
-        if self.scanline == 0 && self.cycles % 8 == 0 {
-            println!("v during scanline 0, cycle {}: {:04X}", self.cycles, self.scroll_register.v);
-        }
-
-        let scanline = self.scanline;
-
-        for i in 0..256 {
-            // Use current v address
-            let v = self.scroll_register.v;
-            let fine_x = self.scroll_register.x;
-
-            // Fetch the correct bit for this pixel
-            let bit_index = ((i + fine_x as usize) % 8) as u8;
-
-            let bg_color = self.get_background_pixel(v, bit_index);
-            let sprite = self.get_sprite_pixel(i, scanline);
-
-            // Draw the pixel
-            let final_color = match sprite {
-                Some((sprite_color, is_sprite_zero, in_front)) => {
-                    if is_sprite_zero && bg_color != self.palette_table[0] {
-                        self.status_register.set_sprite_zero_hit(true);
-                    }
-
-                    if in_front || bg_color == self.palette_table[0] {
-                        sprite_color
-                    } else {
-                        bg_color
-                    }
-                }
-                None => bg_color,
-            };
-
-            self.frame_buffer[scanline * 256 + i] = final_color;
-
-            // Only increment coarse X every 8 pixels (tile boundary)
-            if (i + 1) % 8 == 0 {
-                self.scroll_register.increment_x();
-            }
-
-            // TODO: REMOVE debugging
-            // if scanline == 239 {
-            //     println!(
-            //         "i={}, v={:04X}, bit_index={}",
-            //         i, v, bit_index
-            //     );
-            // }
-        }
-    }
-
-    #[inline]
-    fn get_background_pixel(&mut self, v: u16, fine_x: u8) -> u8 {
-        let coarse_x = v & 0b11111;
-        let coarse_y = (v >> 5) & 0b11111;
-        let fine_y = (v >> 12) & 0b111;
-
-        let nametable_addr = 0x2000 | (v & 0x0FFF); // Coarse X/Y and NT bits
-        let tile_index = self.ram[self.mirror_ram_addr(nametable_addr) as usize];
-
-        let pattern_addr =
-            self.ctrl_register.background_pattern_addr() + (tile_index as u16) * 16 + fine_y;
-        let low_plane = self.chr_read(pattern_addr);
-        let high_plane = self.chr_read(pattern_addr + 8);
-
-        let shift = 7 - fine_x;
-        let low_bit = (low_plane >> shift) & 1;
-        let high_bit = (high_plane >> shift) & 1;
-        let color_index = (high_bit << 1) | low_bit;
-
-        if color_index == 0 {
-            return self.palette_table[0]; // universal bg color
-        }
-
-        // Attribute table calculation
-        let attribute_addr = 0x23C0 | (v & 0x0C00) | ((coarse_y >> 2) << 3) | (coarse_x >> 2);
-        let attribute_byte = self.ram[self.mirror_ram_addr(attribute_addr) as usize];
-
-        let quadrant = ((coarse_y % 4) / 2) * 2 + ((coarse_x % 4) / 2);
-        let palette_bits = (attribute_byte >> (quadrant * 2)) & 0b11;
-
-        let palette_addr = 0x3F00 + (palette_bits as u16) * 4 + (color_index as u16);
-
-        // TODO: REMOVE debugging
-        // if self.scanline == 239 {
+    /// `render_dot` returns color-index of bg pixel at (self.cycles, self.scanline)
+    pub fn render_dot(&mut self) -> u8 {
+        // if dot == 128 && scanline == 100 {
         //     println!(
-        //         "\ttile_index={:02X}, chr_addr={:04X}",
-        //         tile_index, pattern_addr
+        //         "scanline={}, fine_y={}, coarse_y={}, coarse_x={}, attr={:02b}",
+        //         scanline,
+        //         (self.scroll_register.v >> 12) & 0x7,
+        //         (self.scroll_register.v >> 5) & 0x1F,
+        //         self.scroll_register.v & 0x1F,
+        //         self.next_tile_attr,
         //     );
         // }
+        assert_eq!(self.mask_register.rendering_enabled(), true); // TODO: remove
 
-        self.palette_table[(palette_addr & 0x1F) as usize]
+        // Compute bit index from fine X scroll
+        let fine_x = self.scroll_register.x;
+        let bit = 15 - fine_x;
+        assert!(bit < 16, "fine_x > 15 ?? bit = {}", bit);
+        let pixel_low = (self.bg_pattern_shift_low >> bit) & 1;
+        let pixel_high = (self.bg_pattern_shift_high >> bit) & 1;
+        let pixel = ((pixel_high << 1) | pixel_low) as u8;
+
+        let attr_low = (self.bg_attr_shift_low >> bit) & 1;
+        let attr_high = (self.bg_attr_shift_high >> bit) & 1;
+        let palette_index = ((attr_high << 1) | attr_low) as u8;
+
+        let color = self.read_palette_color(palette_index, pixel);
+        color
     }
 
     #[inline]
@@ -461,8 +443,7 @@ impl PPU {
                     0x10 | 0x14 | 0x18 | 0x1C => palette_addr -= 0x10,
                     _ => {}
                 }
-
-                self.palette_table[palette_addr as usize] = value;
+                self.palette_table[palette_addr] = value;
             }
             _ => {
                 eprintln!("Unhandled PPU::write_memory() at {:04X}", addr);
@@ -474,15 +455,116 @@ impl PPU {
 
 // Helpers
 impl PPU {
+    fn shift_background_registers(&mut self) {
+        self.bg_pattern_shift_low <<= 1;
+        self.bg_pattern_shift_high <<= 1;
+        self.bg_attr_shift_low <<= 1;
+        self.bg_attr_shift_high <<= 1;
+    }
+
+    fn load_background_registers(&mut self) {
+        self.bg_pattern_shift_low =
+            (self.bg_pattern_shift_low & 0xFF00) | self.next_tile_lsb as u16;
+        self.bg_pattern_shift_high =
+            (self.bg_pattern_shift_high & 0xFF00) | self.next_tile_msb as u16;
+
+        self.bg_attr_latch_low = (self.next_tile_attr & 0b01) >> 0;
+        self.bg_attr_latch_high = (self.next_tile_attr & 0b10) >> 1;
+
+        self.bg_attr_shift_low = (self.bg_attr_latch_low * 0xFF) as u16;
+        self.bg_attr_shift_high = (self.bg_attr_latch_high * 0xFF) as u16;
+    }
+
+    // called during dot % 8 == 1
+    fn fetch_name_table_byte(&mut self) {
+        assert_eq!(self.cycles % 8, 1);
+        let addr = 0x2000 | (self.scroll_register.v & 0x0FFF);
+        self.next_tile_id = self.read_bus(addr);
+    }
+
+    // called during dot % 8 == 3
+    fn fetch_attribute_byte(&mut self) {
+        assert_eq!(self.cycles % 8, 3);
+        let v = self.scroll_register.v;
+        let addr = 0x23C0
+            | (v & 0x0C00)         // nametable select
+            | ((v >> 4) & 0x38)    // coarse Y / 4 << 3
+            | ((v >> 2) & 0x07); // coarse X / 4
+
+        let coarse_x = (v >> 0) & 0x1F;
+        let coarse_y = (v >> 5) & 0x1F;
+        let attr_byte = self.read_bus(addr);
+
+        let shift = ((coarse_y & 0x02) << 1) | (coarse_x & 0x02);
+        self.next_tile_attr = (attr_byte >> shift) & 0b11;
+    }
+
+    // called during dot % 8 == 5
+    fn fetch_tile_low_byte(&mut self) {
+        assert_eq!(self.cycles % 8, 5);
+        let fine_y = (self.scroll_register.v >> 12) & 0b111;
+        let base = self.ctrl_register.background_pattern_addr();
+        let tile_addr = base + (self.next_tile_id as u16) * 16 + fine_y;
+        self.next_tile_lsb = self.read_bus(tile_addr);
+    }
+
+    // called during dot % 8 == 7
+    fn fetch_tile_high_byte(&mut self) {
+        assert_eq!(self.cycles % 8, 7);
+        let fine_y = (self.scroll_register.v >> 12) & 0b111;
+        let base = self.ctrl_register.background_pattern_addr();
+        let tile_addr = base + (self.next_tile_id as u16) * 16 + fine_y + 8;
+        self.next_tile_msb = self.read_bus(tile_addr);
+    }
+
+    fn read_palette_color(&mut self, palette: u8, pixel: u8) -> u8 {
+        // println!("read_palette_color({}, {})", palette, pixel);
+        if pixel == 0 {
+            return self.read_bus(0x3F00); // universal background color
+        }
+
+        let index = 0x3F00 + ((palette as u16) << 2) + (pixel as u16);
+        // println!("\t- index = {}", index);
+        self.read_bus(index)
+    }
+
+    /// `read_bus` directs memory reads to correct sources (without any buffering)
+    fn read_bus(&mut self, addr: u16) -> u8 {
+        match addr {
+            // Pattern table (CHR ROM/RAM) $0000-$1FFF
+            0x0000..=0x1FFF => self.chr_read(addr),
+
+            // Nametable RAM + mirrors $2000-$2FFF
+            0x2000..=0x2FFF => {
+                let mirrored_addr = self.mirror_ram_addr(addr);
+                self.ram[mirrored_addr as usize]
+            }
+
+            // Mirrors of $2000-$2FFF: $3000-$3EFF
+            0x3000..=0x3EFF => {
+                let mirrored_addr = self.mirror_ram_addr(addr - 0x1000);
+                self.ram[mirrored_addr as usize]
+            }
+
+            // Palette RAM indexes: $3F00-$3FFF
+            0x3F00..=0x3FFF => {
+                let mirrored_addr = self.mirror_palette_addr(addr);
+                self.palette_table[mirrored_addr]
+            }
+
+            _ => panic!("open bus"), // TODO: Technically, it's open bus or invalid
+        }
+    }
+
+    /// ///////////////////////
+    /// ///////////////////////
+    /// ///////////////////////
+
     fn read_status(&mut self) -> u8 {
         let data = self.status_register.value();
         self.status_register.reset_vblank_status();
         self.scroll_register.reset_latch();
         data
-    }
-
-    fn set_oam_addr(&mut self, value: u8) {
-        self.oam_addr = value;
     }
 
     fn write_to_oam_data(&mut self, value: u8) {

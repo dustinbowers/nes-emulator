@@ -106,8 +106,8 @@ impl ScrollRegister {
     pub fn increment_x(&mut self) {
         if (self.v & 0x001F) == 31 {
             // if coarse_x == 31, wrap to 0
-            self.v &= !0x001F;     // clear coarse X (bits 0–4)
-            self.v ^= 0x0400;      // toggle horizontal nametable select (bit 10)
+            self.v &= !0x001F; // clear coarse X (bits 0–4)
+            self.v ^= 0x0400; // toggle horizontal nametable select (bit 10)
         } else {
             // coarse_x < 31, just increment
             self.v += 1;
@@ -138,8 +138,8 @@ impl ScrollRegister {
     }
 
     pub fn copy_horizontal_bits(&mut self) {
-        // Mask bits: 0000010000011111 -> NT X + Coarse X
-        let mask = 0b0000010000011111;
+        // bit 10 (nametable X) + bits 4-0 (coarse X)
+        let mask = 0b00000_1_00000_11111;
 
         // Copy NT X and coarse X (bits 10 and 0-4)
         self.v &= !mask;
@@ -147,14 +147,13 @@ impl ScrollRegister {
     }
 
     pub fn copy_vertical_bits(&mut self) {
-        // Mask bits: 0111101111100000 -> Fine Y + NT Y + Coarse Y
-        let mask = 0b0111101111100000;
+        // bit 11 (nametable Y), bits 9–5 (coarse Y), and bits 12–14 (fine Y)
+        let mask = 0b0111_10_11111_00000;
 
         // Copy fine Y, coarse Y, and NT Y (bits 12-5 and bit 11)
         self.v &= !mask;
         self.v |= self.t & mask;
     }
-
 }
 
 #[cfg(test)]
@@ -255,7 +254,6 @@ mod tests {
 
         // Set coarse_x = 31, h-nametable = 0
         sr.v = 0b11111 | (0 << 10);
-
         sr.increment_x();
 
         let coarse_x = sr.v & 0b11111;
@@ -271,7 +269,6 @@ mod tests {
 
         // coarse_x = 31, h-nametable = 1
         sr.v = 0b11111 | (1 << 10);
-
         sr.increment_x();
 
         let coarse_x = sr.v & 0b11111;
@@ -287,7 +284,6 @@ mod tests {
 
         // Set v with fine_y = 5
         sr.v = 0b101 << 12;
-
         sr.increment_y();
 
         let fine_y = (sr.v >> 12) & 0b111;
@@ -300,7 +296,6 @@ mod tests {
 
         // Set v with fine_y = 7, coarse_y = 15
         sr.v = (7 << 12) | (15 << 5);
-
         sr.increment_y();
 
         let fine_y = (sr.v >> 12) & 0b111;
@@ -316,7 +311,6 @@ mod tests {
 
         // fine_y = 7, coarse_y = 29, vnametable bit = 0
         sr.v = (7 << 12) | (29 << 5);
-
         sr.increment_y();
 
         let coarse_y = (sr.v >> 5) & 0b11111;
@@ -332,7 +326,6 @@ mod tests {
 
         // fine_y = 7, coarse_y = 31, vnametable bit = 1
         sr.v = (7 << 12) | (31 << 5) | (1 << 11);
-
         sr.increment_y();
 
         let coarse_y = (sr.v >> 5) & 0b11111;
@@ -409,8 +402,8 @@ mod tests {
         assert_eq!((sr.v >> 11) & 1, 1);
 
         // Ensure horizontal bits were untouched
-        assert_eq!(sr.v & 0b11111, 0b11111);         // coarse X
-        assert_eq!((sr.v >> 10) & 1, 1);             // nametable X
+        assert_eq!(sr.v & 0b11111, 0b11111); // coarse X
+        assert_eq!((sr.v >> 10) & 1, 1); // nametable X
     }
 
     #[test]
@@ -421,9 +414,9 @@ mod tests {
 
         sr.copy_vertical_bits();
 
-        assert_eq!((sr.v >> 12) & 0b111, 0);  // fine Y
+        assert_eq!((sr.v >> 12) & 0b111, 0); // fine Y
         assert_eq!((sr.v >> 5) & 0b1_1111, 0); // coarse Y
-        assert_eq!((sr.v >> 11) & 1, 0);      // nametable Y
+        assert_eq!((sr.v >> 11) & 1, 0); // nametable Y
     }
 
     #[test]
@@ -436,9 +429,9 @@ mod tests {
 
         sr.copy_vertical_bits();
 
-        assert_eq!((sr.v >> 12) & 0b111, 0b111);     // fine Y
+        assert_eq!((sr.v >> 12) & 0b111, 0b111); // fine Y
         assert_eq!((sr.v >> 5) & 0b1_1111, 0b1_1111); // coarse Y
-        assert_eq!((sr.v >> 11) & 1, 1);             // nametable Y
+        assert_eq!((sr.v >> 11) & 1, 1); // nametable Y
     }
 
     #[test]
@@ -453,7 +446,7 @@ mod tests {
         sr.copy_vertical_bits();
 
         assert_eq!((sr.v >> 12) & 0b111, 0b010); // fine Y copied
-        assert_eq!((sr.v >> 5) & 0b1_1111, 0);   // coarse Y cleared
-        assert_eq!((sr.v >> 11) & 1, 0);         // nametable Y cleared
+        assert_eq!((sr.v >> 5) & 0b1_1111, 0); // coarse Y cleared
+        assert_eq!((sr.v >> 11) & 1, 0); // nametable Y cleared
     }
 }

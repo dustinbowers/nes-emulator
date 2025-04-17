@@ -1,18 +1,17 @@
-use crate::bus::Bus;
+use crate::bus::nes_bus::NesBus;
 use crate::cartridge::Cartridge;
 
 const PPU_WARMUP_CYCLES: usize = 29781;
 
 pub struct NES {
-    pub bus: &'static mut Bus,
+    pub bus: &'static mut NesBus,
     pub ppu_warmed_up: bool,
     pub cpu_cycles: usize,
-
 }
 
 impl NES {
     pub fn new(cartridge: Box<dyn Cartridge>) -> Self {
-        let mut bus = Bus::new(cartridge);
+        let mut bus = NesBus::new(cartridge);
         Self {
             bus,
             cpu_cycles: 0,
