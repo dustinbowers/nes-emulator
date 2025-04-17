@@ -105,9 +105,11 @@ impl ScrollRegister {
 
     pub fn increment_x(&mut self) {
         if (self.v & 0x001F) == 31 {
-            self.v &= !0x001F;
-            self.v ^= 0x0400;
+            // if coarse_x == 31, wrap to 0
+            self.v &= !0x001F;     // clear coarse X (bits 0–4)
+            self.v ^= 0x0400;      // toggle horizontal nametable select (bit 10)
         } else {
+            // coarse_x < 31, just increment
             self.v += 1;
         }
     }
