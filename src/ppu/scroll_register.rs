@@ -68,18 +68,12 @@ impl ScrollRegister {
             let fine_y = (data & 0b0000_0111) as u16; // bits 0–2
             let coarse_y = ((data >> 3) & 0b1_1111) as u16; // bits 3–7
 
-            // // Preserve NT bits (10–11) and coarse X (0–4)
-            // self.t = (self.t & !0b0111_1111_1110_0000) // clears fine Y and coarse Y, preserves NT and coarse X
-            //     | (coarse_y << 5)
-            //     | (fine_y << 12);
-
             // Clear fine Y (bits 12–14) and coarse Y (5–9), keep everything else
             self.t &= !(0b111 << 12); // clear fine Y
             self.t &= !(0b11111 << 5); // clear coarse Y
             self.t |= coarse_y << 5;
             self.t |= fine_y << 12;
         }
-
         self.w = !self.w;
     }
 
@@ -119,26 +113,25 @@ impl ScrollRegister {
     }
 
     pub fn increment_y(&mut self) {
-        // Increment fine Y
-        if (self.v & 0x7000) != 0x7000 {
-            self.v += 0x1000; // Increment fine Y
-        } else {
-            // Fine Y wraps around to 0
-            self.v &= !0x7000; // Set fine Y to 0
-            let mut y = (self.v >> 5) & 0x1F; // Get coarse Y
+        // println!(">> increment_y before: v = {:04X}, fine Y = {:01X}", self.v, (self.v >> 12) & 0b111);
 
-            // Increment coarse Y
+        // Fine Y is bits 12–14
+        if (self.v & 0x7000) != 0x7000 {
+            self.v += 0x1000; // increment fine Y
+        } else {
+            self.v &= !0x7000; // fine Y = 0
+            let mut y = (self.v >> 5) & 0x1F; // extract coarse Y (5 bits)
+
             if y == 29 {
-                y = 0; // Wrap around coarse Y
-                self.v ^= 0x0800; // Toggle vertical nametable
+                y = 0;
+                self.v ^= 0x0800; // switch vertical nametable
             } else if y == 31 {
-                y = 0; // Wrap around coarse Y without affecting nametable
+                y = 0; // stay in same nametable
             } else {
-                y += 1; // Increment coarse Y
+                y += 1;
             }
 
-            // Update coarse Y in the v register
-            self.v = (self.v & !0x03E0) | (y << 5);
+            self.v = (self.v & !0x03E0) | (y << 5); // put coarse Y back into v
         }
     }
 
@@ -160,15 +153,6 @@ impl ScrollRegister {
         self.v |= self.t & mask;
     }
 
-    // pub fn coarse_x(&self) -> u8 {
-    //     (self.v & 0b11111) as u8
-    // }
-    // pub fn coarse_y(&self) -> u8 {
-    //     ((self.v >> 5) & 0b11111) as u8
-    // }
-    // pub fn fine_y(&self) -> u8 {
-    //     ((self.v >> 12) & 0b111) as u8
-    // }
 }
 
 #[cfg(test)]
@@ -402,5 +386,72 @@ mod tests {
             "{}",
             format!("\n\tgot:  {:016b}\n\twant: {:016b}", got, want)
         );
+    }
+
+    #[test]
+    fn test_copy_vertical_bits_preserves_horizontal() {
+        let mut sr = ScrollRegister::new();
+
+        // v has arbitrary horizontal values (coarse_x = 15, nametable_x = 1)
+        sr.v = 0b11111 | (1 << 10);
+        // t has vertical values to copy (fine_y = 3, coarse_y = 20, nametable_y = 1)
+        sr.t = (3 << 12) | (20 << 5) | (1 << 11);
+
+        sr.copy_vertical_bits();
+
+        // Fine Y (bits 12-14) = 3
+        assert_eq!((sr.v >> 12) & 0b111, 3);
+        // Coarse Y (bits 5-9) = 20
+        assert_eq!((sr.v >> 5) & 0b1_1111, 20);
+        // Nametable Y (bit 11) = 1
+        assert_eq!((sr.v >> 11) & 1, 1);
+
+        // Ensure horizontal bits were untouched
+        assert_eq!(sr.v & 0b11111, 0b11111);         // coarse X
+        assert_eq!((sr.v >> 10) & 1, 1);             // nametable X
+    }
+
+    #[test]
+    fn test_copy_vertical_bits_zero_values() {
+        let mut sr = ScrollRegister::new();
+        sr.v = 0xFFFF;
+        sr.t = 0x0000;
+
+        sr.copy_vertical_bits();
+
+        assert_eq!((sr.v >> 12) & 0b111, 0);  // fine Y
+        assert_eq!((sr.v >> 5) & 0b1_1111, 0); // coarse Y
+        assert_eq!((sr.v >> 11) & 1, 0);      // nametable Y
+    }
+
+    #[test]
+    fn test_copy_vertical_bits_all_vertical_bits_set() {
+        let mut sr = ScrollRegister::new();
+
+        // Set t to all 1s in the vertical fields
+        sr.t = (0b111 << 12) | (0b1_1111 << 5) | (1 << 11);
+        sr.v = 0; // clear v
+
+        sr.copy_vertical_bits();
+
+        assert_eq!((sr.v >> 12) & 0b111, 0b111);     // fine Y
+        assert_eq!((sr.v >> 5) & 0b1_1111, 0b1_1111); // coarse Y
+        assert_eq!((sr.v >> 11) & 1, 1);             // nametable Y
+    }
+
+    #[test]
+    fn test_copy_vertical_bits_partial_overwrite() {
+        let mut sr = ScrollRegister::new();
+
+        // Set some initial v value
+        sr.v = 0b01011_1111_0110_0000;
+        // t only has fine_y = 2, others zero
+        sr.t = 0b010 << 12;
+
+        sr.copy_vertical_bits();
+
+        assert_eq!((sr.v >> 12) & 0b111, 0b010); // fine Y copied
+        assert_eq!((sr.v >> 5) & 0b1_1111, 0);   // coarse Y cleared
+        assert_eq!((sr.v >> 11) & 1, 0);         // nametable Y cleared
     }
 }

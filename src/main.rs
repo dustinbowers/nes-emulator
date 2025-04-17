@@ -61,17 +61,26 @@ async fn play_rom(rom_path: &str) {
         }
     };
 
-    println!("making NES...");
-    let mut cart = rom.into_cartridge();
+    println!("Making NES...");
+    let cart = rom.into_cartridge();
     let mut nes = NES::new(cart);
+
+    // let stop_after_frames = 2;
+    // let mut frames = 0;
     loop {
         while !nes.tick() {}
+        // frames += 1;
+        // println!("== Frame: {}", frames);
+        // if frames == stop_after_frames {
+        //     break;
+        // }
 
-        clear_background(RED);
+        clear_background(BLACK);
         let frame = nes.get_frame_buffer();
         for (i, c) in frame.iter().enumerate() {
             let x = (i % 256) as f32;
             let y = (i / 256) as f32;
+            if y == 0.0 { continue; } // TODO: this is a nasty hack
             let color = COLOR_MAP.get_color(*c as usize);
             draw_rectangle(
                 x * PIXEL_WIDTH,
@@ -81,6 +90,8 @@ async fn play_rom(rom_path: &str) {
                 *color,
             );
         }
+
+        nes.clear_frame();
 
         //
         // Handle user input
@@ -145,7 +156,7 @@ async fn play_rom(rom_path: &str) {
 
         let ram_px_size = 2;
         for (i, v) in nes.bus.ppu.ram.iter().enumerate() {
-            let x = i % 32 * ram_px_size;
+            let x = i % 32 * ram_px_size + 300;
             let y = i / 32 * ram_px_size + 60;
             draw_rectangle(
                 x as f32,
@@ -158,7 +169,7 @@ async fn play_rom(rom_path: &str) {
 
         let oam_px_size = 3;
         for (i, v) in nes.bus.ppu.oam_data.iter().enumerate() {
-            let x = i % 32 * oam_px_size + 10;
+            let x = i % 32 * oam_px_size + 300;
             let y = i / 32 * oam_px_size + 300;
             draw_rectangle(
                 x as f32,

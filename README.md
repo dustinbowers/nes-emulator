@@ -18,8 +18,8 @@
 - [ ] Implement PPU
     - [x] Background nametable rendering
     - [x] 8x8 sprite rendering (with horiz/vert flips)
-    - [ ] 8x16 sprite rendering
-    - [ ] Detect sprite-overflow
+    - [x] 8x16 sprite rendering
+    - [x] Detect sprite-overflow
     - [ ] Sprite collision detection
   
 - [x] Encapsulate mapper logic behind Cartridge trait

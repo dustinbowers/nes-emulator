@@ -112,32 +112,39 @@ impl PPU {
         // --- Start of visible scanline (0–239) or pre-render line (261)
         let rendering_enabled = self.mask_register.rendering_enabled();
 
-        if self.scanline < 240 || self.scanline == 261 {
-            if rendering_enabled {
-                // Fine Y increment at cycle 256
-                if self.cycles == 256 {
-                    self.scroll_register.increment_y();
-                }
-
-                // Horizontal scroll copy at cycle 257
-                if self.cycles == 257 {
-                    self.scroll_register.copy_horizontal_bits();
-                }
-            }
-        }
-
         // --- Pre-render scanline logic
         if self.scanline == 261 {
             if self.cycles == 1 {
+                // println!("scanline = {}, cycles = {}", self.scanline, self.cycles);
+                // These happen unconditionally
                 self.status_register.reset_vblank_status();
                 self.status_register.set_sprite_zero_hit(false);
                 self.status_register.set_sprite_overflow(false);
-
-                if rendering_enabled {
-                    self.scroll_register.copy_vertical_bits();
-                }
-
                 self.scroll_register.reset_latch();
+            }
+
+            // Scroll copy only happens when rendering is enabled
+            if rendering_enabled && (280..=304).contains(&self.cycles) {
+                // println!(
+                //     ">> copying vertical bits: v = {:04X} <- t = {:04X} at scanline {} cycle {}",
+                //     self.scroll_register.v,
+                //     self.scroll_register.t,
+                //     self.scanline,
+                //     self.cycles
+                // );
+                self.scroll_register.copy_vertical_bits();
+            }
+        } else if (0..240).contains(&self.scanline) && rendering_enabled {
+            if self.cycles == 0 {
+                self.render_scanline();
+            }
+            if self.cycles == 256 {
+                // println!(">> increment_y before: v = {:04X}", self.scroll_register.v);
+                self.scroll_register.increment_y();
+                // println!(">> increment_y after: v = {:04X}", self.scroll_register.v);
+            }
+            if self.cycles == 257 {
+                self.scroll_register.copy_horizontal_bits();
             }
         }
 
@@ -152,11 +159,6 @@ impl PPU {
                     }
                 }
             }
-        }
-
-        // --- Full scanline rendering (at start of HBLANK)
-        if self.cycles == 257 && self.scanline < 240 {
-            self.render_scanline();
         }
 
         // Advance cycle
@@ -195,27 +197,30 @@ impl PPU {
 impl PPU {
     #[inline]
     fn render_scanline(&mut self) {
-        if !self.mask_register.rendering_enabled() {
-            println!("render_scanline() - rendering disabled. skipping");
-            return;
+        // DEBUG testing...
+        assert!(self.scanline < 240);
+        if self.scanline >= 240 {
+            return; // Prevent writing to invalid scanlines
         }
+
+        if self.scanline == 0 && self.cycles % 8 == 0 {
+            println!("v during scanline 0, cycle {}: {:04X}", self.cycles, self.scroll_register.v);
+        }
+
         let scanline = self.scanline;
 
-        // At dot 257: copy horizontal bits from t to v
-        if self.mask_register.rendering_enabled() {
-            self.scroll_register.v = (self.scroll_register.v & 0b111_1011_1110_0000)
-                | (self.scroll_register.t & 0b000_0100_0001_1111);
-        }
-
-        let mut v = self.scroll_register.v;
-        let fine_x = self.scroll_register.x;
-
         for i in 0..256 {
+            // Use current v address
+            let v = self.scroll_register.v;
+            let fine_x = self.scroll_register.x;
+
+            // Fetch the correct bit for this pixel
             let bit_index = ((i + fine_x as usize) % 8) as u8;
 
             let bg_color = self.get_background_pixel(v, bit_index);
             let sprite = self.get_sprite_pixel(i, scanline);
 
+            // Draw the pixel
             let final_color = match sprite {
                 Some((sprite_color, is_sprite_zero, in_front)) => {
                     if is_sprite_zero && bg_color != self.palette_table[0] {
@@ -233,11 +238,18 @@ impl PPU {
 
             self.frame_buffer[scanline * 256 + i] = final_color;
 
-            // Increment v every 8 pixels (end of tile)
+            // Only increment coarse X every 8 pixels (tile boundary)
             if (i + 1) % 8 == 0 {
                 self.scroll_register.increment_x();
-                v = self.scroll_register.v; // update local v from scroll register
             }
+
+            // TODO: REMOVE debugging
+            // if scanline == 239 {
+            //     println!(
+            //         "i={}, v={:04X}, bit_index={}",
+            //         i, v, bit_index
+            //     );
+            // }
         }
     }
 
@@ -272,6 +284,15 @@ impl PPU {
         let palette_bits = (attribute_byte >> (quadrant * 2)) & 0b11;
 
         let palette_addr = 0x3F00 + (palette_bits as u16) * 4 + (color_index as u16);
+
+        // TODO: REMOVE debugging
+        // if self.scanline == 239 {
+        //     println!(
+        //         "\ttile_index={:02X}, chr_addr={:04X}",
+        //         tile_index, pattern_addr
+        //     );
+        // }
+
         self.palette_table[(palette_addr & 0x1F) as usize]
     }
 
@@ -312,18 +333,6 @@ impl PPU {
                 7 - (x - sprite_x)
             } else {
                 x - sprite_x
-            };
-
-            let pattern_addr = if sprite_height == 16 {
-                // 8x16 sprite mode
-                let table = tile_index & 0x01;
-                let index = tile_index & 0xFE;
-                let base = (table as u16) << 12;
-                base + (index as u16) * 16 + (fine_y as u16)
-            } else {
-                // 8x8 sprite mode
-                let base = self.ctrl_register.sprite_pattern_addr();
-                base + (tile_index as u16) * 16 + (fine_y as u16)
             };
 
             let pattern_addr = match sprite_height {
@@ -394,7 +403,11 @@ impl PPU {
         let addr = self.scroll_register.get_addr();
 
         let result = match addr {
-            0..=0x1FFF => self.chr_read(addr),
+            0..=0x1FFF => {
+                let result = self.internal_data;
+                self.internal_data = self.chr_read(addr);
+                result
+            }
             0x2000..=0x2FFF => {
                 let result = self.internal_data;
                 self.internal_data = self.ram[self.mirror_ram_addr(addr) as usize];
@@ -406,16 +419,25 @@ impl PPU {
                 result
             }
             0x3F00..=0x3FFF => {
+                // NOTE: This is a PPU quirk.
+                // When ADDR is in palette memory, it returns that value immediately
+                // AND updates the internal buffer to a mirrored name-table value
+
                 // Palette RAM (32 bytes mirrored every $20)
-                let mirrored_addr = (addr - 0x3F00) % 0x20;
-                self.palette_table[mirrored_addr as usize]
+                let mirrored_addr = self.mirror_palette_addr(addr);
+                let result = self.palette_table[mirrored_addr];
+
+                // Quirk cont.: Address is mirrored down into nametable space
+                let mirrored_vram_addr = addr & 0x2FFF;
+                self.internal_data = self.ram[self.mirror_ram_addr(mirrored_vram_addr) as usize];
+
+                result
             }
             _ => {
                 eprintln!("Unhandled PPU::read_memory() at {:04X}", addr);
                 0
             }
         };
-
         self.increment_addr();
         result
     }
@@ -432,7 +454,7 @@ impl PPU {
                 self.ram[mirrored as usize] = value;
             }
             0x3F00..=0x3FFF => {
-                let mut palette_addr = (addr - 0x3F00) % 0x20;
+                let mut palette_addr = self.mirror_palette_addr(addr);
 
                 // Handle mirrors of universal background color
                 match palette_addr {
@@ -479,6 +501,14 @@ impl PPU {
     fn increment_addr(&mut self) {
         self.scroll_register
             .increment_addr(self.ctrl_register.addr_increment());
+    }
+
+    pub fn mirror_palette_addr(&mut self, addr: u16) -> usize {
+        let mut index = (addr - 0x3F00) % 0x20;
+        if index >= 0x10 && index % 4 == 0 {
+            index -= 0x10;
+        }
+        index as usize
     }
 
     pub fn mirror_ram_addr(&self, addr: u16) -> u16 {

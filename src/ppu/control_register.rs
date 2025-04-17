@@ -24,7 +24,7 @@ bitflags! {
        const NAMETABLE2              = 0b00000010;
        const VRAM_ADD_INCREMENT      = 0b00000100;
        const SPRITE_PATTERN_ADDR     = 0b00001000;
-       const BACKROUND_PATTERN_ADDR  = 0b00010000;
+       const BACKGROUND_PATTERN_ADDR = 0b00010000;
        const SPRITE_SIZE             = 0b00100000;
        const MASTER_SLAVE_SELECT     = 0b01000000;
        const GENERATE_NMI            = 0b10000000;
@@ -59,7 +59,7 @@ impl ControlRegister {
     }
 
     pub fn background_pattern_addr(&self) -> u16 {
-        match self.contains(Self::BACKROUND_PATTERN_ADDR) {
+        match self.contains(Self::BACKGROUND_PATTERN_ADDR) {
             true => 0x1000,
             false => 0x0,
         }
@@ -104,7 +104,7 @@ mod tests {
         ctrl.update(0b10110000);
         assert!(ctrl.contains(ControlRegister::GENERATE_NMI));
         assert!(ctrl.contains(ControlRegister::SPRITE_SIZE));
-        assert!(ctrl.contains(ControlRegister::BACKROUND_PATTERN_ADDR));
+        assert!(ctrl.contains(ControlRegister::BACKGROUND_PATTERN_ADDR));
         assert!(!ctrl.contains(ControlRegister::VRAM_ADD_INCREMENT));
     }
 
@@ -140,7 +140,7 @@ mod tests {
         let mut ctrl = ControlRegister::new();
         assert_eq!(ctrl.background_pattern_addr(), 0x0000);
 
-        ctrl.update(ControlRegister::BACKROUND_PATTERN_ADDR.bits());
+        ctrl.update(ControlRegister::BACKGROUND_PATTERN_ADDR.bits());
         assert_eq!(ctrl.background_pattern_addr(), 0x1000);
     }
 }

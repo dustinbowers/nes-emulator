@@ -62,6 +62,7 @@ impl Bus {
 
     /// `tick` drives CPU/PPU forward. Returns (num_cpu_cycles, is_breaking)
     pub fn tick(&mut self) -> (u8, bool) {
+        panic!("don't call this");
         let (tick_cycles, _, is_breaking) = self.cpu.tick();
 
         for _ in 0..3 {
@@ -71,6 +72,8 @@ impl Bus {
         // TODO: APU tick
 
         self.cycles += tick_cycles as usize;
+        if self.cycles > 1_000_000 { self.cycles -= 1_000_000; }
+
         (tick_cycles, is_breaking)
     }
 }
