@@ -2,7 +2,6 @@ use super::color_map::COLOR_MAP;
 use super::consts::{FRAME_COLS, FRAME_ROWS};
 use macroquad::color::Color;
 
-
 // TODO: Remove this whole struct
 #[deprecated]
 pub struct Frame {

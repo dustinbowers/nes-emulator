@@ -10,16 +10,17 @@
     - [x] Ensure cycle accuracy
 - [x] Create 6502 CPU test runner for single-step tests
 - [x] Implement iNES 1.0 ROM parsing
+- [x] Implement Bus-centric architecture (NES wrapper handles orchestration)
 - [x] Implement interrupt handling
     - [x] Non-maskable-interrupts
     - [x] Software-defined interrupts
-- [ ] Implement cycle-accurate DMA transfer through Bus
 - [x] Implement user-input via Joypad 1
+- [ ] Implement cycle-accurate DMA transfer through Bus
 - [ ] Implement PPU
-    - [x] Background nametable rendering
-    - [x] 8x8 sprite rendering (with horiz/vert flips)
-    - [x] 8x16 sprite rendering
-    - [x] Detect sprite-overflow
+    - [ ] Background nametable rendering
+    - [ ] 8x8 sprite rendering (with horiz/vert flips)
+    - [ ] 8x16 sprite rendering
+    - [ ] Detect sprite-overflow
     - [ ] Sprite collision detection
   
 - [x] Encapsulate mapper logic behind Cartridge trait
@@ -34,3 +35,5 @@
 - Single-step opcode tests: https://github.com/SingleStepTests/65x02/tree/main/nes6502/v1
 - iNES file format spec: https://formats.kaitai.io/ines/index.html
 - snake.nes: https://skilldrick.github.io/easy6502/#snake
+- PPU timing chart: https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
+- PPU timing details: https://www.nesdev.org/wiki/PPU_rendering

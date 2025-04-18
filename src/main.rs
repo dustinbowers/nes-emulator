@@ -1,29 +1,27 @@
 mod bus;
+mod cartridge;
 mod controller;
 mod cpu;
 mod display;
-mod memory;
+mod nes;
 mod ppu;
 mod rom;
 
-mod cartridge;
-
-mod nes;
-
-use crate::cartridge::nrom::NromCart;
-use crate::cartridge::Cartridge;
-use crate::controller::joypad::JoypadButtons;
-use crate::display::color_map::COLOR_MAP;
-use crate::display::consts::{PIXEL_HEIGHT, PIXEL_WIDTH};
-use crate::display::frame::Frame;
+use crate::bus::nes_bus::NesBus;
 use crate::nes::NES;
-use crate::rom::RomError;
-use bus::Bus;
+use cartridge::nrom::NromCart;
+use cartridge::Cartridge;
+use controller::joypad::JoypadButtons;
 use cpu::processor::CPU;
+use rom::Rom;
+use rom::RomError;
+
+use display::color_map::COLOR_MAP;
+use display::consts::{PIXEL_HEIGHT, PIXEL_WIDTH};
 use display::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
 use display::draw_frame;
+use display::frame::Frame;
 use macroquad::prelude::*;
-use rom::Rom;
 use std::{env, process};
 
 fn window_conf() -> Conf {
@@ -65,23 +63,25 @@ async fn play_rom(rom_path: &str) {
     let cart = rom.into_cartridge();
     let mut nes = NES::new(cart);
 
-    // let stop_after_frames = 2;
-    // let mut frames = 0;
+    let stop_after_frames = 10;
+    let mut frames = 0;
     loop {
         while !nes.tick() {}
-        // frames += 1;
-        // println!("== Frame: {}", frames);
-        // if frames == stop_after_frames {
-        //     break;
-        // }
+        frames += 1;
+        println!("== Frame: {}", frames);
+        if frames == stop_after_frames {
+            // break;
+        }
 
-        clear_background(BLACK);
+        clear_background(RED);
         let frame = nes.get_frame_buffer();
         for (i, c) in frame.iter().enumerate() {
             let x = (i % 256) as f32;
             let y = (i / 256) as f32;
-            if y == 0.0 { continue; } // TODO: this is a nasty hack
-            let color = COLOR_MAP.get_color(*c as usize);
+            if y == 0.0 {
+                continue;
+            } // TODO: fix this is nasty hack
+            let color = COLOR_MAP.get_color((*c) as usize);
             draw_rectangle(
                 x * PIXEL_WIDTH,
                 y * PIXEL_HEIGHT,
@@ -91,6 +91,7 @@ async fn play_rom(rom_path: &str) {
             );
         }
 
+        println!("draw frame");
         nes.clear_frame();
 
         //
@@ -107,11 +108,11 @@ async fn play_rom(rom_path: &str) {
             (vec![KeyCode::D], JoypadButtons::RIGHT),
         ];
         // Handle user input
-        let keys_pressed = get_keys_down();
+        let keys_down = get_keys_down();
         for (keys, button) in key_map.iter() {
             let mut pressed = false;
             for key in keys.iter() {
-                if keys_pressed.contains(&key) {
+                if keys_down.contains(&key) {
                     pressed = true;
                     break;
                 }
@@ -141,43 +142,49 @@ async fn play_rom(rom_path: &str) {
         //
         // DEBUG RENDERING
         //
-        let palette_table_px_size = 5;
-        for (i, v) in nes.bus.ppu.palette_table.iter().enumerate() {
-            let x = i % 32 * palette_table_px_size + 300;
-            let y = i / 32 * palette_table_px_size + 32;
-            draw_rectangle(
-                x as f32,
-                y as f32,
-                palette_table_px_size as f32,
-                palette_table_px_size as f32,
-                *COLOR_MAP.get_color((v % 53) as usize),
-            );
+        let mut debug_rendering = false;
+        if keys_down.contains(&KeyCode::Key0) {
+            debug_rendering = !debug_rendering;
         }
+        if debug_rendering {
+            let palette_table_px_size = 5;
+            for (i, v) in nes.bus.ppu.palette_table.iter().enumerate() {
+                let x = i % 32 * palette_table_px_size + 300;
+                let y = i / 32 * palette_table_px_size + 32;
+                draw_rectangle(
+                    x as f32,
+                    y as f32,
+                    palette_table_px_size as f32,
+                    palette_table_px_size as f32,
+                    *COLOR_MAP.get_color((v % 53) as usize),
+                );
+            }
 
-        let ram_px_size = 2;
-        for (i, v) in nes.bus.ppu.ram.iter().enumerate() {
-            let x = i % 32 * ram_px_size + 300;
-            let y = i / 32 * ram_px_size + 60;
-            draw_rectangle(
-                x as f32,
-                y as f32,
-                ram_px_size as f32,
-                ram_px_size as f32,
-                *COLOR_MAP.get_color((v % 53) as usize),
-            );
-        }
+            let ram_px_size = 2;
+            for (i, v) in nes.bus.ppu.ram.iter().enumerate() {
+                let x = i % 32 * ram_px_size + 300;
+                let y = i / 32 * ram_px_size + 60;
+                draw_rectangle(
+                    x as f32,
+                    y as f32,
+                    ram_px_size as f32,
+                    ram_px_size as f32,
+                    *COLOR_MAP.get_color((v % 53) as usize),
+                );
+            }
 
-        let oam_px_size = 3;
-        for (i, v) in nes.bus.ppu.oam_data.iter().enumerate() {
-            let x = i % 32 * oam_px_size + 300;
-            let y = i / 32 * oam_px_size + 300;
-            draw_rectangle(
-                x as f32,
-                y as f32,
-                oam_px_size as f32,
-                oam_px_size as f32,
-                *COLOR_MAP.get_color(((v) % 53) as usize),
-            );
+            let oam_px_size = 3;
+            for (i, v) in nes.bus.ppu.oam_data.iter().enumerate() {
+                let x = i % 32 * oam_px_size + 300;
+                let y = i / 32 * oam_px_size + 300;
+                draw_rectangle(
+                    x as f32,
+                    y as f32,
+                    oam_px_size as f32,
+                    oam_px_size as f32,
+                    *COLOR_MAP.get_color(((v) % 53) as usize),
+                );
+            }
         }
 
         next_frame().await;

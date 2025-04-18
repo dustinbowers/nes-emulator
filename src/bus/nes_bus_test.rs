@@ -1,4 +1,4 @@
-use crate::bus::Bus;
+use crate::NesBus;
 use crate::rom::Mirroring;
 
 #[cfg(test)]
@@ -14,7 +14,7 @@ mod test {
         let screen_mirroring = Mirroring::Vertical;
         let rom = Rom::new_custom(prg_rom, chr_rom, mapper, screen_mirroring);
         let cartridge = rom.into_cartridge();
-        let mut bus = Bus::new(cartridge);
+        let mut bus = NesBus::new(cartridge);
 
         // Test a handful of addresses within $2000-$2FFF
         let test_addresses = [0x2000, 0x2400, 0x27FF, 0x2C00, 0x2FFF];
@@ -51,7 +51,7 @@ mod test {
         let screen_mirroring = Mirroring::Vertical;
         let rom = Rom::new_custom(prg_rom, chr_rom, mapper, screen_mirroring);
         let cartridge = rom.into_cartridge();
-        let mut bus = Bus::new(cartridge);
+        let mut bus = NesBus::new(cartridge);
 
         // Set increment mode to 1 (bit 2 = 0 increments by 1 after each $2007 write)
         // Write to $2000 (PPUCTRL)
@@ -91,7 +91,7 @@ mod test {
         let screen_mirroring = Mirroring::Vertical;
         let rom = Rom::new_custom(prg_rom, chr_rom, mapper, screen_mirroring);
         let cartridge = rom.into_cartridge();
-        let mut bus = Bus::new(cartridge);
+        let mut bus = NesBus::new(cartridge);
 
         // Set increment mode to 1 (increment by 1 after each write)
         bus.cpu.bus_write(0x2000, 0x00);
@@ -150,7 +150,7 @@ mod test {
         let screen_mirroring = Mirroring::Vertical;
         let rom = Rom::new_custom(prg_rom, chr_rom, mapper, screen_mirroring);
         let cartridge = rom.into_cartridge();
-        let mut bus = Bus::new(cartridge);
+        let mut bus = NesBus::new(cartridge);
 
         // Set increment mode to 1 (increment by 1)
         bus.cpu.bus_write(0x2000, 0x00);
@@ -210,7 +210,7 @@ mod test {
         let rom = Rom::new_custom(prg_rom, chr_rom, 0, Mirroring::Vertical);
         let cartridge = rom.into_cartridge();
 
-        let mut bus = Bus::new(cartridge);
+        let mut bus = NesBus::new(cartridge);
         bus.cpu.program_counter = 0x8000;
 
         // Fast-forward PPU to VBlank
@@ -257,7 +257,7 @@ mod test {
         let rom = Rom::new_custom(prg_rom, chr_rom, 0, Mirroring::Vertical);
         let cartridge = rom.into_cartridge();
 
-        let mut bus = Bus::new(cartridge);
+        let mut bus = NesBus::new(cartridge);
         bus.cpu.program_counter = 0x8000;
 
         // Fast-forward to VBLANK
