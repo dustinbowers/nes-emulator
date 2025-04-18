@@ -81,7 +81,7 @@ async fn play_rom(rom_path: &str) {
             if y == 0.0 {
                 continue;
             } // TODO: fix this is nasty hack
-            let color = COLOR_MAP.get_color((*c % 54) as usize);
+            let color = COLOR_MAP.get_color((*c) as usize);
             draw_rectangle(
                 x * PIXEL_WIDTH,
                 y * PIXEL_HEIGHT,
