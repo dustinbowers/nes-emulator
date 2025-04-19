@@ -180,13 +180,11 @@ impl PPU {
 
         if rendering_enabled
             && (
-                (row < 240 && dot >= 1 && dot <= 256) ||    // visible scanlines
-                (row == 261 && dot >= 321 && dot <= 336)    // pre-render BG fetching
-                // (dot >= 261 && dot <= 320)               // TODO: sprite fetching
+            (row < 240 && dot >= 1 && dot <= 256) ||         // visible scanlines
+                (row == 261 && dot >= 321 && dot <= 336)         // pre-render BG fetching only
             )
         {
             // Tile fetch and register reload timing
-            if dot >= 1 && dot <= 336 {
                 match dot % 8 {
                     1 => self.fetch_name_table_byte(),
                     3 => self.fetch_attribute_byte(),
@@ -195,7 +193,6 @@ impl PPU {
                     0 => self.load_background_registers(),
                     _ => {}
                 }
-            }
         }
 
         // --- NMI Trigger
