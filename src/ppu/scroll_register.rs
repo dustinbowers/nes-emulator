@@ -104,19 +104,18 @@ impl ScrollRegister {
     }
 
     pub fn increment_x(&mut self) {
-        if (self.v & 0x001F) == 31 {
-            // if coarse_x == 31, wrap to 0
-            self.v &= !0x001F; // clear coarse X (bits 0–4)
-            self.v ^= 0x0400; // toggle horizontal nametable select (bit 10)
+        if self.v & 0x001F == 31 {
+            // coarse X = 0
+            self.v &= !0x001F;
+            // toggle horizontal nametable (bit 10)
+            self.v ^= 0x0400;
         } else {
-            // coarse_x < 31, just increment
+            // increment coarse X
             self.v += 1;
         }
     }
 
     pub fn increment_y(&mut self) {
-        // println!(">> increment_y before: v = {:04X}, fine Y = {:01X}", self.v, (self.v >> 12) & 0b111);
-
         // Fine Y is bits 12–14
         if (self.v & 0x7000) != 0x7000 {
             self.v += 0x1000; // increment fine Y
@@ -138,12 +137,8 @@ impl ScrollRegister {
     }
 
     pub fn copy_horizontal_bits(&mut self) {
-        // bit 10 (nametable X) + bits 4-0 (coarse X)
-        let mask = 0b00000_1_00000_11111;
-
-        // Copy NT X and coarse X (bits 10 and 0-4)
-        self.v &= !mask;
-        self.v |= self.t & mask;
+        self.v = (self.v & !0b0000010000011111) | (self.t & 0b0000010000011111);
+        // Copies coarse X and horizontal nametable bits (bits 0-4 and 10)
     }
 
     pub fn copy_vertical_bits(&mut self) {
@@ -153,6 +148,10 @@ impl ScrollRegister {
         // Copy fine Y, coarse Y, and NT Y (bits 12-5 and bit 11)
         self.v &= !mask;
         self.v |= self.t & mask;
+    }
+
+    pub fn coarse_x(&self) -> u8 {
+        (self.v & 0b00000_00000_11111) as u8
     }
 }
 
@@ -381,6 +380,23 @@ mod tests {
             "{}",
             format!("\n\tgot:  {:016b}\n\twant: {:016b}", got, want)
         );
+    }
+
+    #[test]
+    fn test_increment_y_wrap_coarse_y_31() {
+        let mut sr = ScrollRegister::new();
+
+        // fine_y = 7, coarse_y = 31, vertical NT = 1
+        sr.v = (7 << 12) | (31 << 5) | (1 << 11);
+        sr.increment_y();
+
+        let fine_y = (sr.v >> 12) & 0x7;
+        let coarse_y = (sr.v >> 5) & 0x1F;
+        let nt_y = (sr.v >> 11) & 1;
+
+        assert_eq!(fine_y, 0);
+        assert_eq!(coarse_y, 0);
+        assert_eq!(nt_y, 1); // not toggled
     }
 
     #[test]

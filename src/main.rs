@@ -91,7 +91,7 @@ async fn play_rom(rom_path: &str) {
             );
         }
 
-        println!("draw frame");
+        // println!("draw frame");
         nes.clear_frame();
 
         //

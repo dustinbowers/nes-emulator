@@ -135,94 +135,103 @@ impl PPU {
     }
 
     pub fn tick(&mut self) -> bool {
-        let rendering_enabled = self.mask_register.rendering_enabled();
         let dot = self.cycles;
-        let row = self.scanline;
+        let scanline = self.scanline;
+        let rendering_enabled = self.mask_register.rendering_enabled();
+        let visible_scanline = scanline < 240;
+        let prerender_scanline = scanline == 261;
 
-        // Visible scanline
-        if rendering_enabled && row < 240 {
-            if dot > 0 && dot <= 256 {
-                self.shift_background_registers(); // Shift the registers for next dot
-                let bg_color = self.render_dot();
-                self.frame_buffer[row * 256 + (dot - 1)] = bg_color;
-            }
+        if self.scanline == 0 && self.cycles == 1 {
+            println!(
+                "Render begins: v = {:04X}, coarse_x = {}, x = {}",
+                self.scroll_register.v,
+                self.scroll_register.coarse_x(),
+                self.scroll_register.x,
+            );
         }
 
-        // v updates
-        if rendering_enabled && (row <= 239 || row == 261) {
-            if dot % 8 == 0 && dot >= 1 && dot <= 256 {
-                self.scroll_register.increment_x();
+        // 1. Background rendering (fetch + draw)
+        if rendering_enabled {
+            if visible_scanline && (1..=256).contains(&dot) {
+                let bg_color = self.render_dot();
+                self.frame_buffer[scanline * 256 + (dot - 1)] = bg_color;
             }
-            if dot == 256 {
+            if (visible_scanline || prerender_scanline) && (1..=256).contains(&dot) {
+                self.shift_background_registers();
+                if dot % 8 == 0
+                {
+                    self.load_background_registers();
+                    self.scroll_register.increment_x();
+                }
+            }
+
+            if visible_scanline && dot == 256 {
                 self.scroll_register.increment_y();
             }
-            if dot == 257 && row < 240 {
+
+            if (visible_scanline || prerender_scanline) && dot == 257 {
                 self.scroll_register.copy_horizontal_bits();
             }
-        }
 
-        if row == 261 {
-            match dot {
-                1 => {
-                    self.status_register.reset_vblank_status();
-                    self.status_register.set_sprite_zero_hit(false);
-                    self.status_register.set_sprite_overflow(false);
-                    self.scroll_register.reset_latch();
-                }
-                280..=304 => {
-                    if rendering_enabled {
-                        self.scroll_register.copy_vertical_bits();
-                    }
-                }
-                _ => {}
-            };
-        }
+            // During prerender, copy vertical bits (280–304)
+            if prerender_scanline && (280..=304).contains(&dot) {
+                self.scroll_register.copy_vertical_bits();
+            }
 
-        if rendering_enabled
-            && (
-            (row < 240 && dot >= 1 && dot <= 256) ||         // visible scanlines
-                (row == 261 && dot >= 321 && dot <= 336)         // pre-render BG fetching only
-            )
-        {
-            // Tile fetch and register reload timing
+            // Tile data fetching occurs on specific dot phases of each 8-dot cycle
+            if (visible_scanline && (1..=256).contains(&dot))
+                || (prerender_scanline && (321..=340).contains(&dot))
+            {
                 match dot % 8 {
+                    // 0 => self.load_background_registers(),
                     1 => self.fetch_name_table_byte(),
                     3 => self.fetch_attribute_byte(),
                     5 => self.fetch_tile_low_byte(),
                     7 => self.fetch_tile_high_byte(),
-                    0 => self.load_background_registers(),
                     _ => {}
                 }
+            }
         }
 
-        // --- NMI Trigger
-        if self.scanline == 241 && self.cycles == 1 {
+        // 2. VBlank and status bits
+        if scanline == 241 && dot == 1 {
             self.status_register.set_vblank_status(true);
-
             if self.ctrl_register.generate_vblank_nmi() {
                 if let Some(bus_ptr) = self.bus {
-                    unsafe {
-                        (*bus_ptr).nmi();
-                    }
+                    unsafe { (*bus_ptr).nmi() }
                 }
             }
         }
 
-        // Advance cycle
-        self.cycles += 1;
+        // 3. Pre-render scanline setup
+        if prerender_scanline && dot == 1 {
+            self.status_register.reset_vblank_status();
+            self.status_register.set_sprite_zero_hit(false);
+            self.status_register.set_sprite_overflow(false);
+            self.scroll_register.reset_latch();
+        }
 
-        // End of scanline
-        if self.cycles >= 341 {
+        // Debug prints
+        if scanline == 0 && dot == 1 {
+            println!(
+                "start of render: shift_lo={:016b}, shift_hi={:016b}",
+                self.bg_pattern_shift_low, self.bg_pattern_shift_high
+            );
+        }
+
+        // Advance cycle/scanline/frame
+        let mut frame_complete = false;
+        if self.cycles == 340 {
             self.cycles = 0;
             self.scanline += 1;
-
-            // End of frame
             if self.scanline >= 262 {
                 self.scanline = 0;
-                return true; // Frame ready to display
+                frame_complete = true;
             }
+        } else {
+            self.cycles += 1;
         }
-        false // Frame not ready to display
+        frame_complete
     }
 
     pub fn run_until_vblank(&mut self) {
@@ -246,13 +255,16 @@ impl PPU {
 // Private implementations
 impl PPU {
     /// `render_dot` returns color-index of bg pixel at (self.cycles, self.scanline)
-    pub fn render_dot(&mut self) -> u8 {
-        assert_eq!(self.mask_register.rendering_enabled(), true); // TODO: remove
+    fn render_dot(&mut self) -> u8 {
+        // assert_eq!(self.mask_register.rendering_enabled(), true); // TODO: remove
+        if self.scanline == 0 && self.cycles == 1 {
+            let coarse_x = self.scroll_register.v & 0b00000_00000_11111;
+            println!("Start of frame: coarse_x = {}", coarse_x);
+        }
 
         // Compute bit index from fine X scroll
         let fine_x = self.scroll_register.x;
         let bit = 15 - fine_x;
-        assert!(bit < 16, "fine_x > 15 ?? bit = {}", bit);
         let pixel_low = (self.bg_pattern_shift_low >> bit) & 1;
         let pixel_high = (self.bg_pattern_shift_high >> bit) & 1;
         let pixel = ((pixel_high << 1) | pixel_low) as u8;
@@ -442,7 +454,6 @@ impl PPU {
 
 // Helpers
 impl PPU {
-
     fn shift_background_registers(&mut self) {
         self.bg_pattern_shift_low <<= 1;
         self.bg_pattern_shift_high <<= 1;
@@ -457,7 +468,21 @@ impl PPU {
         self.bg_pattern_shift_high =
             (self.bg_pattern_shift_high & 0xFF00) | self.next_tile_msb as u16;
 
-        // Only update the latches here, not the shift registers
+        // Update attribute shift registers with the latch values
+        self.bg_attr_shift_low = (self.bg_attr_shift_low & 0xFF00)
+            | (if self.bg_attr_latch_low != 0 {
+                0xFF
+            } else {
+                0x00
+            });
+        self.bg_attr_shift_high = (self.bg_attr_shift_high & 0xFF00)
+            | (if self.bg_attr_latch_high != 0 {
+                0xFF
+            } else {
+                0x00
+            });
+
+        // Latch new values from fetched attribute byte
         self.bg_attr_latch_low = (self.next_tile_attr & 0b01) >> 0;
         self.bg_attr_latch_high = (self.next_tile_attr & 0b10) >> 1;
     }
@@ -540,12 +565,10 @@ impl PPU {
                 self.palette_table[mirrored_addr]
             }
 
-            _ => panic!("open bus"), // TODO: Technically, it's open bus or invalid
+            _ => panic!("open bus"), // TODO: Technically it's open bus or invalid
         }
     }
 
-    /// ///////////////////////
-    /// ///////////////////////
     /// ///////////////////////
 
     fn read_status(&mut self) -> u8 {

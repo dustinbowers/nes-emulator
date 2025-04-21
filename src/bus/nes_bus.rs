@@ -14,7 +14,6 @@ const PPU_REGISTERS_END: u16 = 0x3FFF;
 const CART_START: u16 = 0x4200;
 const CART_END: u16 = 0xFFFF;
 
-
 pub struct NesBus {
     cart: Box<dyn Cartridge>,
 

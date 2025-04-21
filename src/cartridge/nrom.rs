@@ -27,8 +27,13 @@ impl NromCart {
 
 impl Cartridge for NromCart {
     fn chr_read(&mut self, addr: u16) -> u8 {
-        let addr = addr % self.chr.len() as u16; // wrap when out of bounds
-        self.chr[addr as usize]
+        let addr = addr as usize;
+        if addr < self.chr.len() {
+            self.chr[addr]
+        } else {
+            eprintln!("CHR read out of bounds: {:04X}", addr);
+            0
+        }
     }
 
     fn chr_write(&mut self, addr: u16, data: u8) {
