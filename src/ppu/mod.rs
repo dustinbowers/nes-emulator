@@ -156,7 +156,8 @@ impl PPU {
                 let bg_color = self.render_dot();
                 self.frame_buffer[scanline * 256 + (dot - 1)] = bg_color;
             }
-            if (visible_scanline || prerender_scanline) && (1..=256).contains(&dot) {
+            if (visible_scanline || prerender_scanline)
+                && ((1..=256).contains(&dot)) {
                 self.shift_background_registers();
                 if dot % 8 == 0
                 {
@@ -179,8 +180,7 @@ impl PPU {
             }
 
             // Tile data fetching occurs on specific dot phases of each 8-dot cycle
-            if (visible_scanline && (1..=256).contains(&dot))
-                || (prerender_scanline && (321..=340).contains(&dot))
+            if (1..=256).contains(&dot)
             {
                 match dot % 8 {
                     // 0 => self.load_background_registers(),
@@ -190,6 +190,18 @@ impl PPU {
                     7 => self.fetch_tile_high_byte(),
                     _ => {}
                 }
+            }
+        }
+
+        if (321..=340).contains(&dot)
+        {
+            match dot % 8 {
+                // 0 => self.load_background_registers(),
+                1 => self.fetch_name_table_byte(),
+                3 => self.fetch_attribute_byte(),
+                5 => self.fetch_tile_low_byte(),
+                7 => self.fetch_tile_high_byte(),
+                _ => {}
             }
         }
 
