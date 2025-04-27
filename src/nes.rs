@@ -49,7 +49,11 @@ impl NES {
     pub fn get_frame_buffer(&self) -> &[u8; 256 * 240] {
         return &self.bus.ppu.frame_buffer;
     }
+
+    #[deprecated]
     pub fn clear_frame(&mut self) {
+        // Note: this takes way longer that I was expecting...
+        // TODO: Would double-buffering be faster than blitting a bunch of zeros?
         self.bus.ppu.frame_buffer.fill(0);
     }
 }

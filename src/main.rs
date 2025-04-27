@@ -68,7 +68,6 @@ async fn play_rom(rom_path: &str) {
     loop {
         while !nes.tick() {}
         frames += 1;
-        println!("== Frame: {}", frames);
         if frames == stop_after_frames {
             // break;
         }
@@ -139,55 +138,48 @@ async fn play_rom(rom_path: &str) {
         );
         draw_text(&status_str, 5.0, 48.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0));
 
+        let ppu_stats = format!(
+            "sprite_count: {}",
+            nes.bus.ppu.sprite_count
+        );
+        draw_text(&ppu_stats, 5.0, 70.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0));
+
+
         //
         // DEBUG RENDERING
         //
-        let mut debug_rendering = true;
+        let mut debug_rendering = false;
         if keys_down.contains(&KeyCode::Key0) {
             debug_rendering = !debug_rendering;
         }
         if debug_rendering {
-            let palette_table_px_size = 5;
-            for (i, v) in nes.bus.ppu.palette_table.iter().enumerate() {
-                let x = i % 32 * palette_table_px_size + 300;
-                let y = i / 32 * palette_table_px_size + 32;
-                draw_rectangle(
-                    x as f32,
-                    y as f32,
-                    palette_table_px_size as f32,
-                    palette_table_px_size as f32,
-                    *COLOR_MAP.get_color((v % 53) as usize),
-                );
-            }
+            debug_render_data(300, 32, 32, 5, &nes.bus.ppu.palette_table);
+            debug_render_data(300, 60, 32, 2, &nes.bus.ppu.ram);
 
-            let ram_px_size = 2;
-            for (i, v) in nes.bus.ppu.ram.iter().enumerate() {
-                let x = i % 32 * ram_px_size + 300;
-                let y = i / 32 * ram_px_size + 60;
-                draw_rectangle(
-                    x as f32,
-                    y as f32,
-                    ram_px_size as f32,
-                    ram_px_size as f32,
-                    *COLOR_MAP.get_color((v % 53) as usize),
-                );
-            }
+            debug_render_data(450, 350, 8, 3, &nes.bus.ppu.oam_data);
+            debug_render_data(10, 400, 32, 3, &nes.bus.ppu.secondary_oam);
+            debug_render_data(10, 405, 32, 3, &nes.bus.ppu.sprite_pattern_low);
+            debug_render_data(10, 410, 32, 3, &nes.bus.ppu.sprite_pattern_high);
+            debug_render_data(10, 415, 32, 3, &nes.bus.ppu.sprite_x_counter);
+            debug_render_data(10, 420, 32, 3, &nes.bus.ppu.sprite_attributes);
 
-            let oam_px_size = 3;
-            for (i, v) in nes.bus.ppu.oam_data.iter().enumerate() {
-                let x = i % 32 * oam_px_size + 300;
-                let y = i / 32 * oam_px_size + 300;
-                draw_rectangle(
-                    x as f32,
-                    y as f32,
-                    oam_px_size as f32,
-                    oam_px_size as f32,
-                    *COLOR_MAP.get_color(((v) % 53) as usize),
-                );
-            }
         }
 
         next_frame().await;
+    }
+}
+
+fn debug_render_data(x: usize, y: usize, width: usize, pixel_size: usize, data: &[u8]) {
+    for (i, v) in data.iter().enumerate() {
+        let x = i % width * pixel_size + x;
+        let y = i / width * pixel_size + y;
+        draw_rectangle(
+            x as f32,
+            y as f32,
+            pixel_size as f32,
+            pixel_size as f32,
+            *COLOR_MAP.get_color(((v) % 53) as usize),
+        );
     }
 }
 
