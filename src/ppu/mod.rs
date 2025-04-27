@@ -135,87 +135,20 @@ impl PPU {
     }
 
     pub fn tick(&mut self) -> bool {
+        // See: https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
+
         let dot = self.cycles;
         let scanline = self.scanline;
         let rendering_enabled = self.mask_register.rendering_enabled();
         let visible_scanline = scanline < 240;
         let prerender_scanline = scanline == 261;
 
-        if self.scanline == 0 && self.cycles == 1 {
-            println!(
-                "Render begins: v = {:04X}, coarse_x = {}, x = {}",
-                self.scroll_register.v,
-                self.scroll_register.coarse_x(),
-                self.scroll_register.x,
-            );
+        // 0. "Skipped on BG+Odd"
+        if scanline == 0 && dot == 0 {
+            // TODO: I'm not sure what this means in the PPU timing chart
         }
 
-        // 1. Background rendering (fetch + draw)
-        if rendering_enabled {
-            if visible_scanline && (1..=256).contains(&dot) {
-                let bg_color = self.render_dot();
-                self.frame_buffer[scanline * 256 + (dot - 1)] = bg_color;
-            }
-            if (visible_scanline || prerender_scanline)
-                && ((1..=256).contains(&dot)) {
-                self.shift_background_registers();
-                if dot % 8 == 0
-                {
-                    self.load_background_registers();
-                    self.scroll_register.increment_x();
-                }
-            }
-
-            if visible_scanline && dot == 256 {
-                self.scroll_register.increment_y();
-            }
-
-            if (visible_scanline || prerender_scanline) && dot == 257 {
-                self.scroll_register.copy_horizontal_bits();
-            }
-
-            // During prerender, copy vertical bits (280–304)
-            if prerender_scanline && (280..=304).contains(&dot) {
-                self.scroll_register.copy_vertical_bits();
-            }
-
-            // Tile data fetching occurs on specific dot phases of each 8-dot cycle
-            if (1..=256).contains(&dot)
-            {
-                match dot % 8 {
-                    // 0 => self.load_background_registers(),
-                    1 => self.fetch_name_table_byte(),
-                    3 => self.fetch_attribute_byte(),
-                    5 => self.fetch_tile_low_byte(),
-                    7 => self.fetch_tile_high_byte(),
-                    _ => {}
-                }
-            }
-        }
-
-        if (321..=340).contains(&dot)
-        {
-            match dot % 8 {
-                // 0 => self.load_background_registers(),
-                1 => self.fetch_name_table_byte(),
-                3 => self.fetch_attribute_byte(),
-                5 => self.fetch_tile_low_byte(),
-                7 => self.fetch_tile_high_byte(),
-                _ => {}
-            }
-        }
-
-        // 2. VBlank and status bits
-        if scanline == 241 && dot == 1 {
-            self.status_register.set_vblank_status(true);
-            if self.ctrl_register.generate_vblank_nmi() {
-                if let Some(bus_ptr) = self.bus {
-                    unsafe { (*bus_ptr).nmi() }
-                }
-            }
-        }
-
-        // 3. Pre-render scanline setup
+        // 1. Clear VBlank flag at dot 1 of prerender
         if prerender_scanline && dot == 1 {
             self.status_register.reset_vblank_status();
             self.status_register.set_sprite_zero_hit(false);
@@ -223,25 +156,71 @@ impl PPU {
             self.scroll_register.reset_latch();
         }
 
-        // Debug prints
-        if scanline == 0 && dot == 1 {
-            println!(
-                "start of render: shift_lo={:016b}, shift_hi={:016b}",
-                self.bg_pattern_shift_low, self.bg_pattern_shift_high
-            );
+        // 2. Set VBlank at scanline 241, dot 1
+        if scanline == 241 && dot == 1 {
+            self.status_register.set_vblank_status(true);
+            if self.ctrl_register.generate_vblank_nmi() {
+                if let Some(bus_ptr) = self.bus {
+                    unsafe {
+                        (*bus_ptr).nmi();
+                    }
+                }
+            }
         }
 
-        // Advance cycle/scanline/frame
+        // 3. Background rendering
+        if rendering_enabled {
+            if (visible_scanline || prerender_scanline) && (1..=336).contains(&dot) {
+                // === Shift background registers every cycle
+                self.shift_background_registers();
+
+                // === Fetch new background data
+                match dot % 8 {
+                    1 => self.fetch_name_table_byte(),
+                    3 => self.fetch_attribute_byte(),
+                    5 => self.fetch_tile_low_byte(),
+                    7 => self.fetch_tile_high_byte(),
+                    0 => self.load_background_registers(), // Load the fetched tile into shifters
+                    _ => {}
+                }
+
+                // === Rendering pixel during visible area
+                if visible_scanline && (1..=256).contains(&dot) {
+                    let color = self.render_dot();
+                    self.frame_buffer[scanline * 256 + (dot - 1)] = color;
+                }
+
+                // === Scrolling
+                if (1..=256).contains(&dot) || (321..=336).contains(&dot) {
+                    if dot % 8 == 0 {
+                        self.scroll_register.increment_x();
+                    }
+                }
+
+                if dot == 256 {
+                    self.scroll_register.increment_y();
+                }
+
+                if dot == 257 {
+                    self.scroll_register.copy_horizontal_bits();
+                }
+
+                if prerender_scanline && (280..=304).contains(&dot) {
+                    self.scroll_register.copy_vertical_bits();
+                }
+            }
+        }
+
+        // 4. Advance cycle/scanline/frame
         let mut frame_complete = false;
-        if self.cycles == 340 {
+        self.cycles += 1;
+        if self.cycles > 340 {
             self.cycles = 0;
             self.scanline += 1;
             if self.scanline >= 262 {
                 self.scanline = 0;
                 frame_complete = true;
             }
-        } else {
-            self.cycles += 1;
         }
         frame_complete
     }
