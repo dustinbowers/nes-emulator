@@ -142,7 +142,7 @@ async fn play_rom(rom_path: &str) {
         //
         // DEBUG RENDERING
         //
-        let mut debug_rendering = false;
+        let mut debug_rendering = true;
         if keys_down.contains(&KeyCode::Key0) {
             debug_rendering = !debug_rendering;
         }
