@@ -146,7 +146,7 @@ impl CpuBusInterface for NesBus {
             0x4018..=0x401F => { /* Open bus */ }
             CART_START..=CART_END => self.cart.prg_write(addr, value),
             _ => {
-                println!("Unhandled CPU write at {:04X}", addr);
+                // println!("Unhandled CPU write at {:04X}", addr);
             }
         }
     }
