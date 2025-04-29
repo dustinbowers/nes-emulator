@@ -33,16 +33,16 @@ impl PPU {
         // Update attribute shift registers with the latch values
         self.bg_attr_shift_low = (self.bg_attr_shift_low & 0xFF00)
             | (if self.bg_attr_latch_low != 0 {
-            0xFF
-        } else {
-            0x00
-        });
+                0xFF
+            } else {
+                0x00
+            });
         self.bg_attr_shift_high = (self.bg_attr_shift_high & 0xFF00)
             | (if self.bg_attr_latch_high != 0 {
-            0xFF
-        } else {
-            0x00
-        });
+                0xFF
+            } else {
+                0x00
+            });
 
         // Latch new values from fetched attribute byte
         self.bg_attr_latch_low = (self.next_tile_attr & 0b01) >> 0;

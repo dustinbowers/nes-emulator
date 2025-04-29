@@ -37,7 +37,9 @@ impl PPU {
 
         let current_oam_y = self.oam_data[oam_base + 0] as usize;
         let sprite_height = self.ctrl_register.sprite_size() as i16;
-        if (scanline as i16 - current_oam_y as i16) >= 0 && (scanline as i16 - current_oam_y as i16) < sprite_height {
+        if (scanline as i16 - current_oam_y as i16) >= 0
+            && (scanline as i16 - current_oam_y as i16) < sprite_height
+        {
             if self.sprite_count < 8 {
                 self.secondary_oam[secondary_oam_base + 0] = self.oam_data[oam_base + 0];
                 self.secondary_oam[secondary_oam_base + 1] = self.oam_data[oam_base + 1];

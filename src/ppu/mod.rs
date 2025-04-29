@@ -1,7 +1,7 @@
-mod mod_tests;
-mod sprites;
 mod background;
+mod mod_tests;
 mod registers;
+mod sprites;
 
 use crate::cartridge::Cartridge;
 use crate::ppu::registers::control_register::ControlRegister;
@@ -44,9 +44,9 @@ pub struct PPU {
     pub scroll_register: ScrollRegister, // $2005 / $2006 - (write latched)
     pub frame_buffer: [u8; 256 * 240],
 
-    pub oam_addr: u8,                           // $2003 (W)
-    pub oam_data: [u8; PRIMARY_OAM_SIZE],       // $2004 (R/W) Object Attribute Memory
-    pub secondary_oam: [u8; SECONDARY_OAM_SIZE],    // holds up to 8 sprites (8 × 4 bytes)
+    pub oam_addr: u8,                            // $2003 (W)
+    pub oam_data: [u8; PRIMARY_OAM_SIZE],        // $2004 (R/W) Object Attribute Memory
+    pub secondary_oam: [u8; SECONDARY_OAM_SIZE], // holds up to 8 sprites (8 × 4 bytes)
 
     // Sprite evaluation & Registers
     pub sprite_pattern_low: [u8; 8],  // pattern bits plane 0
@@ -181,7 +181,6 @@ impl PPU {
 
         // 1. Clear VBlank flag at dot 1 of prerender
         if prerender_scanline && dot == 1 {
-
             // TODO: The VBL flag ($2002.7) is cleared by the PPU around 2270 CPU clocks
             //       after NMI occurs.
             self.status_register.reset_vblank_status();
@@ -206,7 +205,6 @@ impl PPU {
         // 3. Rendering
         if rendering_enabled {
             if (visible_scanline || prerender_scanline) && (1..=336).contains(&dot) {
-
                 // === Rendering pixel during visible area
                 if visible_scanline && (1..=256).contains(&dot) {
                     let color = self.render_dot();
@@ -231,7 +229,8 @@ impl PPU {
 
                 // == Clear secondary OAM
                 if visible_scanline && (1..=64).contains(&dot) {
-                    match dot % 2 == 1 { // Read on Odd, write to secondary oam on Even
+                    match dot % 2 == 1 {
+                        // Read on Odd, write to secondary oam on Even
                         true => {} // "Read" $FF
                         false => {
                             let ind = (dot / 2) - 1;

@@ -138,12 +138,8 @@ async fn play_rom(rom_path: &str) {
         );
         draw_text(&status_str, 5.0, 48.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0));
 
-        let ppu_stats = format!(
-            "sprite_count: {}",
-            nes.bus.ppu.sprite_count
-        );
+        let ppu_stats = format!("sprite_count: {}", nes.bus.ppu.sprite_count);
         draw_text(&ppu_stats, 5.0, 70.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0));
-
 
         //
         // DEBUG RENDERING
@@ -162,7 +158,6 @@ async fn play_rom(rom_path: &str) {
             debug_render_data(10, 410, 32, 3, &nes.bus.ppu.sprite_pattern_high);
             debug_render_data(10, 415, 32, 3, &nes.bus.ppu.sprite_x_counter);
             debug_render_data(10, 420, 32, 3, &nes.bus.ppu.sprite_attributes);
-
         }
 
         next_frame().await;
