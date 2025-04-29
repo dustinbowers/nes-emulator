@@ -1,17 +1,13 @@
-mod address_register;
-mod control_register;
-mod mask_register;
 mod mod_tests;
-mod scroll_register;
-mod status_register;
 mod sprites;
 mod background;
+mod registers;
 
 use crate::cartridge::Cartridge;
-use crate::ppu::control_register::ControlRegister;
-use crate::ppu::mask_register::MaskRegister;
-use crate::ppu::scroll_register::ScrollRegister;
-use crate::ppu::status_register::StatusRegister;
+use crate::ppu::registers::control_register::ControlRegister;
+use crate::ppu::registers::mask_register::MaskRegister;
+use crate::ppu::registers::scroll_register::ScrollRegister;
+use crate::ppu::registers::status_register::StatusRegister;
 use crate::rom::Mirroring;
 
 const PRIMARY_OAM_SIZE: usize = 256;
