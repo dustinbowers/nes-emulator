@@ -4,7 +4,7 @@ use super::NesController;
 use bitflags::bitflags;
 
 bitflags! {
-       #[derive(Clone, Debug)]
+       #[derive(Copy, Clone, Debug)]
        pub struct JoypadButtons: u8 {
            const BUTTON_A          = 0b0000_0001;
            const BUTTON_B          = 0b0000_0010;

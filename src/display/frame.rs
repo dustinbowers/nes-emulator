@@ -1,6 +1,8 @@
+use sdl2::pixels::Color;
 use super::color_map::COLOR_MAP;
 use super::consts::{FRAME_COLS, FRAME_ROWS};
-use macroquad::color::Color;
+// use macroquad::color::Color;
+
 
 // TODO: Remove this whole struct
 #[deprecated]
@@ -11,17 +13,18 @@ pub struct Frame {
 impl Frame {
     pub fn new() -> Self {
         Frame {
-            data: vec![Color::new(0., 0., 0., 0.); FRAME_COLS * FRAME_ROWS],
+            data: vec![Color::RGB(0, 0, 0); (FRAME_COLS * FRAME_ROWS) as usize],
         }
     }
 
-    pub fn set_pixel(&mut self, x: usize, y: usize, color: Color) {
+    pub fn set_pixel(&mut self, x: u32, y: u32, color: Color) {
         // let index = y * FRAME_COLS + x;
         // self.data[index] = color;
         if x >= FRAME_COLS || y >= FRAME_ROWS {
             // println!("Pixel out of bounds: x={}, y={}", x, y);
         } else {
-            self.data[y * FRAME_COLS + x] = color;
+            let ind = (y * FRAME_COLS + x) as usize;
+            self.data[ind] = color;
         }
     }
 
@@ -44,10 +47,10 @@ impl Frame {
                     3 => COLOR_MAP.get_color(0x22),
                     _ => panic!("Impossible color palette index"),
                 };
-                let tile_index = tile_n * 8 + x;
+                let tile_index = (tile_n * 8 + x) as u32;
 
                 let tile_x = tile_index % 232;
-                let tile_y = (tile_index / 232) * 8 + y + (bank * (80));
+                let tile_y = (tile_index / 232) * 8 + y as u32 + (bank as u32 * (80));
                 self.set_pixel(tile_x, tile_y, *color);
             }
         }
