@@ -11,7 +11,8 @@ rand = "0.9.0"
 futures = "0.3.31"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
-sdl2 = "0.37.0"
+sdl2-sys = "*"
+sdl2 = {  version = "0.37.0", features = ["image", "ttf"] }
 
 [[bin]]
 name = "test-runner"

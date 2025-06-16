@@ -433,6 +433,7 @@ dependencies = [
  "once_cell",
  "rand",
  "sdl2",
+ "sdl2-sys",
  "serde",
  "serde_json",
 ]
