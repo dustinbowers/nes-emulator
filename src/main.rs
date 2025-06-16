@@ -9,33 +9,50 @@ mod rom;
 
 use crate::bus::nes_bus::NesBus;
 use crate::nes::NES;
-use cartridge::nrom::NromCart;
 use cartridge::Cartridge;
 use controller::joypad::JoypadButtons;
-use cpu::processor::CPU;
 use rom::Rom;
-use rom::RomError;
 
 use display::color_map::COLOR_MAP;
 use display::consts::{PIXEL_HEIGHT, PIXEL_WIDTH};
 use display::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
-use display::draw_frame;
-use display::frame::Frame;
-use macroquad::prelude::*;
 use std::{env, process};
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
+use sdl2::pixels::{Color, PixelFormatEnum};
+use sdl2::rect::Rect;
+use sdl2::render::{BlendMode, TextureAccess, TextureCreator, WindowCanvas};
+use sdl2::rwops::RWops;
+use sdl2::Sdl;
+use sdl2::ttf::{Font, Sdl2TtfContext};
+use sdl2::video::{Window, WindowContext};
 
-fn window_conf() -> Conf {
-    Conf {
-        window_title: "NES".to_owned(),
-        fullscreen: false,
-        window_height: WINDOW_HEIGHT as i32,
-        window_width: WINDOW_WIDTH as i32,
-        ..Default::default()
-    }
+const TARGET_FPS: u64 = 60;
+const FRAME_DURATION: Duration = Duration::from_nanos(1_000_000_000 / TARGET_FPS);
+
+// handle the annoying Rect i32
+macro_rules! rect(
+    ($x:expr, $y:expr, $w:expr, $h:expr) => (
+        Rect::new($x as i32, $y as i32, $w as u32, $h as u32)
+    )
+);
+
+fn init_sdl() -> (Sdl, Sdl2TtfContext, Window) {
+    let sdl_context = sdl2::init().expect("SDL Init failed!");
+    let ttf_context = sdl2::ttf::init().map_err(|e| e.to_string()).unwrap();
+    let video_subsystem = sdl_context.video().expect("SDL Video Subsystem failed to init!");
+
+    let window: Window = video_subsystem.window("NES", WINDOW_WIDTH, WINDOW_HEIGHT)
+        .position_centered()
+        .build()
+        .expect("could not initialize video subsystem");
+
+    (sdl_context, ttf_context, window)
 }
 
-#[macroquad::main(window_conf)]
-async fn main() {
+fn main() -> Result<(), String> {
     let args: Vec<String> = env::args().collect();
 
     // Ensure correct number of arguments
@@ -44,20 +61,32 @@ async fn main() {
         process::exit(1);
     }
     let rom_path = &args[1];
-
-    play_rom(rom_path).await;
-    // render_sprite_banks(rom_path).await;
-}
-
-async fn play_rom(rom_path: &str) {
     let rom_data = std::fs::read(rom_path).expect("Error reading ROM file.");
     let rom = match Rom::new(&rom_data) {
         Ok(rom) => rom,
         Err(rom_error) => {
             println!("Error parsing rom: {:}", rom_error);
-            return;
+            return Ok(());
         }
     };
+
+    let (sdl_context, ttf_context, window) = init_sdl();
+
+    let font_bytes: &[u8] = include_bytes!("../assets/JetBrainsMono-Bold.ttf");
+    let font: &Font = &ttf_context
+        .load_font_from_rwops(RWops::from_bytes(font_bytes)?, 16)?;
+    let mut canvas = window.into_canvas().present_vsync().build().unwrap();
+    let texture_creator: TextureCreator<WindowContext> = canvas.texture_creator();
+
+    // Create a streaming texture for pixel data
+    let mut texture = texture_creator
+        .create_texture(
+            PixelFormatEnum::ARGB8888,
+            TextureAccess::Streaming, // allows frequent updates
+            WINDOW_WIDTH,
+            WINDOW_HEIGHT,
+        )
+        .unwrap();
 
     println!("Making NES...");
     let cart = rom.into_cartridge();
@@ -65,59 +94,106 @@ async fn play_rom(rom_path: &str) {
 
     let stop_after_frames = 10;
     let mut frames = 0;
-    loop {
+
+    let key_map_data: &[(Vec<Keycode>, JoypadButtons)] = &[
+        (vec![Keycode::K], JoypadButtons::BUTTON_A),
+        (vec![Keycode::J], JoypadButtons::BUTTON_B),
+        (vec![Keycode::RETURN], JoypadButtons::START),
+        (vec![Keycode::RSHIFT], JoypadButtons::SELECT),
+        (vec![Keycode::W], JoypadButtons::UP),
+        (vec![Keycode::S], JoypadButtons::DOWN),
+        (vec![Keycode::A], JoypadButtons::LEFT),
+        (vec![Keycode::D], JoypadButtons::RIGHT),
+    ];
+
+    let mut keycode_to_joypad: HashMap<Keycode, JoypadButtons> = HashMap::new();
+    for (keycodes, button) in key_map_data.iter() {
+        for keycode in keycodes.iter() {
+            keycode_to_joypad.insert(*keycode, *button);
+        }
+    }
+
+    let mut event_pump = sdl_context.event_pump()?;
+    let mut pixel_buffer: Vec<u8> =
+        vec![0; (WINDOW_WIDTH * WINDOW_HEIGHT * 4) as usize]; // 4 bytes per pixel (A,R,G,B)
+
+    let mut debug_rendering = false;
+
+    canvas.set_draw_color(Color::RGB(0, 0, 0));
+    canvas.clear();
+    canvas.present();
+
+    // Start Game Loop
+    ////////////////////////////
+    'running: loop {
+        let frame_start_time = Instant::now();
+
         while !nes.tick() {}
         frames += 1;
         if frames == stop_after_frames {
             // break;
         }
 
-        clear_background(RED);
         let frame = nes.get_frame_buffer();
         for (i, c) in frame.iter().enumerate() {
-            let x = (i % 256) as f32;
-            let y = (i / 256) as f32;
-            if y == 0.0 {
+            let x = (i % 256);
+            let y = (i / 256);
+            if y == 0 {
                 continue;
-            } // TODO: fix this is nasty hack
+            } // TODO: fix this nasty hack
+
             let color = COLOR_MAP.get_color((*c) as usize);
-            draw_rectangle(
-                x * PIXEL_WIDTH,
-                y * PIXEL_HEIGHT,
-                PIXEL_WIDTH,
-                PIXEL_HEIGHT,
-                *color,
-            );
-        }
-
-        // println!("draw frame");
-        nes.clear_frame();
-
-        //
-        // Handle user input
-        //
-        let key_map: &[(Vec<KeyCode>, JoypadButtons)] = &[
-            (vec![KeyCode::K], JoypadButtons::BUTTON_A),
-            (vec![KeyCode::J], JoypadButtons::BUTTON_B),
-            (vec![KeyCode::Enter], JoypadButtons::START),
-            (vec![KeyCode::RightShift], JoypadButtons::SELECT),
-            (vec![KeyCode::W], JoypadButtons::UP),
-            (vec![KeyCode::S], JoypadButtons::DOWN),
-            (vec![KeyCode::A], JoypadButtons::LEFT),
-            (vec![KeyCode::D], JoypadButtons::RIGHT),
-        ];
-        // Handle user input
-        let keys_down = get_keys_down();
-        for (keys, button) in key_map.iter() {
-            let mut pressed = false;
-            for key in keys.iter() {
-                if keys_down.contains(&key) {
-                    pressed = true;
-                    break;
+            for py in 0..PIXEL_HEIGHT as usize {
+                for px in 0..PIXEL_WIDTH as usize {
+                    let mut ind = ((y*PIXEL_HEIGHT as usize) + py) * (WINDOW_WIDTH as usize) * 4;
+                    ind += ((x*PIXEL_WIDTH as usize)+px) * 4;
+                    pixel_buffer[ind + 0] = color.b; // This BGRA ordering is unexpected...
+                    pixel_buffer[ind + 1] = color.g;
+                    pixel_buffer[ind + 2] = color.r;
+                    pixel_buffer[ind + 3] = 255;
                 }
             }
-            nes.bus.controller1.set_button_status(button, pressed);
         }
+
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::Quit {..} |
+                Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
+                    break 'running;
+                },
+                Event::KeyDown { keycode: Some(Keycode::P), .. } => {
+                    debug_rendering = !debug_rendering;
+                },
+                Event::KeyDown { keycode, ..} |
+                Event::KeyUp { keycode, ..} => {
+                    let pressed = match event {
+                        Event::KeyDown{..} => true,
+                        _ => { false }
+                    };
+
+                    match keycode {
+                        Some(kc) => {
+                            if let Some(button) = keycode_to_joypad.get(&kc) {
+                                nes.bus.controller1.set_button_status(button, pressed);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        texture.update(None, &pixel_buffer, (WINDOW_WIDTH * 4) as usize).unwrap();
+        canvas.copy(&texture, None, None).unwrap(); // copy texture to the entire canvas
+
+        let elapsed_time = Instant::now().duration_since(frame_start_time);
+        if elapsed_time < FRAME_DURATION {
+            let sleep_duration = FRAME_DURATION - elapsed_time;
+            std::thread::sleep(sleep_duration);
+        }
+
+        nes.clear_frame();
 
         // Draw some info
         let status_str = format!(
@@ -128,7 +204,7 @@ async fn play_rom(rom_path: &str) {
             nes.bus.cpu.register_x,
             nes.bus.cpu.register_y
         );
-        draw_text(&status_str, 5.0, 24.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0));
+        draw_text(&status_str, &mut canvas, &font, 5, 5);
 
         let status_str = format!(
             "addr:{:04X} bus_cycles:{} ppu_cycles:{}",
@@ -136,70 +212,85 @@ async fn play_rom(rom_path: &str) {
             nes.bus.cycles,
             nes.bus.ppu.cycles
         );
-        draw_text(&status_str, 5.0, 48.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0));
+        draw_text(&status_str, &mut canvas, &font, 5, 27);
 
         let ppu_stats = format!("sprite_count: {}", nes.bus.ppu.sprite_count);
-        draw_text(&ppu_stats, 5.0, 70.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0));
+        draw_text(&ppu_stats, &mut canvas, &font, 5, 49);
 
         //
         // DEBUG RENDERING
         //
-        let mut debug_rendering = false;
-        if keys_down.contains(&KeyCode::Key0) {
-            debug_rendering = !debug_rendering;
-        }
         if debug_rendering {
-            debug_render_data(300, 32, 32, 5, &nes.bus.ppu.palette_table);
-            debug_render_data(300, 60, 32, 2, &nes.bus.ppu.ram);
+            debug_render_data(&nes.bus.ppu.palette_table, &mut canvas, 300, 32, 32, 5);
+            debug_render_data(&nes.bus.ppu.ram, &mut canvas, 300, 60, 32, 2);
 
-            debug_render_data(450, 350, 8, 3, &nes.bus.ppu.oam_data);
-            debug_render_data(10, 400, 32, 3, &nes.bus.ppu.secondary_oam);
-            debug_render_data(10, 405, 32, 3, &nes.bus.ppu.sprite_pattern_low);
-            debug_render_data(10, 410, 32, 3, &nes.bus.ppu.sprite_pattern_high);
-            debug_render_data(10, 415, 32, 3, &nes.bus.ppu.sprite_x_counter);
-            debug_render_data(10, 420, 32, 3, &nes.bus.ppu.sprite_attributes);
+            debug_render_data(&nes.bus.ppu.oam_data, &mut canvas, 450, 350, 8, 2);
+            debug_render_data(&nes.bus.ppu.oam_data, &mut canvas, 10, 400, 32, 3);
+            debug_render_data(&nes.bus.ppu.sprite_pattern_low, &mut canvas, 10, 405, 32, 3);
+            debug_render_data(&nes.bus.ppu.sprite_pattern_low, &mut canvas, 10, 410, 32, 3);
+            debug_render_data(&nes.bus.ppu.sprite_x_counter, &mut canvas, 10, 415, 32, 3);
+            debug_render_data(&nes.bus.ppu.sprite_x_counter, &mut canvas, 10, 420, 32, 3);
         }
 
-        next_frame().await;
+        canvas.present();
     }
+
+    Ok(())
 }
 
-fn debug_render_data(x: usize, y: usize, width: usize, pixel_size: usize, data: &[u8]) {
+fn draw_text(text: &str, canvas: &mut WindowCanvas, font: &Font, x: i32, y: i32) {
+    let text_color = Color::RGBA(255, 255, 0, 255); // White text
+    let texture_creator: TextureCreator<WindowContext> = canvas.texture_creator();
+
+    let main_text = text;
+    let surface = font
+        .render(main_text)
+        .blended(text_color)
+        .unwrap();
+
+    let texture = texture_creator.create_texture_from_surface(&surface).unwrap();
+
+    // get the dimensions of the rendered text
+    let (width, height) = surface.size();
+    let target_rect = Rect::new(x, y, width, height);
+
+    canvas.set_blend_mode(BlendMode::Blend);
+    canvas.set_draw_color(Color::RGBA(0,0,0,128));
+    canvas.fill_rect(rect!(x, y, width, height)).unwrap();
+    canvas.copy(&texture, None, Some(target_rect)).unwrap();
+}
+
+fn debug_render_data(data: &[u8], canvas: &mut WindowCanvas, x: usize, y: usize, width: usize, pixel_size: usize) {
     for (i, v) in data.iter().enumerate() {
         let x = i % width * pixel_size + x;
         let y = i / width * pixel_size + y;
-        draw_rectangle(
-            x as f32,
-            y as f32,
-            pixel_size as f32,
-            pixel_size as f32,
-            *COLOR_MAP.get_color(((v) % 53) as usize),
-        );
+        canvas.set_draw_color(*COLOR_MAP.get_color(((v) % 53) as usize));
+        canvas.fill_rect(rect!(x,y,pixel_size, pixel_size)).unwrap();
     }
 }
 
-#[allow(dead_code)]
-async fn render_sprite_banks(rom_path: &str) {
-    // Load and parse ROM
-    let rom_data = std::fs::read(rom_path).expect("Error reading ROM file");
-    let rom = Rom::new(&rom_data).unwrap();
-
-    let mut f: Frame = Frame::new();
-    for i in 0..256 {
-        f.show_tile(&rom.chr_rom, 0, i);
-    }
-    for i in 0..256 {
-        f.show_tile(&rom.chr_rom, 1, i);
-    }
-
-    loop {
-        clear_background(BLACK);
-        // Handle user input
-        let keys_pressed = get_keys_down();
-        if keys_pressed.contains(&KeyCode::Escape) {
-            break;
-        }
-        draw_frame(&f);
-        next_frame().await;
-    }
-}
+// #[allow(dead_code)]
+// async fn render_sprite_banks(rom_path: &str) {
+//     // Load and parse ROM
+//     let rom_data = std::fs::read(rom_path).expect("Error reading ROM file");
+//     let rom = Rom::new(&rom_data).unwrap();
+//
+//     let mut f: Frame = Frame::new();
+//     for i in 0..256 {
+//         f.show_tile(&rom.chr_rom, 0, i);
+//     }
+//     for i in 0..256 {
+//         f.show_tile(&rom.chr_rom, 1, i);
+//     }
+//
+//     loop {
+//         clear_background(BLACK);
+//         // Handle user input
+//         let keys_pressed = get_keys_down();
+//         if keys_pressed.contains(&KeyCode::Escape) {
+//             break;
+//         }
+//         draw_frame(&f);
+//         next_frame().await;
+//     }
+// }
