@@ -84,7 +84,7 @@ impl PPU {
             frame_is_odd: true,
             // frame_ct: 0,
 
-            ctrl_register: ControlRegister::from_bits_truncate(0b0),
+            ctrl_register: ControlRegister::new(),
             mask_register: MaskRegister::new(),
             scroll_register: ScrollRegister::new(),
             status_register: StatusRegister::new(),

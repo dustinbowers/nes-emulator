@@ -47,16 +47,16 @@ impl ControlRegister {
         self.contains(Self::GENERATE_NMI)
     }
 
-    pub fn get_nametable_addr(&self) -> u16 {
-        let nt_bits = self.bits() & 0b11;
-        match nt_bits {
-            0b00 => 0x2000,
-            0b01 => 0x2400,
-            0b10 => 0x2800,
-            0b11 => 0x2c00,
-            _ => panic!("impossible"),
-        }
-    }
+    // pub fn get_nametable_addr(&self) -> u16 {
+    //     let nt_bits = self.bits() & 0b11;
+    //     match nt_bits {
+    //         0b00 => 0x2000,
+    //         0b01 => 0x2400,
+    //         0b10 => 0x2800,
+    //         0b11 => 0x2c00,
+    //         _ => panic!("impossible"),
+    //     }
+    // }
 
     pub fn background_pattern_addr(&self) -> u16 {
         match self.contains(Self::BACKGROUND_PATTERN_ADDR) {

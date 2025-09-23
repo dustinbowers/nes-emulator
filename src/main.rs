@@ -7,9 +7,7 @@ mod nes;
 mod ppu;
 mod rom;
 
-use crate::bus::nes_bus::NesBus;
 use crate::nes::NES;
-use cartridge::Cartridge;
 use controller::joypad::JoypadButtons;
 use rom::Rom;
 
@@ -136,8 +134,8 @@ fn main() -> Result<(), String> {
 
         let frame = nes.get_frame_buffer();
         for (i, c) in frame.iter().enumerate() {
-            let x = (i % 256);
-            let y = (i / 256);
+            let x = i % 256 ;
+            let y = i / 256 ;
             // if y == 0 {
             //     continue;
             // } // TODO: fix this nasty hack
@@ -196,7 +194,7 @@ fn main() -> Result<(), String> {
             std::thread::sleep(sleep_duration);
         }
 
-        nes.clear_frame();
+        // nes.clear_frame();
 
         // Draw some info
         let status_str = format!(

@@ -11,7 +11,7 @@ pub struct NES {
 
 impl NES {
     pub fn new(cartridge: Box<dyn Cartridge>) -> Self {
-        let mut bus = NesBus::new(cartridge);
+        let bus = NesBus::new(cartridge);
         Self {
             bus,
             cpu_cycles: 0,

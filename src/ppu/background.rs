@@ -39,8 +39,8 @@ impl PPU {
         self.bg_pattern_shift_high = (self.bg_pattern_shift_high & 0xFF00) | self.next_tile_msb as u16;
 
         // Attribute latches: store the 2-bit palette info for the next 8 pixels
-        self.bg_attr_latch_low = (self.next_tile_attr & 0b01);// as u16;
-        self.bg_attr_latch_high = ((self.next_tile_attr & 0b10) >> 1);// as u16;
+        self.bg_attr_latch_low = self.next_tile_attr & 0b01 ;// as u16;
+        self.bg_attr_latch_high = (self.next_tile_attr & 0b10) >> 1 ;// as u16;
 
         // Load low byte of attribute shift registers with latched bits repeated 8 times
         // High byte remains untouched to continue shifting

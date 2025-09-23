@@ -21,7 +21,6 @@ pub struct NesBus {
     pub cycles: usize,
     pub cpu: CPU,
     pub ppu: PPU,
-    pub disable_mirroring: bool,
 
     // Some games expect an "open-bus":
     // i.e. invalid reads return last-read byte
@@ -39,7 +38,6 @@ impl NesBus {
             cycles: 0,
             cpu: CPU::new(),
             ppu: PPU::new(),
-            disable_mirroring: false,
             last_fetched_byte: 0,
             controller1: Box::new(Joypad::new()),
         });
@@ -52,26 +50,6 @@ impl NesBus {
         bus.ppu.connect_bus(bus_ptr as *mut dyn PpuBusInterface);
 
         Box::leak(bus)
-    }
-
-    #[deprecated]
-    /// `tick` drives CPU/PPU forward. Returns (num_cpu_cycles, is_breaking)
-    pub fn tick(&mut self) -> (u8, bool) {
-        panic!("don't call this");
-        let (tick_cycles, _, is_breaking) = self.cpu.tick();
-
-        for _ in 0..3 {
-            self.ppu.tick();
-        }
-
-        // TODO: APU tick
-
-        self.cycles += tick_cycles as usize;
-        if self.cycles > 1_000_000 {
-            self.cycles -= 1_000_000;
-        }
-
-        (tick_cycles, is_breaking)
     }
 }
 
