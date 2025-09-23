@@ -15,15 +15,14 @@
     - [x] Non-maskable-interrupts
     - [x] Software-defined interrupts
 - [x] Implement user-input via Joypad 1
-- [ ] Implement cycle-accurate DMA transfer through Bus
-- [ ] Implement PPU
-    - [ ] Background nametable rendering
-    - [ ] 8x8 sprite rendering (with horiz/vert flips)
-    - [ ] 8x16 sprite rendering
+- [x] Implement PPU
+    - [x] Background nametable rendering
+    - [x] 8x8 sprite rendering (with horiz/vert flips)
+    - [x] 8x16 sprite rendering
+    - [x] Sprite collision detection
     - [ ] Detect sprite-overflow
-    - [ ] Sprite collision detection
-  
 - [x] Encapsulate mapper logic behind Cartridge trait
+- [ ] Implement cycle-accurate DMA transfer through Bus
 - [ ] Implement APU
 
 ### Resources
