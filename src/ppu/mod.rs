@@ -35,6 +35,7 @@ pub struct PPU {
     bus: Option<*mut dyn PpuBusInterface>,
     pub ram: [u8; RAM_SIZE], // $2007 (R - latched)
     internal_data: u8,
+    frame_is_odd: bool,
 
     pub palette_table: [u8; PALETTE_SIZE],
 
@@ -79,6 +80,7 @@ impl PPU {
             cycles: 0,
             scanline: 0,
             internal_data: 0,
+            frame_is_odd: true,
 
             ctrl_register: ControlRegister::from_bits_truncate(0b0),
             mask_register: MaskRegister::new(),
@@ -174,23 +176,100 @@ impl PPU {
         let visible_scanline = scanline < 240;
         let prerender_scanline = scanline == 261;
 
-        // 0. "Skipped on BG+Odd"
-        if scanline == 0 && dot == 0 {
-            // TODO: On odd frames, jump directly from (339, 261) to (0,0)
+        // --- Odd frame cycle skip (only if rendering enabled)
+        if prerender_scanline && dot == 339 && self.frame_is_odd && rendering_enabled {
+            // Skip cycle 340, wrap to next frame
+            self.cycles = 0;
+            self.scanline = 0;
+            self.frame_is_odd = !self.frame_is_odd;
+            return true; // frame complete
         }
 
-        // 1. Clear VBlank flag at dot 1 of prerender
-        if prerender_scanline && dot == 1 {
-            // TODO: The VBL flag ($2002.7) is cleared by the PPU around 2270 CPU clocks
-            //       after NMI occurs.
-            self.status_register.reset_vblank_status();
+        // --- Rendering pipeline
+        if rendering_enabled {
+            if (visible_scanline || prerender_scanline) && (1..=336).contains(&dot) {
+                // === Shift the shift registers
+                if (1..=256).contains(&dot) || (321..=336).contains(&dot) {
+                    self.shift_background_registers();
+                    if (1..=256).contains(&dot) {
+                        // Only shift during visible pixels
+                        self.shift_sprite_registers();
+                    }
+                }
 
+                // === Render pixel
+                if visible_scanline && (1..=256).contains(&dot) {
+                    let color = self.render_dot();
+                    self.frame_buffer[scanline * 256 + (dot - 1)] = color;
+                }
+
+                // === Background fetches
+                match dot % 8 {
+                    1 => self.fetch_name_table_byte(),
+                    3 => self.fetch_attribute_byte(),
+                    5 => self.fetch_tile_low_byte(),
+                    7 => self.fetch_tile_high_byte(),
+                    0 => {
+                        self.load_background_registers();
+
+                        // increment X-coord for next tile
+                        if (8..=256).contains(&dot) || (328..=336).contains(&dot) {
+                            self.scroll_register.increment_x();
+                        }
+                    }
+                    _ => {}
+                }
+
+                // === Secondary-OAM clear (cycles 1–64)
+                if visible_scanline && (1..=64).contains(&dot) {
+                    let ind = ((dot - 1) / 2) as usize;
+                    if dot % 2 == 0 {
+                        self.secondary_oam[ind] = 0xFF;
+                    }
+                }
+                if visible_scanline && dot == 64 {
+                    self.reset_sprite_evaluation();
+                }
+
+                // === Sprite evaluation (65–256)
+                if visible_scanline && (65..=256).contains(&dot) && dot % 2 == 1 {
+                    self.sprite_evaluation(scanline, dot);
+                }
+
+                // === Sprite pattern fetches (257–320)
+                if (257..=320).contains(&dot) && (visible_scanline || prerender_scanline) {
+                    if (dot - 257) % 8 == 0 {
+                        let sprite_num = (dot - 257) / 8;
+                        self.sprite_fill_register(sprite_num as usize, scanline);
+                    }
+                }
+
+                // === Scroll updates
+                if dot == 256 {
+                    self.scroll_register.increment_y();
+                }
+                if dot == 257 {
+                    self.scroll_register.copy_horizontal_bits();
+
+                    // Clear shift registers to avoid stale data
+                    self.bg_pattern_shift_low = 0;
+                    self.bg_pattern_shift_high = 0;
+                    self.bg_attr_shift_low = 0;
+                    self.bg_attr_shift_high = 0;
+                }
+                if prerender_scanline && (280..=304).contains(&dot) {
+                    self.scroll_register.copy_vertical_bits();
+                }
+            }
+        }
+
+        // --- VBlank
+        if prerender_scanline && dot == 1 {
+            self.status_register.reset_vblank_status();
             self.status_register.set_sprite_zero_hit(false);
             self.status_register.set_sprite_overflow(false);
             self.scroll_register.reset_latch();
         }
-
-        // 2. Set VBlank at scanline 241, dot 1
         if scanline == 241 && dot == 1 {
             self.status_register.set_vblank_status(true);
             if self.ctrl_register.generate_vblank_nmi() {
@@ -202,86 +281,7 @@ impl PPU {
             }
         }
 
-        // 3. Rendering
-        if rendering_enabled {
-            if (visible_scanline || prerender_scanline) && (1..=336).contains(&dot) {
-                // === Rendering pixel during visible area
-                if visible_scanline && (1..=256).contains(&dot) {
-                    let color = self.render_dot();
-                    self.frame_buffer[scanline * 256 + (dot - 1)] = color;
-                }
-
-                // === Shift registers every cycle
-                if !prerender_scanline && (1..=256).contains(&dot) {
-                    self.shift_background_registers();
-                    self.shift_sprite_registers();
-                }
-
-                // === Fetch new background data
-                match dot % 8 {
-                    1 => self.fetch_name_table_byte(),
-                    3 => self.fetch_attribute_byte(),
-                    5 => self.fetch_tile_low_byte(),
-                    7 => self.fetch_tile_high_byte(),
-                    0 => self.load_background_registers(), // Load the fetched tile into shifters
-                    _ => {}
-                }
-
-                // == Clear secondary OAM
-                if visible_scanline && (1..=64).contains(&dot) {
-                    match dot % 2 == 1 {
-                        // Read on Odd, write to secondary oam on Even
-                        true => {} // "Read" $FF
-                        false => {
-                            let ind = (dot / 2) - 1;
-                            self.secondary_oam[ind] = 0xFF;
-                        }
-                    }
-                }
-                if dot == 64 {
-                    self.sprite_count = 0;
-                }
-
-                // === Sprite evaluation for next scanline (fills secondary_oam)
-                if (65..=128).contains(&dot) {
-                    if dot % 2 == 0 {
-                        self.sprite_evaluation(scanline, dot);
-                    }
-                }
-
-                // Fill sprite shift registers
-                if (257..=320).contains(&dot) && (visible_scanline || prerender_scanline) {
-                    // if dot % 8 == 0 {
-                    //     self.sprite_fill_registers(scanline, dot);
-                    // }
-                    if (dot - 257) % 8 == 0 {
-                        let sprite_num = (dot - 257) / 8;
-                        self.sprite_fill_register(sprite_num as usize, scanline);
-                    }
-                }
-
-                // === Scrolling
-                if (1..=256).contains(&dot) || (321..=336).contains(&dot) {
-                    if dot % 8 == 0 {
-                        self.scroll_register.increment_x();
-                    }
-                }
-
-                if dot == 256 {
-                    self.scroll_register.increment_y();
-                }
-
-                if dot == 257 {
-                    self.scroll_register.copy_horizontal_bits();
-                }
-
-                if prerender_scanline && (280..=304).contains(&dot) {
-                    self.scroll_register.copy_vertical_bits();
-                }
-            }
-        }
-
-        // 4. Advance cycle/scanline/frame
+        // --- Advance cycle/scanline/frame
         let mut frame_complete = false;
         self.cycles += 1;
         if self.cycles > 340 {
@@ -290,8 +290,10 @@ impl PPU {
             if self.scanline >= 262 {
                 self.scanline = 0;
                 frame_complete = true;
+                self.frame_is_odd = !self.frame_is_odd;
             }
         }
+
         frame_complete
     }
 

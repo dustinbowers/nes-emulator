@@ -3,15 +3,24 @@ use crate::ppu::{PaletteKind, PPU};
 impl PPU {
     /// `get_background_pixel` returns color-index of bg pixel at (self.cycles, self.scanline)
     pub(super) fn get_background_pixel(&mut self) -> u8 {
-        debug_assert_eq!(self.mask_register.rendering_enabled(), true);
-        // if self.scanline == 0 && self.cycles == 1 {
-        //     let coarse_x = self.scroll_register.v & 0b00000_00000_11111;
-        //     // println!("Start of frame: coarse_x = {}", coarse_x);
-        // }
+        if !self.mask_register.show_background() {
+            return self.read_palette_color(0, 0, PaletteKind::Background);
+        }
+
+        // Handle left 8 pixels masking
+        if self.cycles <= 8 && !self.mask_register.leftmost_8pxl_background() {
+            return self.read_palette_color(0, 0, PaletteKind::Background);
+        }
 
         // Compute bit index from fine X scroll
         let fine_x = self.scroll_register.x;
         let bit = 15 - fine_x;
+
+        // Ensure we don't shift by more than 15
+        if bit > 15 {
+            return self.read_palette_color(0, 0, PaletteKind::Background);
+        }
+
         let pixel_low = (self.bg_pattern_shift_low >> bit) & 1;
         let pixel_high = (self.bg_pattern_shift_high >> bit) & 1;
         let pixel = ((pixel_high << 1) | pixel_low) as u8;
@@ -20,8 +29,7 @@ impl PPU {
         let attr_high = (self.bg_attr_shift_high >> bit) & 1;
         let palette_index = ((attr_high << 1) | attr_low) as u8;
 
-        let color = self.read_palette_color(palette_index, pixel, PaletteKind::Background);
-        color
+        self.read_palette_color(palette_index, pixel, PaletteKind::Background)
     }
 
     pub(super) fn load_background_registers(&mut self) {
@@ -30,7 +38,11 @@ impl PPU {
         self.bg_pattern_shift_high =
             (self.bg_pattern_shift_high & 0xFF00) | self.next_tile_msb as u16;
 
-        // Update attribute shift registers with the latch values
+        // Latch new values from fetched attribute byte
+        self.bg_attr_latch_low = (self.next_tile_attr & 0b01) >> 0;
+        self.bg_attr_latch_high = (self.next_tile_attr & 0b10) >> 1;
+
+        // Update attribute shift registers
         self.bg_attr_shift_low = (self.bg_attr_shift_low & 0xFF00)
             | (if self.bg_attr_latch_low != 0 {
                 0xFF
@@ -43,10 +55,6 @@ impl PPU {
             } else {
                 0x00
             });
-
-        // Latch new values from fetched attribute byte
-        self.bg_attr_latch_low = (self.next_tile_attr & 0b01) >> 0;
-        self.bg_attr_latch_high = (self.next_tile_attr & 0b10) >> 1;
     }
 }
 
@@ -55,8 +63,8 @@ impl PPU {
         self.bg_pattern_shift_low <<= 1;
         self.bg_pattern_shift_high <<= 1;
 
-        self.bg_attr_shift_low = (self.bg_attr_shift_low << 1) | self.bg_attr_latch_low as u16;
-        self.bg_attr_shift_high = (self.bg_attr_shift_high << 1) | self.bg_attr_latch_high as u16;
+        self.bg_attr_shift_low <<= 1;
+        self.bg_attr_shift_high <<= 1;
     }
 
     // called during dot % 8 == 1
