@@ -36,6 +36,7 @@ pub struct PPU {
     pub ram: [u8; RAM_SIZE], // $2007 (R - latched)
     internal_data: u8,
     frame_is_odd: bool,
+    // frame_ct: usize,
 
     pub palette_table: [u8; PALETTE_SIZE],
 
@@ -81,6 +82,7 @@ impl PPU {
             scanline: 0,
             internal_data: 0,
             frame_is_odd: true,
+            // frame_ct: 0,
 
             ctrl_register: ControlRegister::from_bits_truncate(0b0),
             mask_register: MaskRegister::new(),
@@ -212,10 +214,11 @@ impl PPU {
                     0 => {
                         self.load_background_registers();
 
-                        // increment X-coord for next tile
+                        // increment x-coord for next tile
                         if (8..=256).contains(&dot) || (328..=336).contains(&dot) {
                             self.scroll_register.increment_x();
                         }
+
                     }
                     _ => {}
                 }
@@ -250,12 +253,6 @@ impl PPU {
                 }
                 if dot == 257 {
                     self.scroll_register.copy_horizontal_bits();
-
-                    // Clear shift registers to avoid stale data
-                    self.bg_pattern_shift_low = 0;
-                    self.bg_pattern_shift_high = 0;
-                    self.bg_attr_shift_low = 0;
-                    self.bg_attr_shift_high = 0;
                 }
                 if prerender_scanline && (280..=304).contains(&dot) {
                     self.scroll_register.copy_vertical_bits();
@@ -291,6 +288,7 @@ impl PPU {
                 self.scanline = 0;
                 frame_complete = true;
                 self.frame_is_odd = !self.frame_is_odd;
+                // self.frame_ct += 1;
             }
         }
 
@@ -336,7 +334,7 @@ impl PPU {
                 bg_color
             }
         };
-        final_color
+        final_color & 0x3F
     }
 
     fn chr_read(&mut self, addr: u16) -> u8 {
@@ -499,8 +497,9 @@ impl PPU {
         self.ctrl_register.update(value);
 
         // Bits 0-1 control the base nametable, which go into bits 10 and 11 of t
-        self.scroll_register.t =
-            (self.scroll_register.t & 0b1110011111111111) | (((value as u16) & 0b11) << 10);
+        const NT_BITS_MASK: u16 = 0x0C00; // bits 10 and 11
+        let nt = ((value as u16) & 0b11) << 10;
+        self.scroll_register.t = (self.scroll_register.t & !NT_BITS_MASK) | nt;
     }
 
     fn increment_addr(&mut self) {

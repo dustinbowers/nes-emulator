@@ -137,17 +137,13 @@ impl ScrollRegister {
     }
 
     pub fn copy_horizontal_bits(&mut self) {
-        self.v = (self.v & !0b0000010000011111) | (self.t & 0b0000010000011111);
-        // Copies coarse X and horizontal nametable bits (bits 0-4 and 10)
+        // bits 0–4 (coarse X) and bit 10 (horizontal NT)
+        self.v = (self.v & !0x041F) | (self.t & 0x041F);
     }
 
     pub fn copy_vertical_bits(&mut self) {
-        // bit 11 (nametable Y), bits 9–5 (coarse Y), and bits 12–14 (fine Y)
-        let mask = 0b0111_10_11111_00000;
-
-        // Copy fine Y, coarse Y, and NT Y (bits 12-5 and bit 11)
-        self.v &= !mask;
-        self.v |= self.t & mask;
+        // bits 5–9 (coarse Y), bit 11 (vertical NT), bits 12–14 (fine Y)
+        self.v = (self.v & !0x7BE0) | (self.t & 0x7BE0);
     }
 
     pub fn coarse_x(&self) -> u8 {

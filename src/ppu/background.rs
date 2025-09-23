@@ -32,39 +32,35 @@ impl PPU {
         self.read_palette_color(palette_index, pixel, PaletteKind::Background)
     }
 
+    /// Load the next tile’s pattern and attribute bytes into the low byte of the shifters
     pub(super) fn load_background_registers(&mut self) {
-        self.bg_pattern_shift_low =
-            (self.bg_pattern_shift_low & 0xFF00) | self.next_tile_lsb as u16;
-        self.bg_pattern_shift_high =
-            (self.bg_pattern_shift_high & 0xFF00) | self.next_tile_msb as u16;
+        // Pattern shifters: preserve high byte, load low byte from fetched tile
+        self.bg_pattern_shift_low = (self.bg_pattern_shift_low & 0xFF00) | self.next_tile_lsb as u16;
+        self.bg_pattern_shift_high = (self.bg_pattern_shift_high & 0xFF00) | self.next_tile_msb as u16;
 
-        // Latch new values from fetched attribute byte
-        self.bg_attr_latch_low = (self.next_tile_attr & 0b01) >> 0;
-        self.bg_attr_latch_high = (self.next_tile_attr & 0b10) >> 1;
+        // Attribute latches: store the 2-bit palette info for the next 8 pixels
+        self.bg_attr_latch_low = (self.next_tile_attr & 0b01);// as u16;
+        self.bg_attr_latch_high = ((self.next_tile_attr & 0b10) >> 1);// as u16;
 
-        // Update attribute shift registers
-        self.bg_attr_shift_low = (self.bg_attr_shift_low & 0xFF00)
-            | (if self.bg_attr_latch_low != 0 {
-                0xFF
-            } else {
-                0x00
-            });
-        self.bg_attr_shift_high = (self.bg_attr_shift_high & 0xFF00)
-            | (if self.bg_attr_latch_high != 0 {
-                0xFF
-            } else {
-                0x00
-            });
+        // Load low byte of attribute shift registers with latched bits repeated 8 times
+        // High byte remains untouched to continue shifting
+        let attr_low_byte = if self.bg_attr_latch_low != 0 { 0xFF } else { 0x00 };
+        let attr_high_byte = if self.bg_attr_latch_high != 0 { 0xFF } else { 0x00 };
+        self.bg_attr_shift_low = (self.bg_attr_shift_low & 0xFF00) | attr_low_byte;
+        self.bg_attr_shift_high = (self.bg_attr_shift_high & 0xFF00) | attr_high_byte;
     }
 }
 
 impl PPU {
     pub(super) fn shift_background_registers(&mut self) {
+        // Shift pattern registers 1 bit left per PPU cycle
         self.bg_pattern_shift_low <<= 1;
         self.bg_pattern_shift_high <<= 1;
 
-        self.bg_attr_shift_low <<= 1;
-        self.bg_attr_shift_high <<= 1;
+        // Shift attribute registers 1 bit left per PPU cycle
+        // The lower byte contains the palette bits replicated for the next 8 pixels
+        self.bg_attr_shift_low = (self.bg_attr_shift_low << 1) | (self.bg_attr_latch_low as u16);
+        self.bg_attr_shift_high = (self.bg_attr_shift_high << 1) | (self.bg_attr_latch_high as u16);
     }
 
     // called during dot % 8 == 1
