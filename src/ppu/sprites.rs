@@ -7,7 +7,8 @@ impl PPU {
         let mut sprite_in_front = false;
         let mut sprite_zero_rendered = false;
 
-        for i in 0..self.sprite_count {
+        // for i in 0..self.sprite_count {
+        for i in 0..8 {
             if self.sprite_x_counter[i] == 0 {
                 let low_bit = (self.sprite_pattern_low[i] >> 7) & 1;
                 let high_bit = (self.sprite_pattern_high[i] >> 7) & 1;
@@ -17,7 +18,7 @@ impl PPU {
                     let palette = self.sprite_attributes[i] & 0b11;
                     sprite_color = self.read_palette_color(palette, pixel, PaletteKind::Sprite);
                     sprite_in_front = (self.sprite_attributes[i] & 0b0010_0000) == 0;
-                    if i == 0 {
+                    if i == 0 && self.sprite_zero_in_range {
                         sprite_zero_rendered = true;
                     }
                     break;
@@ -29,16 +30,22 @@ impl PPU {
 
     pub(super) fn sprite_evaluation(&mut self, scanline: usize, dot: usize) {
         let current_sprite_index = (dot - 65) / 2;
-        debug_assert!(current_sprite_index < 64);
-        debug_assert!(dot % 2 == 0); // Only runs on even cycles
+        if current_sprite_index >= 64 {
+            return;
+        }
+        // debug_assert!(current_sprite_index < 64);
+        // debug_assert!(dot % 2 == 0); // Only runs on even cycles
+        debug_assert!(dot % 2 == 1); // Only runs on odd cycles
 
         let oam_base = 4 * current_sprite_index;
         let secondary_oam_base = self.sprite_count * 4; // sprite_count ranges 0..8
 
         let current_oam_y = self.oam_data[oam_base + 0] as usize;
         let sprite_height = self.ctrl_register.sprite_size() as i16;
-        if (scanline as i16 - current_oam_y as i16) >= 0
-            && (scanline as i16 - current_oam_y as i16) < sprite_height
+
+        if current_oam_y < 0xFF
+            && scanline >= current_oam_y
+            && scanline < (current_oam_y + sprite_height as usize)
         {
             if self.sprite_count < 8 {
                 self.secondary_oam[secondary_oam_base + 0] = self.oam_data[oam_base + 0];
@@ -47,7 +54,7 @@ impl PPU {
                 self.secondary_oam[secondary_oam_base + 3] = self.oam_data[oam_base + 3];
 
                 // Check if sprite0 is in range
-                if self.sprite_count == 0 {
+                if current_sprite_index == 0 {
                     // TODO: The actual sprite_zero_hit isn't triggered until render time.
                     // self.status_register.set_sprite_zero_hit(true);
 
@@ -108,14 +115,19 @@ impl PPU {
             self.sprite_attributes[sprite_num] = attributes;
             self.sprite_pattern_low[sprite_num] = pattern_low;
             self.sprite_pattern_high[sprite_num] = pattern_high;
-        } else if sprite_num == self.sprite_count {
+        } else {
             // TODO: First unused slot inherits Y from sprite #63 (quirk).
+            // Clear unused sprite slots
+            self.sprite_x_counter[sprite_num] = 0xFF; // Off-screen
+            self.sprite_attributes[sprite_num] = 0;
+            self.sprite_pattern_low[sprite_num] = 0;
+            self.sprite_pattern_high[sprite_num] = 0;
         }
     }
 
     pub(super) fn shift_sprite_registers(&mut self) {
         // Now shift sprite pattern registers for next pixel
-        for i in 0..self.sprite_count {
+        for i in 0..8 {
             if self.sprite_x_counter[i] > 0 {
                 self.sprite_x_counter[i] -= 1;
             } else {
@@ -123,5 +135,14 @@ impl PPU {
                 self.sprite_pattern_high[i] <<= 1;
             }
         }
+    }
+
+    // Add this method to properly reset sprite evaluation state
+    pub(super) fn reset_sprite_evaluation(&mut self) {
+        self.sprite_count = 0;
+        self.sprite_zero_in_range = false;
+
+        // Reset sprite overflow flag at the start of each scanline's sprite evaluation
+        self.status_register.set_sprite_overflow(false);
     }
 }

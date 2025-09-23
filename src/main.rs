@@ -119,7 +119,7 @@ fn main() -> Result<(), String> {
 
     let mut debug_rendering = false;
 
-    canvas.set_draw_color(Color::RGB(0, 0, 0));
+    canvas.set_draw_color(Color::RGB(0, 255, 0));
     canvas.clear();
     canvas.present();
 
@@ -138,9 +138,9 @@ fn main() -> Result<(), String> {
         for (i, c) in frame.iter().enumerate() {
             let x = (i % 256);
             let y = (i / 256);
-            if y == 0 {
-                continue;
-            } // TODO: fix this nasty hack
+            // if y == 0 {
+            //     continue;
+            // } // TODO: fix this nasty hack
 
             let color = COLOR_MAP.get_color((*c) as usize);
             for py in 0..PIXEL_HEIGHT as usize {
@@ -183,6 +183,9 @@ fn main() -> Result<(), String> {
                 _ => {}
             }
         }
+
+        canvas.set_draw_color(Color::RGB(0,255,0));
+        canvas.clear();
 
         texture.update(None, &pixel_buffer, (WINDOW_WIDTH * 4) as usize).unwrap();
         canvas.copy(&texture, None, None).unwrap(); // copy texture to the entire canvas
