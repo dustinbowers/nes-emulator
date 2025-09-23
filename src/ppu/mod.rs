@@ -37,6 +37,7 @@ pub struct PPU {
     internal_data: u8,
     frame_is_odd: bool,
     // frame_ct: usize,
+    last_byte_read: u8,
 
     pub palette_table: [u8; PALETTE_SIZE],
 
@@ -83,6 +84,7 @@ impl PPU {
             internal_data: 0,
             frame_is_odd: true,
             // frame_ct: 0,
+            last_byte_read: 0,
 
             ctrl_register: ControlRegister::new(),
             mask_register: MaskRegister::new(),
@@ -132,7 +134,7 @@ impl PPU {
             0x2000..=0x2001 | 0x2003 | 0x2005 | 0x2006 => {
                 // write-only, return open-bus or 0
                 println!("Read from write-only PPU register: ${:04X}", addr);
-                0
+                self.last_byte_read
             }
 
             0x2002 => self.read_status(), // PPUSTATUS
@@ -145,8 +147,16 @@ impl PPU {
             }
         };
 
-        // TODO: simulate open bus
-        // self.last_byte_read = result;
+        // TODO: verify this open bus behavior
+        // https://www.nesdev.org/wiki/Open_bus_behavior#PPU_open_bus
+        self.last_byte_read = if reg == 0x2004 {
+            // Reading the PPU's status port loads a value onto bits 7-5 of
+            // the bus, leaving the rest unchanged.
+            const STATUS_MASK: u8 = 0b1110_0000;
+            (self.last_byte_read & !STATUS_MASK) | (result & STATUS_MASK)
+        } else {
+            result
+        };
 
         result
     }
@@ -402,6 +412,8 @@ impl PPU {
             }
             _ => {
                 eprintln!("Unhandled PPU::read_memory() at {:04X}", addr);
+                // TODO: Is this an open-bus? If so, return low-byte of addr
+                // https://www.nesdev.org/wiki/Open_bus_behavior#PPU_open_bus
                 0
             }
         };
