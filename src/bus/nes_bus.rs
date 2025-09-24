@@ -97,7 +97,6 @@ impl CpuBusInterface for NesBus {
     }
 
     fn cpu_bus_write(&mut self, addr: u16, value: u8) {
-        // println!("\tCpuInterface::write()");
         match addr {
             CPU_RAM_START..=CPU_RAM_END => {
                 let mirrored = addr & 0x07FF;
@@ -109,17 +108,6 @@ impl CpuBusInterface for NesBus {
             0x4014 => {
                 self.cpu.halt_scheduled = true;
                 self.oam_dma_addr = value;
-                // TODO later: implement this realistically
-                // NES pauses CPU for 512 cycles during DMA
-
-                // OAM DMA transfer
-                // let hi: u16 = (value as u16) << 8;
-                // let mut buffer: [u8; 256] = [0; 256];
-                //
-                // for i in 0..256 {
-                //     buffer[i] = self.cpu_bus_read(hi + i as u16);
-                // }
-                // self.ppu.write_to_oam_dma(&buffer);
             }
             0x4016 => {
                 self.controller1.write(value);
