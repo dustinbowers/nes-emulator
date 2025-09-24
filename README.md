@@ -20,7 +20,7 @@
     - [x] 8x8 sprite rendering (with horiz/vert flips)
     - [x] 8x16 sprite rendering
     - [x] Sprite collision detection
-    - [ ] Detect sprite-overflow
+    - [x] Detect sprite-overflow
 - [x] Encapsulate mapper logic behind Cartridge trait
 - [x] Implement cycle-accurate DMA transfer through Bus
 - [ ] Implement APU
