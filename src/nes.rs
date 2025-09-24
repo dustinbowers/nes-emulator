@@ -14,7 +14,7 @@ pub struct NES {
     pub bus: &'static mut NesBus,
     pub ppu_warmed_up: bool,
     pub cpu_cycles: usize,
-    pub dma_mode: DmaMode,
+    dma_mode: DmaMode,
 
     pub oam_dma_skip_cycles: usize,
 }
@@ -96,12 +96,5 @@ impl NES {
 
     pub fn get_frame_buffer(&self) -> &[u8; 256 * 240] {
         return &self.bus.ppu.frame_buffer;
-    }
-
-    #[deprecated]
-    pub fn clear_frame(&mut self) {
-        // Note: this takes way longer that I was expecting...
-        // TODO: Would double-buffering be faster than blitting a bunch of zeros?
-        self.bus.ppu.frame_buffer.fill(0);
     }
 }

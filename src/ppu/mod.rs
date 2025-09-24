@@ -13,7 +13,7 @@ use crate::rom::Mirroring;
 const PRIMARY_OAM_SIZE: usize = 256;
 const SECONDARY_OAM_SIZE: usize = 32;
 const RAM_SIZE: usize = 2048;
-const NAME_TABLE_SIZE: usize = 0x400; // Size of each nametable (1 KB)
+const NAME_TABLE_SIZE: u16 = 0x400; // Size of each nametable (1 KB)
 const PALETTE_SIZE: usize = 0x20; // Size of the palette memory
 
 pub trait PpuBusInterface {
@@ -530,23 +530,23 @@ impl PPU {
         let mirrored_addr = addr & 0x2FFF;
         let index = mirrored_addr - 0x2000;
 
-        let table = index / 0x400;
-        let offset = index % 0x400;
+        let table = index / NAME_TABLE_SIZE;
+        let offset = index % NAME_TABLE_SIZE;
 
         match self.mirroring() {
             Mirroring::Vertical => {
                 // NT0 and NT2 share, NT1 and NT3 share
                 match table {
-                    0 | 2 => offset,         // NT0 or NT2
-                    1 | 3 => offset + 0x400, // NT1 or NT3
+                    0 | 2 => offset,                   // NT0 or NT2
+                    1 | 3 => offset + NAME_TABLE_SIZE, // NT1 or NT3
                     _ => unreachable!(),
                 }
             }
             Mirroring::Horizontal => {
                 // NT0 and NT1 share, NT2 and NT3 share
                 match table {
-                    0 | 1 => offset,         // NT0 or NT1
-                    2 | 3 => offset + 0x400, // NT2 or NT3
+                    0 | 1 => offset,                   // NT0 or NT1
+                    2 | 3 => offset + NAME_TABLE_SIZE, // NT2 or NT3
                     _ => unreachable!(),
                 }
             }
@@ -559,7 +559,7 @@ impl PPU {
             }
             Mirroring::Single1 => {
                 // always map to $2400 (NT1)
-                offset + 0x400
+                offset + NAME_TABLE_SIZE
             }
             _ => unimplemented!(),
         }

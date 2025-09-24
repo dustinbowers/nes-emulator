@@ -1088,13 +1088,8 @@ impl CPU {
         let and_result = self.register_a & self.register_x;
         let result = and_result.wrapping_sub(value);
 
-        // Store result in register X
         self.register_x = result;
-
-        // Carry flag is set like CMP (if result is not negative)
         self.status.set(Flags::CARRY, and_result >= value);
-
-        // Update Zero and Negative flags based on result
         self.update_zero_and_negative_flags(result);
     }
 
@@ -1116,8 +1111,6 @@ impl CPU {
         let carry = self.status.contains(Flags::CARRY) as u8;
         let result = (self.register_a >> 1) | (carry << 7);
         self.register_a = result;
-
-        // Set Zero and Negative Flags
         self.update_zero_and_negative_flags(result);
 
         // Set Carry flag based on bit 6

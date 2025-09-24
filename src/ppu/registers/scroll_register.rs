@@ -145,10 +145,6 @@ impl ScrollRegister {
         // bits 5–9 (coarse Y), bit 11 (vertical NT), bits 12–14 (fine Y)
         self.v = (self.v & !0x7BE0) | (self.t & 0x7BE0);
     }
-
-    pub fn coarse_x(&self) -> u8 {
-        (self.v & 0b00000_00000_11111) as u8
-    }
 }
 
 #[cfg(test)]

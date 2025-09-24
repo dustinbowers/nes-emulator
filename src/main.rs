@@ -223,8 +223,8 @@ fn main() -> Result<(), String> {
         );
         draw_text(&status_str, &mut canvas, &font, 5, 5 + 22 * 1);
 
-        let ppu_stats = format!("sprite_count: {}", nes.bus.ppu.sprite_count);
-        draw_text(&ppu_stats, &mut canvas, &font, 5, 5 + 22 * 2);
+        // let ppu_stats = format!("sprite_count: {}", nes.bus.ppu.sprite_count);
+        // draw_text(&ppu_stats, &mut canvas, &font, 5, 5 + 22 * 2);
 
         // let cpu_mode = format!(
         //     "cpu_mode: {:?}",

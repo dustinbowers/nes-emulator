@@ -1,5 +1,5 @@
+use crate::bus::nes_bus::NesBus;
 use crate::rom::Mirroring;
-use crate::NesBus;
 
 #[cfg(test)]
 mod test {

@@ -42,17 +42,17 @@ impl MaskRegister {
         *self = MaskRegister::from_bits_truncate(data);
     }
 
-    pub fn is_grayscale(&self) -> bool {
-        self.contains(MaskRegister::GREYSCALE)
-    }
+    // pub fn is_grayscale(&self) -> bool {
+    //     self.contains(MaskRegister::GREYSCALE)
+    // }
 
     pub fn leftmost_8pxl_background(&self) -> bool {
         self.contains(MaskRegister::LEFTMOST_8PXL_BACKGROUND)
     }
 
-    pub fn leftmost_8pxl_sprite(&self) -> bool {
-        self.contains(MaskRegister::LEFTMOST_8PXL_SPRITE)
-    }
+    // pub fn leftmost_8pxl_sprite(&self) -> bool {
+    //     self.contains(MaskRegister::LEFTMOST_8PXL_SPRITE)
+    // }
 
     pub fn show_background(&self) -> bool {
         self.contains(MaskRegister::SHOW_BACKGROUND)
