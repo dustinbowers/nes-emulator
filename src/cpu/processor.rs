@@ -53,6 +53,12 @@ pub enum AddressingMode {
     None,
 }
 
+#[derive(Debug)]
+pub enum CpuMode {
+    Read,
+    Write,
+}
+
 pub trait CpuBusInterface {
     fn cpu_bus_read(&mut self, addr: u16) -> u8;
     fn cpu_bus_write(&mut self, addr: u16, value: u8);
@@ -60,6 +66,9 @@ pub trait CpuBusInterface {
 
 pub struct CPU {
     pub bus: Option<*mut dyn CpuBusInterface>,
+    pub cpu_mode: CpuMode,
+    pub rdy: bool,
+    pub halt_scheduled: bool,
 
     pub register_a: u8,
     pub register_x: u8,
@@ -82,6 +91,9 @@ impl CPU {
     pub fn new() -> CPU {
         let cpu = CPU {
             bus: None,
+            cpu_mode: CpuMode::Read,
+            halt_scheduled: false,
+            rdy: true,
             register_a: 0,
             register_x: 0,
             register_y: 0,
@@ -150,13 +162,40 @@ impl CPU {
         self.nmi_pending = true;
     }
 
+    fn toggle_mode(&mut self) {
+        self.cpu_mode = match (&self.cpu_mode) {
+            CpuMode::Read => CpuMode::Write,
+            CpuMode::Write => CpuMode::Read,
+        };
+    }
+
     // `tick` returns (num_cycles, bytes_consumed, is_breaking)
     pub fn tick(&mut self) -> (u8, u8, bool) {
         // Stall for previous cycles from last instruction
         if self.skip_cycles > 0 {
             self.skip_cycles -= 1;
+            self.toggle_mode();
             return (0, 0, false);
         }
+
+        // DMAs schedule halts, which triggers a set of events:
+        // - CPU finishes current instruction (above)
+        // - CPU waits for "Read" state
+        // - CPU halts for 1 cycle to enter DMA mode
+        if self.halt_scheduled {
+            match self.cpu_mode {
+                CpuMode::Read => {
+                    self.rdy = false;
+                    self.halt_scheduled = false;
+                }
+                CpuMode::Write => {
+                    self.toggle_mode();
+                }
+            }
+            return (0, 0, false);
+        }
+
+        self.toggle_mode();
 
         // If we're not already handling NMI, immediately handle it
         if !self.interrupt_stack.contains(&InterruptType::NMI) && self.nmi_pending {
@@ -421,7 +460,9 @@ impl CPU {
             | 0xD4 | 0xF4 | 0x0C | 0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => {
                 // Various single and multiple-byte NOPs
             }
-            _ => {unreachable!()}
+            _ => {
+                unreachable!()
+            }
         }
 
         // Tick the bus for opcode cycles. Add any extra cycles from boundary_crosses and other special cases
