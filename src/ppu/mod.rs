@@ -228,7 +228,6 @@ impl PPU {
                         if (8..=256).contains(&dot) || (328..=336).contains(&dot) {
                             self.scroll_register.increment_x();
                         }
-
                     }
                     _ => {}
                 }

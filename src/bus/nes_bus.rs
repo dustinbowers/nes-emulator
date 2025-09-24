@@ -22,6 +22,8 @@ pub struct NesBus {
     pub cpu: CPU,
     pub ppu: PPU,
 
+    pub oam_dma_addr: u8,
+
     // Some games expect an "open-bus":
     // i.e. invalid reads return last-read byte
     pub last_fetched_byte: u8,
@@ -38,6 +40,9 @@ impl NesBus {
             cycles: 0,
             cpu: CPU::new(),
             ppu: PPU::new(),
+
+            oam_dma_addr: 0,
+
             last_fetched_byte: 0,
             controller1: Box::new(Joypad::new()),
         });
@@ -102,17 +107,19 @@ impl CpuBusInterface for NesBus {
                 self.ppu.write_register(addr, value);
             }
             0x4014 => {
+                self.cpu.halt_scheduled = true;
+                self.oam_dma_addr = value;
                 // TODO later: implement this realistically
                 // NES pauses CPU for 512 cycles during DMA
 
                 // OAM DMA transfer
-                let hi: u16 = (value as u16) << 8;
-                let mut buffer: [u8; 256] = [0; 256];
-
-                for i in 0..256 {
-                    buffer[i] = self.cpu_bus_read(hi + i as u16);
-                }
-                self.ppu.write_to_oam_dma(&buffer);
+                // let hi: u16 = (value as u16) << 8;
+                // let mut buffer: [u8; 256] = [0; 256];
+                //
+                // for i in 0..256 {
+                //     buffer[i] = self.cpu_bus_read(hi + i as u16);
+                // }
+                // self.ppu.write_to_oam_dma(&buffer);
             }
             0x4016 => {
                 self.controller1.write(value);
