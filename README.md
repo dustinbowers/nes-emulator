@@ -22,7 +22,7 @@
     - [x] Sprite collision detection
     - [ ] Detect sprite-overflow
 - [x] Encapsulate mapper logic behind Cartridge trait
-- [ ] Implement cycle-accurate DMA transfer through Bus
+- [x] Implement cycle-accurate DMA transfer through Bus
 - [ ] Implement APU
 
 ### Resources
