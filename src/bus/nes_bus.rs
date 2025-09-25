@@ -1,3 +1,4 @@
+use crate::apu::APU;
 use crate::cartridge::Cartridge;
 use crate::controller::joypad::Joypad;
 use crate::controller::NesController;
@@ -21,6 +22,7 @@ pub struct NesBus {
     pub cycles: usize,
     pub cpu: CPU,
     pub ppu: PPU,
+    pub apu: APU,
 
     pub oam_dma_addr: u8,
 
@@ -40,6 +42,7 @@ impl NesBus {
             cycles: 0,
             cpu: CPU::new(),
             ppu: PPU::new(),
+            apu: APU::new(),
 
             oam_dma_addr: 0,
 
@@ -50,7 +53,7 @@ impl NesBus {
         // Safety: This raw pointer should remain stable
         let bus_ptr: *mut NesBus = &mut *bus;
 
-        // Give PPU a pointer back to the Bus (for NMI/IRQ signaling)
+        // Give CPU/PPU a pointer back to the Bus
         bus.cpu.connect_bus(bus_ptr as *mut dyn CpuBusInterface);
         bus.ppu.connect_bus(bus_ptr as *mut dyn PpuBusInterface);
 
@@ -112,10 +115,11 @@ impl CpuBusInterface for NesBus {
             0x4016 => {
                 self.controller1.write(value);
             }
-            0x4017 => {
-                // TODO: later
-                /* self.controller2.write(value) */
+            0x4000..=0x4013 | 0x4015 | 0x4017 => {
+                // APU
+                self.apu.write(addr, value);
             }
+
             0x4018..=0x401F => { /* Open bus */ }
             CART_START..=CART_END => self.cart.prg_write(addr, value),
             _ => {

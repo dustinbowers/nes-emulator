@@ -188,6 +188,7 @@ impl PPU {
         let visible_scanline = scanline < 240;
         let prerender_scanline = scanline == 261;
 
+        // println!("rendering enabled: {}", rendering_enabled);
         // --- Odd frame cycle skip (only if rendering enabled)
         if prerender_scanline && dot == 339 && self.frame_is_odd && rendering_enabled {
             // Skip cycle 340, wrap to next frame
@@ -199,6 +200,7 @@ impl PPU {
 
         // --- Rendering pipeline
         if rendering_enabled {
+            // println!("scanline = {}, dot = {}", scanline, dot);
             if (visible_scanline || prerender_scanline) && (1..=336).contains(&dot) {
                 // === Shift the shift registers
                 if (1..=256).contains(&dot) || (321..=336).contains(&dot) {
@@ -213,6 +215,7 @@ impl PPU {
                 if visible_scanline && (1..=256).contains(&dot) {
                     let color = self.render_dot();
                     self.frame_buffer[scanline * 256 + (dot - 1)] = color;
+                    // println!("{} = {}", scanline * 256 + (dot-1), color);
                 }
 
                 // === Background fetches
@@ -296,6 +299,7 @@ impl PPU {
             if self.scanline >= 262 {
                 self.scanline = 0;
                 frame_complete = true;
+                // println!("frame_complete = true");
                 self.frame_is_odd = !self.frame_is_odd;
                 // self.frame_ct += 1;
             }
