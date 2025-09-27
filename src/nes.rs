@@ -115,7 +115,8 @@ impl NES {
 
     pub fn set_sample_frequency(&mut self, sample_rate: u32) {
         self.audio_time_per_system_sample = 1.0 / (sample_rate as f32);
-        self.audio_time_per_nes_clock = 1.0 / 5369318.0; // PPU clock frequency (NTSC)
+        // self.audio_time_per_nes_clock = 1.0 / 5369318.0; // PPU clock frequency (NTSC)
+        self.audio_time_per_nes_clock = 1.0 / 1789773.0; // CPU clock frequency (NTSC)
 
         println!(
             "audio_time_per_system_sample: {}",

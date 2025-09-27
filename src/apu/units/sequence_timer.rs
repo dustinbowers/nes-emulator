@@ -1,11 +1,15 @@
 pub struct SequenceTimer {
-    reload_value: u16,
+    timer_low: u8,
+    timer_high: u8,
+    pub reload_value: u16,
     value: u16,
 }
 
 impl SequenceTimer {
     pub fn new() -> SequenceTimer {
         SequenceTimer {
+            timer_low: 0,
+            timer_high: 0,
             reload_value: 0,
             value: 0,
         }
@@ -13,20 +17,34 @@ impl SequenceTimer {
 
     pub fn set_reload(&mut self, reload_value: u16) {
         self.reload_value = reload_value;
-    }
-
-    pub fn set_reload_high(&mut self, hi: u8) {
-        self.reload_value = (self.reload_value & 0b1111_1111) | ((hi as u16) << 8);
+        println!("SequenceTimer::set_reload({:016b})", reload_value);
     }
 
     pub fn set_reload_low(&mut self, lo: u8) {
-        self.reload_value = (self.reload_value & 0b0111_0000_0000) | lo as u16;
+        self.timer_low = lo;
+        self.reload_value = (self.timer_high as u16) << 8 | (self.timer_low as u16);
+        self.reload_value &= 0b0111_1111_1111;
+        // self.reload_value = (self.reload_value & 0xFF00) | lo as u16;
+        // println!("set_reload_low({}). Reload_value = {:16b}", lo, self.reload_value);
     }
+
+    pub fn set_reload_high(&mut self, hi: u8) {
+        self.timer_high = hi & 0b111;
+        self.reload_value = (self.timer_high as u16) << 8 | (self.timer_low as u16);
+        self.reload_value &= 0b0111_1111_1111;
+        // self.reload_value = (self.reload_value & 0x00FF) | (((hi as u16) & 0x07) << 8);
+        // println!("set_reload_high({}). Reload_value = {:16b}", hi, self.reload_value);
+    }
+
 
     /// returns `true` if waveform generator needs clocking
     pub fn clock(&mut self) -> bool {
+        let timer = self.reload_value;
+        let freq = 1789773.0 / (16.0 * (timer as f32 + 1.0));
+        // println!("Timer={} → freq={}", timer, freq);
         if self.value == 0 {
             self.value = self.reload_value;
+            // self.value = self.value.saturating_sub(1); // off-by-one fix
             true
         } else {
             self.value -= 1;
@@ -36,9 +54,18 @@ impl SequenceTimer {
 
     pub fn reset(&mut self) {
         self.value = self.reload_value;
+        println!("SequenceTimer::reset(): value = {}", self.value);
     }
 
     pub fn output(&self) -> u16 {
         return self.value;
+    }
+
+
+    pub fn get_reload_low_bits(&self) -> u8 {
+        self.timer_low
+    }
+    pub fn get_reload_high_bits(&self) -> u8 {
+        self.timer_high
     }
 }

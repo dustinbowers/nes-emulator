@@ -93,8 +93,10 @@ impl APU {
             0x4006 => self.pulse2.write_4002(value),
             0x4007 => self.pulse2.write_4003(value),
 
-            0x4008..=0x400B => { // Triangle
-            }
+            0x4008 => self.triangle.write_4008(value),
+            0x400a => self.triangle.write_400a(value),
+            0x400b => self.triangle.write_400b(value),
+
             0x400C..=0x400F => { // Noise
             }
             0x4010..=0x4013 => { // DMC
@@ -118,12 +120,7 @@ impl APU {
                 self.irq_disable = value & 0b0100_0000 != 0;
                 self.frame_clock_counter = 0;
 
-                // Writing to $4017 with bit 7 set ($80) will immediately clock all
-                // of its controlled units at the beginning of the 5-step sequence
-                // if self.master_sequence_mode {
-                //     self.clock_length_counter_and_sweep();
-                //     self.clock_env_and_linear_counter();
-                // }
+
             }
             _ => {
                 panic!("API write to invalid register!")
@@ -131,24 +128,12 @@ impl APU {
         }
     }
 
-    // pub fn tick(&mut self) {
-    //     let mut buf = self.buffer.lock().unwrap();
-    //     // println!("apu buf len: {}", buf.len());
-    //     for i in 0..5 {
-    //         if buf.len() < 8192 {
-    //             let sample = self.sq.sample();
-    //             buf.push_back(sample);
-    //         }
-    //     }
-    //
-    // }
-
     pub fn clock(&mut self, cpu_cycles: usize) {
+        let mut quarter_frame_clock = false;
+        let mut half_frame_clock = false;
+
         if cpu_cycles % 2 == 0 {
             self.clock_counter += 1;
-
-            let mut quarter_frame_clock = false;
-            let mut half_frame_clock = false;
             match self.master_sequence_mode {
                 false => {
                     // 4-step
@@ -196,47 +181,29 @@ impl APU {
             }
 
             self.pulse1.clock(quarter_frame_clock, half_frame_clock);
+            self.pulse2.clock(quarter_frame_clock, half_frame_clock);
+
         }
-
-        self.triangle.clock();
+        self.triangle.clock(quarter_frame_clock);
     }
 
-    pub fn sample(&self) -> u8 {
-        let out = self.pulse1.sample();
-        out
-    }
+    pub fn sample(&self) -> f32 {
+        let pulse1 = self.pulse1.sample() as f32;
+        let pulse2 = self.pulse2.sample() as f32;
+        let triangle = self.triangle.sample() as f32;
+        let noise = 0.0;
+        let dmc = 0.0;
 
-    // pub fn run_frame_counter(&mut self) {
-    //     let actions = if self.master_sequence_mode == false {
-    //         self.frame_clock_counter = if self.frame_clock_counter > 3 { 0 } else { self.frame_clock_counter + 1};
-    //         MODE_1[(self.frame_clock_counter % 4) as usize]
-    //     } else {
-    //         self.frame_clock_counter = if self.frame_clock_counter > 4 { 0 } else { self.frame_clock_counter + 1};
-    //         MODE_2[(self.frame_clock_counter % 5) as usize]
-    //     };
-    //
-    //     if actions[0] == 'F' { // IRQ (if bit 6 set)
-    //         if self.irq_disable == false {
-    //
-    //         }
-    //     }
-    //     if actions[1] == 'L' {
-    //         // length-counter and sweep
-    //         self.clock_length_counter_and_sweep();
-    //     }
-    //     if actions[2] == 'C' { // envelope and linear counter
-    //     }
-    //
-    // }
+
+        // pulse_out = 95.88 / (8128.0 / (pulse1 + pulse2) + 100.0);
+        // tnd_out   = 159.79 / (1.0 / (triangle/8227.0 + noise/12241.0 + dmc/22638.0) + 100.0);
+        // output    = pulse_out + tnd_out;
+        let pulse_out = 95.88 / (8128.0 / (pulse1 + pulse2) + 100.0);
+        let tnd_out = 0.0;
+        let output = pulse_out + tnd_out;
+
+        output
+    }
 
     fn clock_irq(&mut self) {}
-
-    // fn clock_env_and_linear_counter(&mut self) {
-    //
-    // }
-
-    // fn clock_length_counter_and_sweep(&mut self) {
-    //
-    //
-    // }
 }

@@ -30,6 +30,7 @@ impl Sweep {
     }
 
     pub fn set(&mut self, value: u8) {
+        println!("sweep::set({:08b})", value);
         self.enabled = value & 0b1000_0000 != 0;
         self.period = (value >> 4) & 0b111;
         self.negate = value & 0b0000_1000 != 0;
@@ -77,5 +78,27 @@ impl Sweep {
             timer + change
         };
         target > 0x7FF // timer must fit in 11 bits
+    }
+
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+    pub fn set_period(&mut self, period: u8) {
+        self.period = period;
+    }
+    pub fn get_period(&self) -> u8 {
+        self.period
+    }
+    pub fn set_shift(&mut self, shift: u8) {
+        self.shift = shift;
+    }
+    pub fn get_shift(&self) -> u8 {
+        self.shift
+    }
+    pub fn get_negate_flag(&self) -> bool {
+        self.negate
     }
 }

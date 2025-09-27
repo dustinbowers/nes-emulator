@@ -84,10 +84,10 @@ impl AudioCallback for NesAudioCallback {
             // *sample = nes.bus.apu.sample() as i16;
             // println!("s: {}", *sample);
 
-            let raw = nes.bus.apu.sample() as i16; // 0..15
-            let scaled = (raw - 8) * 2048; // center at 0, expand to ~±16K
+            let raw = nes.bus.apu.sample();
+            // let scaled = (raw - 8) * 2048; // center at 0, expand to ~±16K
+            let scaled = (raw * 32767.0) as i16;
             *sample = scaled;
-            println!("s: {}", *sample);
         }
 
         self.cycle_acc = cycle_acc;
