@@ -22,7 +22,7 @@ impl LengthCounter {
     }
 
     pub fn set_halt(&mut self, halted: bool) {
-        println!("LengthCounter::set_halt({:?}) - value = {}", halted, self.value);
+        // println!("LengthCounter::set_halt({:?}) - value = {}", halted, self.value);
         self.halted = halted;
     }
 

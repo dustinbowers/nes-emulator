@@ -3,12 +3,14 @@ mod registers;
 mod square_wave;
 mod triangle_channel;
 mod units;
+mod noise_channel;
 
 use crate::apu::pulse_channel::PulseChannel;
 use crate::apu::triangle_channel::TriangleChannel;
 use square_wave::SquareWave;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
+use crate::apu::noise_channel::NoiseChannel;
 
 enum MasterSequenceMode {
     FourStep,
@@ -43,6 +45,7 @@ pub struct APU {
 
     pub pulse1: PulseChannel,
     pub pulse2: PulseChannel,
+    pub noise: NoiseChannel,
 
     pub enable_dmc: bool,
     pub enable_noise: bool,
@@ -64,6 +67,7 @@ impl APU {
             sq: SquareWave::new(440.0),
             pulse1: PulseChannel::new(true),
             pulse2: PulseChannel::new(false),
+            noise: NoiseChannel::new(),
             enable_dmc: false,
             enable_noise: false,
             enable_triangle: false,
@@ -97,8 +101,10 @@ impl APU {
             0x400a => self.triangle.write_400a(value),
             0x400b => self.triangle.write_400b(value),
 
-            0x400C..=0x400F => { // Noise
-            }
+            0x400C => self.noise.write_400C(value),
+            0x400E => self.noise.write_400E(value),
+            0x400F => self.noise.write_400F(value),
+
             0x4010..=0x4013 => { // DMC
             }
             0x4015 => {
@@ -120,7 +126,7 @@ impl APU {
                 self.irq_disable = value & 0b0100_0000 != 0;
                 self.frame_clock_counter = 0;
 
-                // When bit 7 is set, reset FCC and clock all channels
+                // When bit 7 is set, reset frameclock counter and clock all channels
                 if self.master_sequence_mode == true {
                     self.pulse1.clock(true, true);
                     self.pulse2.clock(true, true);
@@ -196,17 +202,15 @@ impl APU {
         let pulse1 = self.pulse1.sample() as f32;
         let pulse2 = self.pulse2.sample() as f32;
         let triangle = self.triangle.sample() as f32;
-        let noise = 0.0;
-        let dmc = 0.0;
-
+        let noise = self.noise.sample() as f32;
+        let dmc = 0.0; // TODO
 
         // pulse_out = 95.88 / (8128.0 / (pulse1 + pulse2) + 100.0);
         // tnd_out   = 159.79 / (1.0 / (triangle/8227.0 + noise/12241.0 + dmc/22638.0) + 100.0);
         // output    = pulse_out + tnd_out;
         let pulse_out = 95.88 / (8128.0 / (pulse1 + pulse2) + 100.0);
-        let tnd_out = 0.0;
+        let tnd_out = 159.79 / (1.0 / (triangle/8227.0 + noise/12241.0 + dmc/22638.0) + 100.0);
         let output = pulse_out + tnd_out;
-
         output
     }
 
