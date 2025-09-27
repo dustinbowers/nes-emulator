@@ -17,7 +17,7 @@ impl SequenceTimer {
 
     pub fn set_reload(&mut self, reload_value: u16) {
         self.reload_value = reload_value;
-        println!("SequenceTimer::set_reload({:016b})", reload_value);
+        // println!("SequenceTimer::set_reload({:016b})", reload_value);
     }
 
     pub fn set_reload_low(&mut self, lo: u8) {
@@ -62,6 +62,9 @@ impl SequenceTimer {
     }
 
 
+    pub fn get_reload(&self) -> u16 {
+        self.reload_value
+    }
     pub fn get_reload_low_bits(&self) -> u8 {
         self.timer_low
     }

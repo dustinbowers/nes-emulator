@@ -120,7 +120,12 @@ impl APU {
                 self.irq_disable = value & 0b0100_0000 != 0;
                 self.frame_clock_counter = 0;
 
-
+                // When bit 7 is set, reset FCC and clock all channels
+                if self.master_sequence_mode == true {
+                    self.pulse1.clock(true, true);
+                    self.pulse2.clock(true, true);
+                    self.triangle.clock(true);
+                }
             }
             _ => {
                 panic!("API write to invalid register!")

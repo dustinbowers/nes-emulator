@@ -1,7 +1,6 @@
 use crate::apu::units::envelope::Envelope;
 use crate::apu::units::length_counter::LengthCounter;
 use crate::apu::units::sequence_timer::SequenceTimer;
-use sdl2::timer::Timer;
 use crate::apu::units::sweep::{PulseType, Sweep};
 
 pub struct PulseChannel {
@@ -52,6 +51,9 @@ impl PulseChannel {
             3 => 0b1011_1111,
             _ => 0b0100_0000,
         };
+
+        let length_counter_halt = value & 0b0010_0000 != 0;
+        self.length_counter.set_halt(length_counter_halt);
 
         self.envelope.set(value);
     }
@@ -117,7 +119,7 @@ impl PulseChannel {
         // Clock length counter and sweep
         if half_frame_clock {
             self.length_counter.clock();
-            let mut seq_timer_reload = self.seq_timer.output();
+            let mut seq_timer_reload = self.seq_timer.get_reload();
             self.sweep.clock(&mut seq_timer_reload);
             self.seq_timer.set_reload(seq_timer_reload);
         }

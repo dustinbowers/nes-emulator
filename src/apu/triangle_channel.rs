@@ -70,7 +70,7 @@ impl TriangleChannel {
             if self.linear_counter_control_flag == false {
                 self.linear_counter_reload_flag = false;
             }
-            println!("TriangleChannel: seq_ind {}\tlinear_ct: {}\tlength_ct:{}", self.sequence_index, self.linear_counter_value, self.length_counter.output());
+            // println!("TriangleChannel: seq_ind {}\tlinear_ct: {}\tlength_ct:{}", self.sequence_index, self.linear_counter_value, self.length_counter.output());
         }
     }
 
