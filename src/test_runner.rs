@@ -3,6 +3,7 @@
    https://github.com/SingleStepTests/65x02/tree/main/nes6502
 */
 
+mod apu;
 mod bus;
 mod cartridge;
 mod controller;
