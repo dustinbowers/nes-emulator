@@ -11,7 +11,7 @@ pub struct Envelope {
 #[derive(Debug, PartialEq, Clone)]
 pub enum VolumeMode {
     Envelope,
-    Constant
+    Constant,
 }
 
 impl Envelope {
@@ -36,10 +36,11 @@ impl Envelope {
     pub fn set(&mut self, value: u8) {
         // println!("envelope: set({:?})", value);
         self.period = value & 0b0000_1111; // lower 4 bits
-        // println!("period: {:?}", self.period);
+                                           // println!("period: {:?}", self.period);
         self.constant_volume = self.period;
         self.loop_flag = (value & 0b0010_0000) != 0; // bit 5
-        self.volume_mode = if (value & 0b0001_0000) == 0 { // bit 4
+        self.volume_mode = if (value & 0b0001_0000) == 0 {
+            // bit 4
             VolumeMode::Envelope
         } else {
             VolumeMode::Constant
@@ -92,7 +93,6 @@ impl Envelope {
     pub fn set_volume(&mut self, volume: u8) {
         self.period = volume;
     }
-
 }
 
 #[cfg(test)]
@@ -153,7 +153,11 @@ mod tests {
 
         // Ensure it actually loops multiple times
         let first_zero_index = outputs.iter().position(|&x| x == 0).unwrap();
-        let next_fifteen_index = outputs.iter().skip(first_zero_index).position(|&x| x == 15).unwrap();
+        let next_fifteen_index = outputs
+            .iter()
+            .skip(first_zero_index)
+            .position(|&x| x == 15)
+            .unwrap();
         assert!(next_fifteen_index > 0);
     }
 
@@ -202,11 +206,17 @@ mod tests {
         // Find first zero
         let first_zero_index = outputs.iter().position(|&v| v == 0).unwrap();
         // Find next 15 after first zero
-        let next_fifteen_index = outputs.iter().enumerate()
+        let next_fifteen_index = outputs
+            .iter()
+            .enumerate()
             .skip(first_zero_index)
             .find(|&(_, &v)| v == 15)
-            .unwrap().0;
+            .unwrap()
+            .0;
 
-        assert!(first_zero_index < next_fifteen_index, "Envelope did not loop back to 15 after hitting 0");
+        assert!(
+            first_zero_index < next_fifteen_index,
+            "Envelope did not loop back to 15 after hitting 0"
+        );
     }
 }

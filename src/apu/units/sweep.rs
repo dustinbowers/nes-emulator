@@ -58,7 +58,7 @@ impl Sweep {
                             *timer - change - 1
                         }
                         // (*timer).wrapping_sub(change).wrapping_sub(1)
-                    },
+                    }
                     PulseType::Pulse2 => {
                         if change > *timer {
                             0
@@ -66,7 +66,7 @@ impl Sweep {
                             *timer - change
                         }
                         // (*timer).wrapping_sub(change)
-                    },
+                    }
                 }
             } else {
                 *timer + change
@@ -81,7 +81,6 @@ impl Sweep {
             self.divider -= 1;
         }
     }
-
 
     pub fn is_muting(&self, timer: u16) -> bool {
         if timer < 8 {

@@ -96,8 +96,6 @@ impl PulseChannel {
         self.envelope.set_start_flag(true);
         self.seq_timer.reset();
     }
-
-
 }
 
 impl PulseChannel {
@@ -448,8 +446,8 @@ mod tests {
 
         // Sweep enabled, period 0, negate, shift 7
         channel.write_4001(0b1000_1111); // E=1, P=0, N=1, S=7
-        // The period of 0 means the sweep unit will clock on the next
-        // half-frame.
+                                         // The period of 0 means the sweep unit will clock on the next
+                                         // half-frame.
         assert_eq!(channel.sweep.is_enabled(), true);
         assert_eq!(channel.sweep.get_period(), 0);
         assert_eq!(channel.sweep.get_negate_flag(), true);

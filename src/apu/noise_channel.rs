@@ -4,7 +4,7 @@ use crate::apu::units::sequence_timer::SequenceTimer;
 
 pub enum NoiseMode {
     Long,
-    Short
+    Short,
 }
 
 pub struct NoiseChannel {
@@ -14,7 +14,6 @@ pub struct NoiseChannel {
     mode: NoiseMode,
 
     shifter: u16,
-
 }
 
 impl NoiseChannel {
@@ -29,24 +28,27 @@ impl NoiseChannel {
         }
     }
 
-    pub fn write_400C(&mut self, value: u8) {
+    pub fn write_400c(&mut self, value: u8) {
         let length_counter_halt = value & 0b0010_0000 != 0;
         self.envelope.set(value);
         self.length_counter.set_halt(length_counter_halt);
     }
 
-    pub fn write_400E(&mut self, value: u8) {
+    pub fn write_400e(&mut self, value: u8) {
         self.mode = match value & 0b1000_0000 == 0 {
-            true => { NoiseMode::Long }, // Flag clear == 32767 steps
-            false => { NoiseMode::Short } // Flag set == 93 or 91 steps
+            true => NoiseMode::Long,   // Flag clear == 32767 steps
+            false => NoiseMode::Short, // Flag set == 93 or 91 steps
         };
 
         let timer_period = value & 0b0000_1111;
-        const NOISE_TABLE: [u16; 16] = [4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068];
-        self.seq_timer.set_reload(NOISE_TABLE[timer_period as usize]);
+        const NOISE_TABLE: [u16; 16] = [
+            4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
+        ];
+        self.seq_timer
+            .set_reload(NOISE_TABLE[timer_period as usize]);
     }
 
-    pub fn write_400F(&mut self, value: u8) {
+    pub fn write_400f(&mut self, value: u8) {
         let length_counter_load = value >> 3;
         self.length_counter.set(length_counter_load);
         self.envelope.start();
@@ -79,7 +81,7 @@ impl NoiseChannel {
             self.length_counter.clock();
         }
 
-        if  self.seq_timer.clock() {
+        if self.seq_timer.clock() {
             self.shift_noise();
         }
     }

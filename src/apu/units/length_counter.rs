@@ -14,7 +14,10 @@ impl LengthCounter {
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
-        println!("LengthCounter::set_enabled({:?}) - value = {}", enabled, self.value);
+        println!(
+            "LengthCounter::set_enabled({:?}) - value = {}",
+            enabled, self.value
+        );
         self.enabled = enabled;
         if self.enabled == false {
             self.value = 0;
@@ -30,6 +33,10 @@ impl LengthCounter {
         // if self.enabled == false {
         //     return;
         // }
+        if self.halted {
+            // Don't change value if counter is halted
+            return;
+        }
         const COUNT_LOOKUP: [u8; 32] = [
             10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20,
             96, 22, 192, 24, 72, 26, 16, 28, 32, 30,
@@ -48,7 +55,6 @@ impl LengthCounter {
         return self.value;
     }
 }
-
 
 #[cfg(test)]
 mod tests {

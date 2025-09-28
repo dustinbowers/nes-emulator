@@ -1,22 +1,26 @@
+mod dmc_channel;
+mod noise_channel;
 mod pulse_channel;
-mod registers;
-mod square_wave;
 mod triangle_channel;
 mod units;
-mod noise_channel;
 
+use crate::apu::noise_channel::NoiseChannel;
 use crate::apu::pulse_channel::PulseChannel;
 use crate::apu::triangle_channel::TriangleChannel;
-use square_wave::SquareWave;
+use crate::ppu::PpuBusInterface;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-use crate::apu::noise_channel::NoiseChannel;
 
 enum MasterSequenceMode {
     FourStep,
     FiveStep,
 }
 const SAMPLE_RATE: f32 = 44_100.0;
+
+pub trait ApuBusInterface {
+    fn apu_bus_read(&mut self, addr: u16) -> u8;
+    fn irq(&mut self);
+}
 
 /*
    mode 0:    mode 1:       function
@@ -25,26 +29,12 @@ const SAMPLE_RATE: f32 = 44_100.0;
     - l - l    - l - - l    Length counter and sweep
     e e e e    e e e - e    Envelope and linear counter
 */
-// const MODE_1: [[char; 3]; 4] = [
-//     ['-', '-', 'C'],
-//     ['-', 'L', 'C'],
-//     ['-', '-', 'C'],
-//     ['F', 'L', 'C'],
-// ];
-// const MODE_2: [[char; 3]; 5] = [
-//     ['-', '-', 'C'],
-//     ['-', 'L', 'C'],
-//     ['-', '-', 'C'],
-//     ['-', '-', '-'],
-//     ['-', 'L', 'C'],
-// ];
 pub struct APU {
-    pub buffer: Arc<Mutex<VecDeque<i16>>>,
-    pub triangle: TriangleChannel,
-    pub sq: SquareWave,
+    bus: Option<*mut dyn ApuBusInterface>,
 
     pub pulse1: PulseChannel,
     pub pulse2: PulseChannel,
+    pub triangle: TriangleChannel,
     pub noise: NoiseChannel,
 
     pub enable_dmc: bool,
@@ -62,11 +52,10 @@ pub struct APU {
 impl APU {
     pub fn new() -> APU {
         APU {
-            buffer: Arc::new(Mutex::new(VecDeque::<i16>::with_capacity(8192))),
-            triangle: TriangleChannel::new(),
-            sq: SquareWave::new(440.0),
+            bus: None,
             pulse1: PulseChannel::new(true),
             pulse2: PulseChannel::new(false),
+            triangle: TriangleChannel::new(),
             noise: NoiseChannel::new(),
             enable_dmc: false,
             enable_noise: false,
@@ -79,10 +68,6 @@ impl APU {
             frame_clock_counter: 0,
             clock_counter: 0,
         }
-    }
-
-    pub fn get_audio_buffer(&mut self) -> Arc<Mutex<VecDeque<i16>>> {
-        return self.buffer.clone();
     }
 
     pub fn write(&mut self, addr: u16, value: u8) {
@@ -98,12 +83,14 @@ impl APU {
             0x4007 => self.pulse2.write_4003(value),
 
             0x4008 => self.triangle.write_4008(value),
-            0x400a => self.triangle.write_400a(value),
-            0x400b => self.triangle.write_400b(value),
+            0x4009 => { /* unused */ }
+            0x400A => self.triangle.write_400a(value),
+            0x400B => self.triangle.write_400b(value),
 
-            0x400C => self.noise.write_400C(value),
-            0x400E => self.noise.write_400E(value),
-            0x400F => self.noise.write_400F(value),
+            0x400C => self.noise.write_400c(value),
+            0x400D => { /* unused */ }
+            0x400E => self.noise.write_400e(value),
+            0x400F => self.noise.write_400f(value),
 
             0x4010..=0x4013 => { // DMC
             }
@@ -134,7 +121,7 @@ impl APU {
                 }
             }
             _ => {
-                panic!("API write to invalid register!")
+                panic!("API write to invalid register! {:04x}", addr);
             }
         }
     }
@@ -163,7 +150,14 @@ impl APU {
                             quarter_frame_clock = true;
                             half_frame_clock = true;
                             self.clock_counter = 0;
-                            // TODO: trigger IRQ if enabled
+
+                            if self.irq_disable == false {
+                                if let Some(bus_ptr) = self.bus {
+                                    unsafe {
+                                        (*bus_ptr).irq();
+                                    }
+                                }
+                            }
                         }
                         _ => {}
                     };
@@ -193,7 +187,7 @@ impl APU {
 
             self.pulse1.clock(quarter_frame_clock, half_frame_clock);
             self.pulse2.clock(quarter_frame_clock, half_frame_clock);
-
+            self.noise.clock(quarter_frame_clock, half_frame_clock);
         }
         self.triangle.clock(quarter_frame_clock);
     }
@@ -209,7 +203,8 @@ impl APU {
         // tnd_out   = 159.79 / (1.0 / (triangle/8227.0 + noise/12241.0 + dmc/22638.0) + 100.0);
         // output    = pulse_out + tnd_out;
         let pulse_out = 95.88 / (8128.0 / (pulse1 + pulse2) + 100.0);
-        let tnd_out = 159.79 / (1.0 / (triangle/8227.0 + noise/12241.0 + dmc/22638.0) + 100.0);
+        let tnd_out =
+            159.79 / (1.0 / (triangle / 8227.0 + noise / 12241.0 + dmc / 22638.0) + 100.0);
         let output = pulse_out + tnd_out;
         output
     }

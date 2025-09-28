@@ -36,7 +36,6 @@ impl SequenceTimer {
         // println!("set_reload_high({}). Reload_value = {:16b}", hi, self.reload_value);
     }
 
-
     /// returns `true` if waveform generator needs clocking
     pub fn clock(&mut self) -> bool {
         let timer = self.reload_value;
@@ -60,7 +59,6 @@ impl SequenceTimer {
     pub fn output(&self) -> u16 {
         return self.value;
     }
-
 
     pub fn get_reload(&self) -> u16 {
         self.reload_value

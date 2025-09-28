@@ -11,10 +11,9 @@ pub struct TriangleChannel {
     sequence_index: u8,
 
     // $4008
-    linear_counter_control_flag: bool,    // C (1 bit)
-    linear_counter_reload_value: u8, // RRRR RRR (7 bits)
+    linear_counter_control_flag: bool, // C (1 bit)
+    linear_counter_reload_value: u8,   // RRRR RRR (7 bits)
     linear_counter_value: u8,
-
 }
 
 impl TriangleChannel {
@@ -75,8 +74,10 @@ impl TriangleChannel {
     }
 
     pub fn sample(&self) -> u8 {
-        const TRIANGLE_TABLE: [u8; 32] = [15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0,
-        0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15];
+        const TRIANGLE_TABLE: [u8; 32] = [
+            15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+            11, 12, 13, 14, 15,
+        ];
 
         let value = TRIANGLE_TABLE[self.sequence_index as usize];
         value
