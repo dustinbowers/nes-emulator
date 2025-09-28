@@ -1,4 +1,4 @@
-use crate::apu::APU;
+use crate::apu::{ApuBusInterface, APU};
 use crate::cartridge::Cartridge;
 use crate::controller::joypad::Joypad;
 use crate::controller::NesController;
@@ -141,5 +141,16 @@ impl PpuBusInterface for NesBus {
     }
     fn nmi(&mut self) {
         self.cpu.trigger_nmi();
+    }
+}
+
+impl ApuBusInterface for NesBus {
+    fn apu_bus_read(&mut self, addr: u16) -> u8 {
+        println!("ApuBusInterface::read({:?})", addr);
+        0
+    }
+    fn irq(&mut self) {
+        println!("ApuBusInterface::irq()");
+        // TODO: Set IRQ request
     }
 }
