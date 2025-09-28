@@ -1,9 +1,10 @@
 use crate::rom::Mirroring;
 
+pub mod mapper000_nrom;
+pub mod mapper002_UxROM;
 pub mod mmc1;
-pub mod nrom;
 
-pub trait Cartridge {
+pub trait Cartridge: Send {
     /// Read a byte from CHR space ($0000–$1FFF)
     fn chr_read(&mut self, addr: u16) -> u8;
     /// Write a byte into CHR space (only for CHR‑RAM carts)

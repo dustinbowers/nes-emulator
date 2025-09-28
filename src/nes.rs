@@ -17,6 +17,11 @@ pub struct NES {
     dma_mode: DmaMode,
 
     pub oam_dma_skip_cycles: usize,
+
+    audio_time_per_system_sample: f32,
+    audio_time_per_nes_clock: f32,
+    audio_time: f32,
+    audio_sample_ready: bool,
 }
 
 impl NES {
@@ -28,10 +33,14 @@ impl NES {
             ppu_warmed_up: false,
             dma_mode: DmaMode::None,
             oam_dma_skip_cycles: 0,
+            audio_time_per_system_sample: 0.0,
+            audio_time_per_nes_clock: 0.0,
+            audio_time: 0.0,
+            audio_sample_ready: false,
         }
     }
 
-    pub fn tick(&mut self) -> bool {
+    pub fn clock(&mut self) -> bool {
         match self.dma_mode {
             DmaMode::None => {
                 // Check if we're ready to switch to OAM DMA
@@ -49,11 +58,12 @@ impl NES {
                     self.cpu_cycles -= 1_000_000;
                 }
 
-                // PPU ticks 3 times per CPU cycle
                 let mut frame_ready = false;
 
                 if self.ppu_warmed_up {
+                    // PPU ticks 3 times per CPU cycle
                     for _ in 0..3 {
+                        // self.bus.ppu.tick();
                         if self.bus.ppu.tick() {
                             frame_ready = true;
                         }
@@ -63,9 +73,18 @@ impl NES {
                     self.ppu_warmed_up = true;
                 }
 
-                // TODO: APU
+                // master clock is CPU
+                self.bus.apu.clock(self.cpu_cycles);
 
-                frame_ready
+                self.audio_sample_ready = false;
+                self.audio_time += self.audio_time_per_nes_clock;
+                if self.audio_time >= self.audio_time_per_system_sample {
+                    self.audio_time -= self.audio_time_per_system_sample;
+                    self.audio_sample_ready = true;
+                }
+
+                self.audio_sample_ready
+                // frame_ready
             }
             DmaMode::OAM => {
                 if self.oam_dma_skip_cycles == OAM_DMA_START_CYCLES {
@@ -92,6 +111,21 @@ impl NES {
                 false
             }
         }
+    }
+
+    pub fn set_sample_frequency(&mut self, sample_rate: u32) {
+        self.audio_time_per_system_sample = 1.0 / (sample_rate as f32);
+        // self.audio_time_per_nes_clock = 1.0 / 5369318.0; // PPU clock frequency (NTSC)
+        self.audio_time_per_nes_clock = 1.0 / 1789773.0; // CPU clock frequency (NTSC)
+
+        println!(
+            "audio_time_per_system_sample: {}",
+            self.audio_time_per_system_sample
+        );
+        println!(
+            "audio_time_per_nes_clock: {}",
+            self.audio_time_per_nes_clock
+        );
     }
 
     pub fn get_frame_buffer(&self) -> &[u8; 256 * 240] {

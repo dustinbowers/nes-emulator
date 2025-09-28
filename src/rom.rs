@@ -1,5 +1,6 @@
+use crate::cartridge::mapper000_nrom::NromCart;
+use crate::cartridge::mapper002_UxROM::Mapper002UxRom;
 use crate::cartridge::mmc1::Mmc1;
-use crate::cartridge::nrom::NromCart;
 use crate::cartridge::Cartridge;
 use std::fmt::{Display, Formatter};
 
@@ -112,6 +113,10 @@ impl Rom {
             }
             1 => {
                 let cart = Mmc1::new(self.prg_rom, self.chr_rom, 0x2000);
+                Box::new(cart)
+            }
+            2 => {
+                let cart = Mapper002UxRom::new(self.prg_rom, self.chr_rom, self.screen_mirroring);
                 Box::new(cart)
             }
 

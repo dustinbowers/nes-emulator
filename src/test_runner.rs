@@ -3,6 +3,7 @@
    https://github.com/SingleStepTests/65x02/tree/main/nes6502
 */
 
+mod apu;
 mod bus;
 mod cartridge;
 mod controller;
@@ -12,7 +13,7 @@ mod rom;
 
 use crate::bus::nes_bus::NesBus;
 use crate::bus::simple_bus::SimpleBus;
-use crate::cartridge::nrom::NromCart;
+use crate::cartridge::mapper000_nrom::NromCart;
 use crate::cpu::processor::{CpuBusInterface, Flags, CPU};
 use crate::rom::Rom;
 use serde::Deserialize;
