@@ -1,8 +1,9 @@
 use crate::rom::Mirroring;
 
 pub mod mapper000_nrom;
-pub mod mapper002_UxROM;
+pub mod mapper002_ux_rom;
 pub mod mmc1;
+pub mod mapper003_cn_rom;
 
 pub trait Cartridge: Send {
     /// Read a byte from CHR space ($0000–$1FFF)

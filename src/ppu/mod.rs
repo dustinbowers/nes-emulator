@@ -129,40 +129,43 @@ impl PPU {
     }
 
     pub fn read_register(&mut self, addr: u16) -> u8 {
-        let reg = addr & 0x2007;
+        let reg = 0x2000 + (addr & 7); // mirror registers
         let result = match reg {
             0x2000..=0x2001 | 0x2003 | 0x2005 | 0x2006 => {
-                // write-only, return open-bus or 0
-                println!("Read from write-only PPU register: ${:04X}", addr);
+                // write-only, return open bus
                 self.last_byte_read
             }
+            0x2002 => {
+                let status = self.status_register.bits();
+                // println!("read status: {:08b}", status);
 
-            0x2002 => self.read_status(), // PPUSTATUS
-            0x2004 => self.oam_data[self.oam_addr as usize], // OAMDATA
-            0x2007 => self.read_memory(), // PPUDATA
-
+                self.status_register.set_vblank_status(false); // clear vblank flag
+                self.scroll_register.reset_latch();            // reset latch
+                self.last_byte_read = (status & 0xE0) | (self.last_byte_read & 0x1F);;
+                status
+            }
+            0x2004 => {
+                let value = self.oam_data[self.oam_addr as usize];
+                self.last_byte_read = value;
+                value
+            }
+            0x2007 => {
+                let value = self.read_memory(true);
+                self.last_byte_read = value;
+                value
+            }
             _ => {
-                println!("Unhandled PPU read at: ${:04X}", addr);
-                0
+                self.last_byte_read
             }
         };
-
-        // TODO: verify this open bus behavior
-        // https://www.nesdev.org/wiki/Open_bus_behavior#PPU_open_bus
-        self.last_byte_read = if reg == 0x2004 {
-            // Reading the PPU's status port loads a value onto bits 7-5 of
-            // the bus, leaving the rest unchanged.
-            const STATUS_MASK: u8 = 0b1110_0000;
-            (self.last_byte_read & !STATUS_MASK) | (result & STATUS_MASK)
-        } else {
-            result
-        };
-
         result
     }
 
     pub fn write_register(&mut self, addr: u16, value: u8) {
-        match addr {
+        let reg = 0x2000 + (addr & 7); // mirror
+        self.last_byte_read = value;
+
+        match reg {
             0x2000 => self.write_to_ctrl(value),
             0x2001 => self.mask_register.update(value),
             0x2003 => self.oam_addr = value,
@@ -170,11 +173,9 @@ impl PPU {
             0x2005 => self.scroll_register.write_scroll(value),
             0x2006 => self.scroll_register.write_to_addr(value),
             0x2007 => self.write_memory(value),
-            0x2008..=0x3FFF => {
-                // Mirror $2000–$2007 every 8 bytes
-                self.write_register(0x2000 + (addr % 8), value);
+            _ => {
+                println!("Unhandled PPU write at: {addr:04X} = {value:02X}");
             }
-            _ => println!("Unhandled PPU write at: {addr:04X} = {value:02X}"),
         }
     }
 
@@ -272,13 +273,7 @@ impl PPU {
             }
         }
 
-        // --- VBlank
-        if prerender_scanline && dot == 1 {
-            self.status_register.reset_vblank_status();
-            self.status_register.set_sprite_zero_hit(false);
-            self.status_register.set_sprite_overflow(false);
-            self.scroll_register.reset_latch();
-        }
+        // --- VBlank (scanline 241, dot 1)
         if scanline == 241 && dot == 1 {
             self.status_register.set_vblank_status(true);
             if self.ctrl_register.generate_vblank_nmi() {
@@ -288,6 +283,15 @@ impl PPU {
                     }
                 }
             }
+        }
+        // --- pre-render line (scanline 261, dot 1)
+        if prerender_scanline && dot == 1 {
+            // println!("[SL {}, DOT {}] set_sprite_zero_hit: {:?}", self.scanline, self.cycles, true);
+            self.status_register.reset_vblank_status();
+            self.reset_sprite_evaluation();
+            self.status_register.set_sprite_zero_hit(false);
+            // self.status_register.set_sprite_overflow(false);
+            self.scroll_register.reset_latch();
         }
 
         // --- Advance cycle/scanline/frame
@@ -332,8 +336,18 @@ impl PPU {
         let bg_color = self.get_background_pixel();
         let (sprite_color, sprite_in_front, sprite_zero_rendered) = self.get_sprite_pixel();
 
-        if sprite_zero_rendered && bg_color != 0 && sprite_color != 0 {
-            self.status_register.set_sprite_zero_hit(true);
+        // Only set sprite-0 hit if it's not already set
+        // if sprite_zero_rendered && bg_color != 0 && sprite_color != 0 {
+        //     let dot = self.cycles;
+        //     if dot != 256 && !self.status_register.contains(StatusRegister::SPRITE_ZERO_HIT) {
+        //         println!("[SL {}, DOT {}] set_sprite_zero_hit: {:?}", self.scanline, self.cycles, true);
+        //         self.status_register.set_sprite_zero_hit(true);
+        //     }
+        // }
+        if sprite_zero_rendered && bg_color != 0 && self.cycles < 255 {
+            if !self.status_register.contains(StatusRegister::SPRITE_ZERO_HIT) {
+                self.status_register.set_sprite_zero_hit(true);
+            }
         }
 
         let final_color = if sprite_color == 0 {
@@ -379,7 +393,7 @@ impl PPU {
         }
     }
 
-    fn read_memory(&mut self) -> u8 {
+    fn read_memory(&mut self, increment: bool) -> u8 {
         let addr = self.scroll_register.get_addr();
 
         let result = match addr {
@@ -420,7 +434,9 @@ impl PPU {
                 0
             }
         };
-        self.increment_addr();
+        if increment {
+            self.increment_addr();
+        }
         result
     }
 
@@ -522,13 +538,24 @@ impl PPU {
             .increment_addr(self.ctrl_register.addr_increment());
     }
 
-    pub fn mirror_palette_addr(&mut self, addr: u16) -> usize {
+    pub fn mirror_palette_addr(&self, addr: u16) -> usize {
         let mut index = (addr - 0x3F00) % 0x20;
-        if index >= 0x10 && index % 4 == 0 {
+        if index & 0x03 == 0 && index >= 0x10 {
             index -= 0x10;
         }
         index as usize
     }
+    // pub fn mirror_palette_addr(&self, addr: u16) -> usize {
+    //     let mut index = (addr & 0x1F) as usize;
+    //
+    //     if index == 0x10 {
+    //         index = 0x00;
+    //     } else if index >= 0x10 {
+    //         index -= 0x10;
+    //     }
+    //
+    //     index
+    // }
 
     pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
         let mirrored_addr = addr & 0x2FFF;
@@ -567,6 +594,115 @@ impl PPU {
             }
             _ => unimplemented!(),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::rc::Rc;
+    use crate::cartridge::mapper000_nrom::NromCart;
+    use super::*;
+
+    fn create_empty_ppu() -> PPU {
+        let cart = NromCart::new(vec![0; 0x4000], vec![0; 0x4000], Mirroring::Vertical);
+        PPU::new()
+    }
+
+    #[test]
+    fn test_palette_address_basic_mirroring_3f00_3f1f() {
+        let ppu = create_empty_ppu();
+
+        // Addresses within the base 32-byte palette RAM should map directly
+        assert_eq!(ppu.mirror_palette_addr(0x3F00), 0x00);
+        assert_eq!(ppu.mirror_palette_addr(0x3F01), 0x01);
+        assert_eq!(ppu.mirror_palette_addr(0x3F0F), 0x0F);
+        assert_eq!(ppu.mirror_palette_addr(0x3F10), 0x00); // Special mirror to 3F00
+        assert_eq!(ppu.mirror_palette_addr(0x3F11), 0x01);
+        assert_eq!(ppu.mirror_palette_addr(0x3F1F), 0x0F);
+    }
+
+    #[test]
+    fn test_palette_address_full_3f00_3fff_mirroring() {
+        let ppu = create_empty_ppu();
+
+        // Test the entire 0x100 (256) byte range mirroring to 0x3F00-0x3F1F
+        for i in 0x00..=0xFF {
+            let addr = 0x3F00 + i;
+            let expected_base_mirror = (i % 0x20) as usize;
+
+            let mut final_expected = expected_base_mirror;
+
+            // Apply sprite palette mirroring to background palette region
+            if final_expected >= 0x10 {
+                final_expected -= 0x10;
+            }
+            // Apply universal background color mirroring
+            if final_expected % 4 == 0 && final_expected != 0 {
+                final_expected = 0x00;
+            }
+
+            assert_eq!(
+                ppu.mirror_palette_addr(addr),
+                final_expected,
+                "Failed at address {:#06X}",
+                addr
+            );
+        }
+    }
+
+    #[test]
+    fn test_universal_background_color_mirroring() {
+        let ppu = create_empty_ppu();
+
+        // Background color entries should all point to 0x00 (3F00)
+        assert_eq!(ppu.mirror_palette_addr(0x3F00), 0x00, "3F00 should map to 0x00");
+        assert_eq!(ppu.mirror_palette_addr(0x3F04), 0x00, "3F04 should map to 0x00");
+        assert_eq!(ppu.mirror_palette_addr(0x3F08), 0x00, "3F08 should map to 0x00");
+        assert_eq!(ppu.mirror_palette_addr(0x3F0C), 0x00, "3F0C should map to 0x00");
+
+        // These are sprite palette background entries, which mirror to the main background palette first
+        // and then get the background color rule applied.
+        assert_eq!(ppu.mirror_palette_addr(0x3F10), 0x00, "3F10 should map to 0x00");
+        assert_eq!(ppu.mirror_palette_addr(0x3F14), 0x00, "3F14 should map to 0x00");
+        assert_eq!(ppu.mirror_palette_addr(0x3F18), 0x00, "3F18 should map to 0x00");
+        assert_eq!(ppu.mirror_palette_addr(0x3F1C), 0x00, "3F1C should map to 0x00");
+
+        // Test addresses beyond the 3F00-3F1F range that also hit these points
+        assert_eq!(ppu.mirror_palette_addr(0x3F20), 0x00, "3F20 (mirrors 3F00) should map to 0x00");
+        assert_eq!(ppu.mirror_palette_addr(0x3F24), 0x00, "3F24 (mirrors 3F04) should map to 0x00");
+        assert_eq!(ppu.mirror_palette_addr(0x3F30), 0x00, "3F30 (mirrors 3F10) should map to 0x00");
+        assert_eq!(ppu.mirror_palette_addr(0x3FF0), 0x00, "3FF0 (mirrors 3F10) should map to 0x00");
+        assert_eq!(ppu.mirror_palette_addr(0x3FF4), 0x00, "3FF4 (mirrors 3F14) should map to 0x00");
+    }
+
+    #[test]
+    fn test_non_background_color_entries() {
+        let ppu = create_empty_ppu();
+
+        // These should map to their direct mirrored address within 0x00-0x0F
+        assert_eq!(ppu.mirror_palette_addr(0x3F01), 0x01);
+        assert_eq!(ppu.mirror_palette_addr(0x3F02), 0x02);
+        assert_eq!(ppu.mirror_palette_addr(0x3F03), 0x03);
+        assert_eq!(ppu.mirror_palette_addr(0x3F05), 0x05);
+        assert_eq!(ppu.mirror_palette_addr(0x3F06), 0x06);
+        assert_eq!(ppu.mirror_palette_addr(0x3F07), 0x07);
+        assert_eq!(ppu.mirror_palette_addr(0x3F09), 0x09);
+        assert_eq!(ppu.mirror_palette_addr(0x3F0A), 0x0A);
+        assert_eq!(ppu.mirror_palette_addr(0x3F0B), 0x0B);
+        assert_eq!(ppu.mirror_palette_addr(0x3F0D), 0x0D);
+        assert_eq!(ppu.mirror_palette_addr(0x3F0E), 0x0E);
+        assert_eq!(ppu.mirror_palette_addr(0x3F0F), 0x0F);
+
+        // Test sprite palette entries that are not background colors,
+        // they should map to their equivalent in the background palette
+        assert_eq!(ppu.mirror_palette_addr(0x3F11), 0x01);
+        assert_eq!(ppu.mirror_palette_addr(0x3F15), 0x05);
+        assert_eq!(ppu.mirror_palette_addr(0x3F1F), 0x0F);
+
+        // Test addresses beyond the 3F00-3F1F range
+        assert_eq!(ppu.mirror_palette_addr(0x3F21), 0x01, "3F21 (mirrors 3F01) should map to 0x01");
+        assert_eq!(ppu.mirror_palette_addr(0x3F33), 0x03, "3F33 (mirrors 3F13 which maps to 3F03) should map to 0x03");
+        assert_eq!(ppu.mirror_palette_addr(0x3FF7), 0x07, "3FF7 (mirrors 3F17 which maps to 3F07) should map to 0x07");
     }
 }
 

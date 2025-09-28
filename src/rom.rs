@@ -1,8 +1,9 @@
 use crate::cartridge::mapper000_nrom::NromCart;
-use crate::cartridge::mapper002_UxROM::Mapper002UxRom;
+use crate::cartridge::mapper002_ux_rom::Mapper002UxRom;
 use crate::cartridge::mmc1::Mmc1;
 use crate::cartridge::Cartridge;
 use std::fmt::{Display, Formatter};
+use crate::cartridge::mapper003_cn_rom::Mapper003CnRom;
 
 const NES_MAGIC_BYTES: &[u8; 4] = b"NES\x1A";
 const PRG_ROM_PAGE_SIZE: usize = 0x4000;
@@ -117,6 +118,10 @@ impl Rom {
             }
             2 => {
                 let cart = Mapper002UxRom::new(self.prg_rom, self.chr_rom, self.screen_mirroring);
+                Box::new(cart)
+            }
+            3 => {
+                let cart = Mapper003CnRom::new(self.prg_rom, self.chr_rom, self.screen_mirroring);
                 Box::new(cart)
             }
 

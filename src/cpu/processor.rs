@@ -497,11 +497,21 @@ impl CPU {
             AddressingMode::AbsoluteX => {
                 let base = self.bus_read_u16(self.program_counter);
                 let addr = base.wrapping_add(self.register_x as u16);
+
+                // Only read from base page (not the final address)
+                let dummy_addr = (base & 0xFF00) | ((base + self.register_y as u16) & 0x00FF);
+                let _ = self.bus_read(dummy_addr);
+
                 (addr, is_boundary_crossed(base, addr))
             }
             AddressingMode::AbsoluteY => {
                 let base = self.bus_read_u16(self.program_counter);
                 let addr = base.wrapping_add(self.register_y as u16);
+
+                // Only read from base page (not the final address)
+                let dummy_addr = (base & 0xFF00) | ((base + self.register_y as u16) & 0x00FF);
+                let _ = self.bus_read(dummy_addr);
+
                 (addr, is_boundary_crossed(base, addr))
             }
             AddressingMode::IndirectX => {
@@ -692,6 +702,7 @@ impl CPU {
 
     fn sta(&mut self, opcode: &opcodes::Opcode) {
         let (address, _) = self.get_parameter_address(&opcode.mode);
+        // self.bus_read(address);
         self.bus_write(address, self.register_a);
     }
 

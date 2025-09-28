@@ -28,7 +28,7 @@ pub struct NesBus {
 
     // Some games expect an "open-bus":
     // i.e. invalid reads return last-read byte
-    pub last_fetched_byte: u8,
+    pub last_cpu_read: u8,
 
     pub controller1: Box<Joypad>,
     // TODO: controller2: Box<dyn NexController>,
@@ -46,7 +46,7 @@ impl NesBus {
 
             oam_dma_addr: 0,
 
-            last_fetched_byte: 0,
+            last_cpu_read: 0,
             controller1: Box::new(Joypad::new()),
         });
 
@@ -63,7 +63,7 @@ impl NesBus {
 
 impl CpuBusInterface for NesBus {
     fn cpu_bus_read(&mut self, addr: u16) -> u8 {
-        match addr {
+        let value = match addr {
             CPU_RAM_START..=CPU_RAM_END => {
                 // RAM mirrored every 0x0800
                 let mirrored = addr & 0x07FF;
@@ -80,7 +80,8 @@ impl CpuBusInterface for NesBus {
             }
             0x4014 => {
                 // Open bus
-                unimplemented!("Invalid CPU address read: ${:04X}", addr);
+                // unimplemented!("Invalid CPU address read: ${:04X}", addr);
+                self.last_cpu_read
             }
             0x4016 => self.controller1.read(),
             0x4017 => {
@@ -89,14 +90,17 @@ impl CpuBusInterface for NesBus {
             }
             0x4018..=0x401F => {
                 // Open bus
-                unimplemented!("Invalid CPU address read: ${:04X}", addr);
+                // unimplemented!("Invalid CPU address read: ${:04X}", addr);
+                self.last_cpu_read
             }
             CART_START..=CART_END => {
                 let byte = self.cart.prg_read(addr);
                 byte
             }
             _ => 0,
-        }
+        };
+        self.last_cpu_read = value;
+        value
     }
 
     fn cpu_bus_write(&mut self, addr: u16, value: u8) {

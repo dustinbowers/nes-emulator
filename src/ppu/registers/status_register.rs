@@ -38,6 +38,11 @@ impl StatusRegister {
 
     pub fn set_sprite_zero_hit(&mut self, status: bool) {
         self.set(StatusRegister::SPRITE_ZERO_HIT, status);
+            // println!("status_register::set_sprite_zero_hit: {:?}", status);
+        // if status {
+        //     println!("status_register::set_sprite_zero_hit: {:?}", status);
+        //     println!("status register: {:08b}", self);
+        // }
     }
 
     pub fn set_sprite_overflow(&mut self, status: bool) {

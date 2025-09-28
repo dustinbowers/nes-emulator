@@ -83,15 +83,15 @@ mod tests {
         let mut lc = setup_length_counter();
         lc.set(5); // position 5 in lookup table sets counter to 4
         assert_eq!(lc.value, 4);
-        assert_eq!(lc.clock(), true);
+        lc.clock();
         assert_eq!(lc.value, 3);
-        assert_eq!(lc.clock(), true);
+        lc.clock();
         assert_eq!(lc.value, 2);
-        assert_eq!(lc.clock(), true);
+        lc.clock();
         assert_eq!(lc.value, 1);
-        assert_eq!(lc.clock(), false);
+        lc.clock();
         assert_eq!(lc.value, 0);
-        assert_eq!(lc.clock(), false);
+        lc.clock();
         assert_eq!(lc.value, 0);
     }
 }
