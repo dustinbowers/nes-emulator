@@ -96,7 +96,7 @@ impl ScrollRegister {
     }
 
     pub fn increment_addr(&mut self, inc: u8) {
-        self.v = self.v.wrapping_add(inc as u16);
+        self.v = self.v.wrapping_add(inc as u16) & 0x3FFF;
     }
 
     pub fn reset_latch(&mut self) {

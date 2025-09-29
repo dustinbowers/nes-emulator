@@ -5,6 +5,7 @@ mod sprites;
 
 use crate::cartridge::Cartridge;
 use crate::ppu::registers::control_register::ControlRegister;
+use crate::ppu::registers::decay_register::DecayRegister;
 use crate::ppu::registers::mask_register::MaskRegister;
 use crate::ppu::registers::scroll_register::ScrollRegister;
 use crate::ppu::registers::status_register::StatusRegister;
@@ -37,7 +38,8 @@ pub struct PPU {
     internal_data: u8,
     frame_is_odd: bool,
     // frame_ct: usize,
-    last_byte_read: u8,
+    // last_byte_read: u8,
+    last_byte_read: DecayRegister,
 
     pub palette_table: [u8; PALETTE_SIZE],
 
@@ -84,7 +86,8 @@ impl PPU {
             internal_data: 0,
             frame_is_odd: true,
             // frame_ct: 0,
-            last_byte_read: 0,
+            // last_byte_read: 0,
+            last_byte_read: DecayRegister::new(5_369_318),
 
             ctrl_register: ControlRegister::new(),
             mask_register: MaskRegister::new(),
@@ -129,41 +132,46 @@ impl PPU {
     }
 
     pub fn read_register(&mut self, addr: u16) -> u8 {
-        let reg = 0x2000 + (addr & 7); // mirror registers
-        let result = match reg {
-            0x2000..=0x2001 | 0x2003 | 0x2005 | 0x2006 => {
-                // write-only, return open bus
-                self.last_byte_read
+        let reg = 0x2000 + (addr & 7); // mirror every 8 bytes
+
+        match reg {
+            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => {
+                // write-only registers return open bus
+                self.last_byte_read.output()
             }
             0x2002 => {
+                // PPUSTATUS
                 let status = self.status_register.bits();
-                // println!("read status: {:08b}", status);
 
-                self.status_register.set_vblank_status(false); // clear vblank flag
-                self.scroll_register.reset_latch();            // reset latch
-                self.last_byte_read = (status & 0xE0) | (self.last_byte_read & 0x1F);;
-                status
+                // clear VBlank flag and reset first/second write toggle
+                self.status_register.set_vblank_status(false);
+                self.scroll_register.reset_latch();
+
+                // return bits 5–7 from status, 0–4 from open bus
+                let result = (status & 0xE0) | (self.last_byte_read.output() & 0x1F);
+
+                self.last_byte_read.set(reg, result);
+                result
             }
             0x2004 => {
                 let value = self.oam_data[self.oam_addr as usize];
-                self.last_byte_read = value;
+                self.last_byte_read.set(reg, value);
                 value
             }
             0x2007 => {
                 let value = self.read_memory(true);
-                self.last_byte_read = value;
+                self.last_byte_read.set(reg, value);
                 value
             }
             _ => {
-                self.last_byte_read
+                // fallback open bus
+                self.last_byte_read.output()
             }
-        };
-        result
+        }
     }
 
     pub fn write_register(&mut self, addr: u16, value: u8) {
         let reg = 0x2000 + (addr & 7); // mirror
-        self.last_byte_read = value;
 
         match reg {
             0x2000 => self.write_to_ctrl(value),
@@ -177,11 +185,14 @@ impl PPU {
                 println!("Unhandled PPU write at: {addr:04X} = {value:02X}");
             }
         }
+        self.last_byte_read.set(addr, value);
     }
 
     pub fn tick(&mut self) -> bool {
         // See: https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
         // See: https://www.nesdev.org/wiki/PPU_rendering
+
+        self.last_byte_read.tick();
 
         let dot = self.cycles;
         let scanline = self.scanline;
@@ -287,11 +298,15 @@ impl PPU {
         // --- pre-render line (scanline 261, dot 1)
         if prerender_scanline && dot == 1 {
             // println!("[SL {}, DOT {}] set_sprite_zero_hit: {:?}", self.scanline, self.cycles, true);
-            self.status_register.reset_vblank_status();
+            // self.status_register.reset_vblank_status(); // TODO: This is too early
             self.reset_sprite_evaluation();
             self.status_register.set_sprite_zero_hit(false);
             // self.status_register.set_sprite_overflow(false);
             self.scroll_register.reset_latch();
+        }
+
+        if prerender_scanline && dot == 340 {
+            self.status_register.reset_vblank_status();
         }
 
         // --- Advance cycle/scanline/frame
@@ -337,13 +352,6 @@ impl PPU {
         let (sprite_color, sprite_in_front, sprite_zero_rendered) = self.get_sprite_pixel();
 
         // Only set sprite-0 hit if it's not already set
-        // if sprite_zero_rendered && bg_color != 0 && sprite_color != 0 {
-        //     let dot = self.cycles;
-        //     if dot != 256 && !self.status_register.contains(StatusRegister::SPRITE_ZERO_HIT) {
-        //         println!("[SL {}, DOT {}] set_sprite_zero_hit: {:?}", self.scanline, self.cycles, true);
-        //         self.status_register.set_sprite_zero_hit(true);
-        //     }
-        // }
         if sprite_zero_rendered && bg_color != 0 && self.cycles < 255 {
             if !self.status_register.contains(StatusRegister::SPRITE_ZERO_HIT) {
                 self.status_register.set_sprite_zero_hit(true);
@@ -418,8 +426,8 @@ impl PPU {
                 // AND updates the internal buffer to a mirrored name-table value
 
                 // Palette RAM (32 bytes mirrored every $20)
-                let mirrored_addr = self.mirror_palette_addr(addr);
-                let result = self.palette_table[mirrored_addr];
+                let palette_index = self.mirror_palette_addr(addr);
+                let result = self.palette_table[palette_index];
 
                 // Quirk cont.: Address is mirrored down into nametable space
                 let mirrored_vram_addr = addr & 0x2FFF;
@@ -455,10 +463,10 @@ impl PPU {
                 let mut palette_addr = self.mirror_palette_addr(addr);
 
                 // Handle mirrors of universal background color
-                match palette_addr {
-                    0x10 | 0x14 | 0x18 | 0x1C => palette_addr -= 0x10,
-                    _ => {}
-                }
+                // match palette_addr {
+                //     0x10 | 0x14 | 0x18 | 0x1C => palette_addr -= 0x10,
+                //     _ => {}
+                // }
                 self.palette_table[palette_addr] = value;
             }
             _ => {
@@ -525,7 +533,20 @@ impl PPU {
     }
 
     fn write_to_ctrl(&mut self, value: u8) {
+        let prev_nmi_enable = self.ctrl_register.contains(ControlRegister::GENERATE_NMI);
         self.ctrl_register.update(value);
+
+        // Immediately trigger NMI if it goes from 0->1 during VBLANK
+        if !prev_nmi_enable
+            && value & 0b1000_0000 != 0
+            && self.status_register.contains(StatusRegister::VBLANK_STARTED)
+        {
+            if let Some(bus_ptr) = self.bus {
+                unsafe {
+                    (*bus_ptr).nmi();
+                }
+            }
+        }
 
         // Bits 0-1 control the base nametable, which go into bits 10 and 11 of t
         const NT_BITS_MASK: u16 = 0x0C00; // bits 10 and 11
@@ -539,23 +560,23 @@ impl PPU {
     }
 
     pub fn mirror_palette_addr(&self, addr: u16) -> usize {
+        // Fold full 3F00-3FFF range into 0x3F00-0x3F1F
         let mut index = (addr - 0x3F00) % 0x20;
-        if index & 0x03 == 0 && index >= 0x10 {
-            index -= 0x10;
-        }
+
+        // Special-case mirrors: $10/$14/$18/$1C -> $00/$04/$08/$0C
+        // if index & 0x03 == 0 && index >= 0x10 {
+        //     index -= 0x10;
+        // }
+        index = match index {
+            0x10 => 0x00,
+            0x14 => 0x04,
+            0x18 => 0x08,
+            0x1C => 0x0C,
+            _ => index
+        };
+
         index as usize
     }
-    // pub fn mirror_palette_addr(&self, addr: u16) -> usize {
-    //     let mut index = (addr & 0x1F) as usize;
-    //
-    //     if index == 0x10 {
-    //         index = 0x00;
-    //     } else if index >= 0x10 {
-    //         index -= 0x10;
-    //     }
-    //
-    //     index
-    // }
 
     pub fn mirror_ram_addr(&self, addr: u16) -> u16 {
         let mirrored_addr = addr & 0x2FFF;
@@ -609,16 +630,148 @@ mod test {
     }
 
     #[test]
-    fn test_palette_address_basic_mirroring_3f00_3f1f() {
+    fn test_palette_addr_mirroring() {
+        let mut ppu = create_empty_ppu(); // adjust constructor if needed
+
+        // All addresses 3F00–3FFF should map to 3F00–3F1F
+        for addr in 0x3F00..=0x3FFF {
+            let mirrored = ppu.mirror_palette_addr(addr);
+            assert!(
+                mirrored < 0x20,
+                "Address ${:04X} mapped outside palette range: ${:02X}",
+                addr,
+                mirrored
+            );
+        }
+
+        // Special universal background mirrors
+        assert_eq!(ppu.mirror_palette_addr(0x3F10), 0x00);
+        assert_eq!(ppu.mirror_palette_addr(0x3F14), 0x04);
+        assert_eq!(ppu.mirror_palette_addr(0x3F18), 0x08);
+        assert_eq!(ppu.mirror_palette_addr(0x3F1C), 0x0C);
+    }
+
+    #[test]
+    fn test_palette_read_write_symmetry() {
+        let mut ppu = create_empty_ppu();
+
+        for addr in 0x3F00..=0x3FFF {
+            let expected = (addr & 0x3F) as u8;
+
+            // directly set vram address
+            ppu.scroll_register.v = addr;
+            ppu.write_memory(expected);
+
+            // read back from same addr
+            ppu.scroll_register.v = addr;
+            let value = ppu.read_memory(false);
+
+            // Palette reads mask out upper bits (open bus),
+            // so compare only the lower 6 bits.
+            assert_eq!(
+                value & 0x3F,
+                expected & 0x3F,
+                "Mismatch at ${:04X}: wrote {:02X}, read {:02X}",
+                addr,
+                expected,
+                value
+            );
+        }
+    }
+
+    #[test]
+    fn test_ppu_palette_wrap_full_range() {
         let ppu = create_empty_ppu();
 
-        // Addresses within the base 32-byte palette RAM should map directly
-        assert_eq!(ppu.mirror_palette_addr(0x3F00), 0x00);
-        assert_eq!(ppu.mirror_palette_addr(0x3F01), 0x01);
-        assert_eq!(ppu.mirror_palette_addr(0x3F0F), 0x0F);
-        assert_eq!(ppu.mirror_palette_addr(0x3F10), 0x00); // Special mirror to 3F00
-        assert_eq!(ppu.mirror_palette_addr(0x3F11), 0x01);
-        assert_eq!(ppu.mirror_palette_addr(0x3F1F), 0x0F);
+        // The full 0x3F00–0x3FFF range should mirror into 0x00–0x1F
+        for addr in 0x3F00..=0x3FFF {
+            let mirrored = ppu.mirror_palette_addr(addr);
+            let folded_index = (addr - 0x3F00) & 0x1F;
+            let expected = if folded_index >= 0x10 && (folded_index & 0x03) == 0 {
+                folded_index - 0x10
+            } else {
+                folded_index
+            };
+            assert_eq!(mirrored as u16, expected,
+                       "Address ${:04X} mirrored incorrectly: got {}, expected {}",
+                       addr, mirrored, expected);
+        }
+    }
+
+    #[test]
+    fn test_ppu_palette_wrap_full_range2() {
+        let ppu = create_empty_ppu(); // assume this creates a PPU with 32-byte palette_table
+
+        // Check the full range $3F00–$3FFF
+        for addr in 0x3F00..=0x3FFF {
+            let mirrored = ppu.mirror_palette_addr(addr);
+
+            // Base index in 0..31
+            let base_index = (addr - 0x3F00) & 0x1F;
+
+            // Apply special mirrors for universal background color
+            let expected = match base_index {
+                0x10 => 0x00,
+                0x14 => 0x04,
+                0x18 => 0x08,
+                0x1C => 0x0C,
+                _ => base_index,
+            } as usize;
+
+            assert_eq!(
+                mirrored, expected,
+                "PPU palette address mirroring failed at {:04X}: got {}, expected {}",
+                addr, mirrored, expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_ppu_palette_write_read_consistency() {
+        let mut ppu = create_empty_ppu();
+
+        // Write each palette index and check reads
+        for addr in 0x3F00..=0x3FFF {
+            let value = (addr & 0xFF) as u8;
+            ppu.scroll_register.v = addr; // set address directly
+            ppu.write_memory(value);
+
+            // Read back immediately
+            ppu.scroll_register.v = addr;
+            let read_value = ppu.read_memory(false);
+
+            let mirrored = ppu.mirror_palette_addr(addr);
+            assert_eq!(read_value, ppu.palette_table[mirrored],
+                       "Palette read mismatch at ${:04X}", addr);
+        }
+    }
+
+
+    #[test]
+    fn test_ppu_palette_wrap_and_specials() {
+        let ppu = create_empty_ppu();
+
+        // For each canonical index in 0..31 (i.e. offsets into $3F00-$3F1F)
+        for raw_index in 0..32usize {
+            // expected index after applying special-case mapping
+            let expected = if raw_index >= 0x10 && (raw_index & 0x03) == 0 {
+                raw_index - 0x10
+            } else {
+                raw_index
+            };
+
+            // Check the canonical address and all its 8 mirrors:
+            // addresses are 0x3F00 + raw_index + k*0x20 for k=0..7
+            for k in 0..8usize {
+                let addr = 0x3F00u16.wrapping_add((raw_index as u16) + (k as u16 * 0x20));
+                let idx = ppu.mirror_palette_addr(addr);
+                assert_eq!(
+                    idx, expected,
+                    "addr {:#06X} mapped to {} but expected {}",
+                    addr, idx, expected
+                );
+            }
+        }
     }
 
     #[test]
@@ -647,33 +800,34 @@ mod test {
                 "Failed at address {:#06X}",
                 addr
             );
+            // println!("addr = {:04X} -> {:04X}", addr, ppu.mirror_palette_addr(addr));
         }
     }
 
-    #[test]
-    fn test_universal_background_color_mirroring() {
-        let ppu = create_empty_ppu();
-
-        // Background color entries should all point to 0x00 (3F00)
-        assert_eq!(ppu.mirror_palette_addr(0x3F00), 0x00, "3F00 should map to 0x00");
-        assert_eq!(ppu.mirror_palette_addr(0x3F04), 0x00, "3F04 should map to 0x00");
-        assert_eq!(ppu.mirror_palette_addr(0x3F08), 0x00, "3F08 should map to 0x00");
-        assert_eq!(ppu.mirror_palette_addr(0x3F0C), 0x00, "3F0C should map to 0x00");
-
-        // These are sprite palette background entries, which mirror to the main background palette first
-        // and then get the background color rule applied.
-        assert_eq!(ppu.mirror_palette_addr(0x3F10), 0x00, "3F10 should map to 0x00");
-        assert_eq!(ppu.mirror_palette_addr(0x3F14), 0x00, "3F14 should map to 0x00");
-        assert_eq!(ppu.mirror_palette_addr(0x3F18), 0x00, "3F18 should map to 0x00");
-        assert_eq!(ppu.mirror_palette_addr(0x3F1C), 0x00, "3F1C should map to 0x00");
-
-        // Test addresses beyond the 3F00-3F1F range that also hit these points
-        assert_eq!(ppu.mirror_palette_addr(0x3F20), 0x00, "3F20 (mirrors 3F00) should map to 0x00");
-        assert_eq!(ppu.mirror_palette_addr(0x3F24), 0x00, "3F24 (mirrors 3F04) should map to 0x00");
-        assert_eq!(ppu.mirror_palette_addr(0x3F30), 0x00, "3F30 (mirrors 3F10) should map to 0x00");
-        assert_eq!(ppu.mirror_palette_addr(0x3FF0), 0x00, "3FF0 (mirrors 3F10) should map to 0x00");
-        assert_eq!(ppu.mirror_palette_addr(0x3FF4), 0x00, "3FF4 (mirrors 3F14) should map to 0x00");
-    }
+    // #[test]
+    // fn test_universal_background_color_mirroring() {
+    //     let ppu = create_empty_ppu();
+    //
+    //     // Background color entries should all point to 0x00 (3F00)
+    //     assert_eq!(ppu.mirror_palette_addr(0x3F00), 0x00, "3F00 should map to 0x00");
+    //     assert_eq!(ppu.mirror_palette_addr(0x3F04), 0x00, "3F04 should map to 0x00");
+    //     assert_eq!(ppu.mirror_palette_addr(0x3F08), 0x00, "3F08 should map to 0x00");
+    //     assert_eq!(ppu.mirror_palette_addr(0x3F0C), 0x00, "3F0C should map to 0x00");
+    //
+    //     // These are sprite palette background entries, which mirror to the main background palette first
+    //     // and then get the background color rule applied.
+    //     assert_eq!(ppu.mirror_palette_addr(0x3F10), 0x00, "3F10 should map to 0x00");
+    //     assert_eq!(ppu.mirror_palette_addr(0x3F14), 0x00, "3F14 should map to 0x00");
+    //     assert_eq!(ppu.mirror_palette_addr(0x3F18), 0x00, "3F18 should map to 0x00");
+    //     assert_eq!(ppu.mirror_palette_addr(0x3F1C), 0x00, "3F1C should map to 0x00");
+    //
+    //     // Test addresses beyond the 3F00-3F1F range that also hit these points
+    //     assert_eq!(ppu.mirror_palette_addr(0x3F20), 0x00, "3F20 (mirrors 3F00) should map to 0x00");
+    //     assert_eq!(ppu.mirror_palette_addr(0x3F24), 0x00, "3F24 (mirrors 3F04) should map to 0x00");
+    //     assert_eq!(ppu.mirror_palette_addr(0x3F30), 0x00, "3F30 (mirrors 3F10) should map to 0x00");
+    //     assert_eq!(ppu.mirror_palette_addr(0x3FF0), 0x00, "3FF0 (mirrors 3F10) should map to 0x00");
+    //     assert_eq!(ppu.mirror_palette_addr(0x3FF4), 0x00, "3FF4 (mirrors 3F14) should map to 0x00");
+    // }
 
     #[test]
     fn test_non_background_color_entries() {

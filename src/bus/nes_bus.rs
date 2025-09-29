@@ -71,8 +71,8 @@ impl CpuBusInterface for NesBus {
             }
             PPU_REGISTERS_START..=PPU_REGISTERS_END => {
                 // PPU Registers mirrored every 8 bytes
-                let reg = 0x2000 + (addr & 0x0007);
-                self.ppu.read_register(reg)
+                // let reg = 0x2000 + (addr & 0x0007);
+                self.ppu.read_register(addr)
             }
             0x4000..=0x4013 | 0x4015 => {
                 // TODO: APU
