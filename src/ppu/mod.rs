@@ -34,7 +34,7 @@ pub struct PPU {
     pub scanline: usize,
 
     bus: Option<*mut dyn PpuBusInterface>,
-    pub ram: [u8; RAM_SIZE], // $2007 (R - latched)
+    pub v_ram: [u8; RAM_SIZE], // $2007 (R - latched)
     internal_data: u8,
     frame_is_odd: bool,
     // frame_ct: usize,
@@ -80,7 +80,7 @@ impl PPU {
     pub fn new() -> Self {
         PPU {
             bus: None,
-            ram: [0; RAM_SIZE],
+            v_ram: [0; RAM_SIZE],
             cycles: 0,
             scanline: 0,
             internal_data: 0,
@@ -132,6 +132,8 @@ impl PPU {
     }
 
     pub fn read_register(&mut self, addr: u16) -> u8 {
+        assert!(addr >= 0x2000);
+        assert!(addr <= 0x3FFF);
         let reg = 0x2000 + (addr & 7); // mirror every 8 bytes
 
         match reg {
@@ -171,6 +173,8 @@ impl PPU {
     }
 
     pub fn write_register(&mut self, addr: u16, value: u8) {
+        assert!(addr >= 0x2000);
+        assert!(addr <= 0x3FFF);
         let reg = 0x2000 + (addr & 7); // mirror
 
         match reg {
@@ -412,12 +416,12 @@ impl PPU {
             }
             0x2000..=0x2FFF => {
                 let result = self.internal_data;
-                self.internal_data = self.ram[self.mirror_ram_addr(addr) as usize];
+                self.internal_data = self.v_ram[self.mirror_ram_addr(addr) as usize];
                 result
             }
             0x3000..=0x3EFF => {
                 let result = self.internal_data;
-                self.internal_data = self.ram[self.mirror_ram_addr(addr) as usize];
+                self.internal_data = self.v_ram[self.mirror_ram_addr(addr) as usize];
                 result
             }
             0x3F00..=0x3FFF => {
@@ -431,7 +435,7 @@ impl PPU {
 
                 // Quirk cont.: Address is mirrored down into nametable space
                 let mirrored_vram_addr = addr & 0x2FFF;
-                self.internal_data = self.ram[self.mirror_ram_addr(mirrored_vram_addr) as usize];
+                self.internal_data = self.v_ram[self.mirror_ram_addr(mirrored_vram_addr) as usize];
 
                 result
             }
@@ -457,7 +461,7 @@ impl PPU {
             }
             0x2000..=0x2FFF | 0x3000..=0x3EFF => {
                 let mirrored = self.mirror_ram_addr(addr);
-                self.ram[mirrored as usize] = value;
+                self.v_ram[mirrored as usize] = value;
             }
             0x3F00..=0x3FFF => {
                 let mut palette_addr = self.mirror_palette_addr(addr);
@@ -501,13 +505,13 @@ impl PPU {
             // Nametable RAM + mirrors $2000-$2FFF
             0x2000..=0x2FFF => {
                 let mirrored_addr = self.mirror_ram_addr(addr);
-                self.ram[mirrored_addr as usize]
+                self.v_ram[mirrored_addr as usize]
             }
 
             // Mirrors of $2000-$2FFF: $3000-$3EFF
             0x3000..=0x3EFF => {
                 let mirrored_addr = self.mirror_ram_addr(addr - 0x1000);
-                self.ram[mirrored_addr as usize]
+                self.v_ram[mirrored_addr as usize]
             }
 
             // Palette RAM indexes: $3F00-$3FFF

@@ -33,7 +33,7 @@ mod test {
 
             // Now confirm that value landed at the mirrored VRAM address
             let mirrored = bus.ppu.mirror_ram_addr(addr);
-            let actual = bus.ppu.ram[mirrored as usize];
+            let actual = bus.ppu.v_ram[mirrored as usize];
 
             assert_eq!(
                 actual, value,
@@ -73,7 +73,7 @@ mod test {
             // Determine where write should have landed
             let expected_addr = start_addr + i as u16;
             let mirrored = bus.ppu.mirror_ram_addr(expected_addr);
-            let actual = bus.ppu.ram[mirrored as usize];
+            let actual = bus.ppu.v_ram[mirrored as usize];
 
             assert_eq!(
                 actual, val,
@@ -132,7 +132,7 @@ mod test {
 
             let expected_addr = start_addr + i as u16;
             let mirrored = bus.ppu.mirror_ram_addr(expected_addr);
-            let actual = bus.ppu.ram[mirrored as usize];
+            let actual = bus.ppu.v_ram[mirrored as usize];
 
             assert_eq!(
                 actual, val,
@@ -158,7 +158,7 @@ mod test {
         // Directly write to VRAM, bypassing CPU
         let base_addr = 0x2400;
         let mirrored = bus.ppu.mirror_ram_addr(base_addr);
-        bus.ppu.ram[mirrored as usize] = 0xDE;
+        bus.ppu.v_ram[mirrored as usize] = 0xDE;
 
         // Set PPU address via $2006
         let high = (base_addr >> 8) as u8;
@@ -223,8 +223,8 @@ mod test {
 
         let addr = 0x2345;
         let mirror = bus.ppu.mirror_ram_addr(addr) as usize;
-        assert_eq!(bus.ppu.ram[mirror + 0], 0x99);
-        assert_eq!(bus.ppu.ram[mirror + 1], 0xEF);
+        assert_eq!(bus.ppu.v_ram[mirror + 0], 0x99);
+        assert_eq!(bus.ppu.v_ram[mirror + 1], 0xEF);
 
         // Verify internal PPU address register is set to $3F01
         let got = bus.ppu.scroll_register.get_addr();

@@ -93,7 +93,7 @@ mod test {
         assert_eq!(mirrored, 0x0100);
 
         // Verify VRAM
-        let got = ppu.ram[mirrored];
+        let got = ppu.v_ram[mirrored];
         assert_eq!(got, want);
     }
 

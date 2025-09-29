@@ -12,9 +12,6 @@ use crate::nes::NES;
 use controller::joypad::JoypadButtons;
 use rom::Rom;
 
-use crate::apu::APU;
-use crate::display::shared_frame::SharedFrame;
-use crossbeam_channel::Receiver;
 use display::color_map::COLOR_MAP;
 use display::consts::{PIXEL_HEIGHT, PIXEL_WIDTH};
 use display::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
@@ -28,11 +25,10 @@ use sdl2::rwops::RWops;
 use sdl2::ttf::{Font, Sdl2TtfContext};
 use sdl2::video::{Window, WindowContext};
 use sdl2::{AudioSubsystem, Sdl};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap};
 use std::pin::Pin;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{env, process};
 
@@ -69,23 +65,19 @@ impl AudioCallback for NesAudioCallback {
             .controller1
             .set_buttons(CONTROLLER1.buttons.load(Ordering::Relaxed));
 
-        // How many CPU cycles per system sample
-        let cycles_per_sample = 1789773.0 / 44100.0;
+        // PPU cycles per audio sample (5.369318 MHz / 44.1 kHz)
+        let ppu_cycles_per_sample = 5369318.0 / 44100.0; // ~121.7 PPU cycles per sample
         let mut cycle_acc = self.cycle_acc;
 
         for sample in out.iter_mut() {
-            cycle_acc += cycles_per_sample;
+            cycle_acc += ppu_cycles_per_sample;
+
             while cycle_acc >= 1.0 {
-                nes.clock();
+                nes.tick();  // Now ticks at PPU frequency
                 cycle_acc -= 1.0;
             }
 
-            // *sample = nes.bus.apu.sq.sample();
-            // *sample = nes.bus.apu.sample() as i16;
-            // println!("s: {}", *sample);
-
             let raw = nes.bus.apu.sample();
-            // let scaled = (raw - 8) * 2048; // center at 0, expand to ~±16K
             let scaled = (raw * 32767.0) as i16;
             *sample = scaled;
         }
