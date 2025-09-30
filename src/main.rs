@@ -1,17 +1,9 @@
-mod apu;
-mod bus;
-mod cartridge;
-mod controller;
-mod cpu;
 mod display;
 mod nes;
-mod ppu;
-mod rom;
 
-use crate::nes::NES;
-use controller::joypad::JoypadButtons;
-use rom::Rom;
+use nes::NES;
 
+use crate::nes::controller::joypad::JoypadButtons;
 use display::color_map::COLOR_MAP;
 use display::consts::{PIXEL_HEIGHT, PIXEL_WIDTH};
 use display::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
@@ -25,12 +17,16 @@ use sdl2::rwops::RWops;
 use sdl2::ttf::{Font, Sdl2TtfContext};
 use sdl2::video::{Window, WindowContext};
 use sdl2::{AudioSubsystem, Sdl};
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 use std::{env, process};
+use crate::nes::cartridge::rom::Rom;
+
+#[cfg(feature = "tracing")]
+use crate::nes::tracer::TRACER;
 
 const TARGET_FPS: u64 = 60;
 const FRAME_DURATION: Duration = Duration::from_nanos(1_000_000_000 / TARGET_FPS);
@@ -45,9 +41,6 @@ macro_rules! rect(
 struct NesAudioCallback {
     nes_ptr: NonNull<NES>,
     cycle_acc: f32,
-    // shared_frame: Arc<Mutex<SharedFrame>>,
-    // shared_input: Arc<Mutex<SharedInput>>,
-    // input_rx: Receiver<(JoypadButtons, bool)>,
 }
 
 // SAFETY: NES is pinned on heap and only mutated from audio thread
@@ -73,7 +66,7 @@ impl AudioCallback for NesAudioCallback {
             cycle_acc += ppu_cycles_per_sample;
 
             while cycle_acc >= 1.0 {
-                nes.tick();  // Now ticks at PPU frequency
+                nes.tick(); // tick at PPU frequency
                 cycle_acc -= 1.0;
             }
 
@@ -248,6 +241,11 @@ fn main() -> Result<(), String> {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => {
+                    #[cfg(feature = "tracing")]
+                    {
+                        println!("==== DUMPING TRACE ====");
+                        TRACER.lock().unwrap().print();
+                    }
                     break 'running;
                 }
                 Event::KeyDown {
@@ -300,47 +298,47 @@ fn main() -> Result<(), String> {
         }
 
         // Draw some info
-        // let status_str = format!(
-        //     "PC: ${:04X} SP: ${:02X} A:${:02X} X:${:02X} Y:${:02X}",
-        //     nes.bus.cpu.program_counter,
-        //     nes.bus.cpu.stack_pointer,
-        //     nes.bus.cpu.register_a,
-        //     nes.bus.cpu.register_x,
-        //     nes.bus.cpu.register_y
+        let status_str = format!(
+            "PC: ${:04X} SP: ${:02X} A:${:02X} X:${:02X} Y:${:02X}",
+            nes.bus.cpu.program_counter,
+            nes.bus.cpu.stack_pointer,
+            nes.bus.cpu.register_a,
+            nes.bus.cpu.register_x,
+            nes.bus.cpu.register_y
+        );
+        draw_text(&status_str, &mut canvas, &font, 5, 5 + 22 * 0);
+
+        let status_str = format!(
+            "addr:{:04X}", // bus_cycles:{} ppu_cycles:{}",
+            nes.bus.ppu.scroll_register.get_addr(),
+            // nes.cpu_cycles,
+            // nes.ppu_cycles,
+        );
+        draw_text(&status_str, &mut canvas, &font, 5, 5 + 22 * 1);
+
+        // let ppu_stats = format!("sprite_count: {}", nes.bus.ppu.sprite_count);
+        // draw_text(&ppu_stats, &mut canvas, &font, 5, 5 + 22 * 2);
+
+        // let cpu_mode = format!(
+        //     "cpu_mode: {:?}",
+        //     nes.bus.cpu.cpu_mode
         // );
-        // draw_text(&status_str, &mut canvas, &font, 5, 5 + 22 * 0);
+        // draw_text(&cpu_mode, &mut canvas, &font, 5, 5+22*3);
+
         //
-        // let status_str = format!(
-        //     "addr:{:04X} bus_cycles:{} ppu_cycles:{}",
-        //     nes.bus.ppu.scroll_register.get_addr(),
-        //     nes.bus.cycles,
-        //     nes.bus.ppu.cycles
-        // );
-        // draw_text(&status_str, &mut canvas, &font, 5, 5 + 22 * 1);
+        // DEBUG RENDERING
         //
-        // // let ppu_stats = format!("sprite_count: {}", nes.bus.ppu.sprite_count);
-        // // draw_text(&ppu_stats, &mut canvas, &font, 5, 5 + 22 * 2);
-        //
-        // // let cpu_mode = format!(
-        // //     "cpu_mode: {:?}",
-        // //     nes.bus.cpu.cpu_mode
-        // // );
-        // // draw_text(&cpu_mode, &mut canvas, &font, 5, 5+22*3);
-        //
-        // //
-        // // DEBUG RENDERING
-        // //
-        // if debug_rendering {
-        //     debug_render_data(&nes.bus.ppu.palette_table, &mut canvas, 300, 32, 32, 5);
-        //     debug_render_data(&nes.bus.ppu.ram, &mut canvas, 300, 60, 32, 2);
-        //
-        //     debug_render_data(&nes.bus.ppu.oam_data, &mut canvas, 450, 350, 8, 2);
-        //     debug_render_data(&nes.bus.ppu.oam_data, &mut canvas, 10, 400, 32, 3);
-        //     debug_render_data(&nes.bus.ppu.sprite_pattern_low, &mut canvas, 10, 405, 32, 3);
-        //     debug_render_data(&nes.bus.ppu.sprite_pattern_low, &mut canvas, 10, 410, 32, 3);
-        //     debug_render_data(&nes.bus.ppu.sprite_x_counter, &mut canvas, 10, 415, 32, 3);
-        //     debug_render_data(&nes.bus.ppu.sprite_x_counter, &mut canvas, 10, 420, 32, 3);
-        // }
+        if debug_rendering {
+            debug_render_data(&nes.bus.ppu.palette_table, &mut canvas, 300, 32, 32, 5);
+            debug_render_data(&nes.bus.ppu.v_ram, &mut canvas, 300, 60, 32, 2);
+
+            debug_render_data(&nes.bus.ppu.oam_data, &mut canvas, 450, 350, 8, 2);
+            debug_render_data(&nes.bus.ppu.oam_data, &mut canvas, 10, 400, 32, 3);
+            debug_render_data(&nes.bus.ppu.sprite_pattern_low, &mut canvas, 10, 405, 32, 3);
+            debug_render_data(&nes.bus.ppu.sprite_pattern_low, &mut canvas, 10, 410, 32, 3);
+            debug_render_data(&nes.bus.ppu.sprite_x_counter, &mut canvas, 10, 415, 32, 3);
+            debug_render_data(&nes.bus.ppu.sprite_x_counter, &mut canvas, 10, 420, 32, 3);
+        }
 
         canvas.present();
     }

@@ -19,3 +19,6 @@ debug:
 
 release:
 	cargo build --release
+
+release-tracing:
+	cargo build --release --features "tracing"
