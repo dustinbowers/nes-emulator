@@ -15,6 +15,10 @@ sdl2-sys = "*"
 sdl2 = {  version = "0.37.0", features = ["image", "ttf"] }
 crossbeam-channel = "0.5.14"
 
+[features]
+#default = ["tracing"]
+tracing = []
+
 [[bin]]
 name = "test-runner"
 path = "src/test_runner.rs"
