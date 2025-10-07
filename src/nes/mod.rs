@@ -23,8 +23,6 @@ enum DmaMode {
 pub struct NES {
     pub bus: &'static mut NesBus,
     pub ppu_warmed_up: bool,
-    pub ppu_cycles: usize,
-    pub cpu_cycles: usize,
     dma_mode: DmaMode,
 
     pub oam_transfer_cycles: usize,
@@ -38,8 +36,8 @@ impl NES {
         let bus = NesBus::new(cartridge);
         Self {
             bus,
-            ppu_cycles: 0,
-            cpu_cycles: 0,
+            // ppu_cycles: 0,
+            // cpu_cycles: 0,
             ppu_warmed_up: true,
             dma_mode: DmaMode::None,
             oam_transfer_cycles: 0,
@@ -50,54 +48,40 @@ impl NES {
 
     // Tick once at PPU frequency
     pub fn tick(&mut self) -> bool {
-        // Log the current state
-        // trace_obj!(self.bus);
-
         // Tick PPU
         let frame_ready = self.bus.ppu.tick();
         trace_obj!(self.bus.ppu);
-        // self.bus.ppu.cycles += 1;
-
-        self.bus.tick(); // PPU tick
         
-        // PPU warmup
-        // if !self.ppu_warmed_up {
-        //     self.bus.ppu.tick();
-        //     if self.ppu_cycles > PPU_WARMUP_CYCLES {
-        //         println!("=== PPU WARMED UP at {} PPU cycles", self.ppu_cycles);
-        //         self.ppu_warmed_up = true;
-        //     }
-        //     return true;
-        // }
-
-
+        // Runs at PPU speed
+        self.bus.tick(); 
+        
         // CPU runs at 1/3 PPU speed
-        if self.ppu_cycles.is_multiple_of(3) {
+        if self.bus.ppu.global_ppu_ticks.is_multiple_of(3) {
             match self.dma_mode {
                 DmaMode::None => {
                     if !self.bus.cpu.rdy {
                         // Start OAM DMA
-                        println!("DMA START");
+                        // println!("DMA START");
                         trace!("PPU DMA START");
                         self.dma_mode = DmaMode::Oam;
-                        self.oam_transfer_cycles = 0; // counts 0..511 for 256 bytes
+                        self.oam_transfer_cycles = OAM_DMA_START_CYCLES; // counts 0..511 for 256 bytes
                         self.bus.cpu.rdy = false;
                     } else {
                         self.bus.cpu.tick();
                         trace_obj!(self.bus.cpu);
-                        // trace_obj!(self.bus.cpu);
-                        self.cpu_cycles += 1;
                     }
                 }
                 DmaMode::Oam => {
                     // DMA transfers one byte per 2 CPU cycles
-                    if self.oam_transfer_cycles < 512 {
+                    if self.oam_transfer_cycles < OAM_DMA_DONE_CYCLES {
                         let byte_index = self.oam_transfer_cycles / 2;
                         if self.oam_transfer_cycles.is_multiple_of(2) {
                             // Read from CPU memory
                             let hi: u16 = (self.bus.oam_dma_addr as u16) << 8;
                             let addr = hi + byte_index as u16;
                             let value = self.bus.cpu_bus_read(addr);
+                            // trace!("[OAM TRANSFER] oam_transfer_cycles={} addr={} cpu_byte={:02X}",
+                            //     self.oam_transfer_cycles, addr, value);
                             self.bus.ppu.write_to_oam_data(value);
                         }
                         self.oam_transfer_cycles += 1;
@@ -110,25 +94,11 @@ impl NES {
                 }
             }
 
-            // clock APU once per CPU cycle
-            self.bus.apu.clock(self.cpu_cycles);
+            // Runs at CPU speed
+            self.bus.apu.clock(self.bus.cpu.cycles);
         }
-        
        
-        // trace_obj!(self.bus.ppu);
-        // trace!("CPU PC={:04X} opcode={:02X} A={:02X} X={:02X} Y={:02X} P={:02X} | PPU scanline={} dot={} VBL={}",
-        //     self.bus.cpu.pc, opcode, cpu.a, cpu.x, cpu.y, cpu.p, ppu.scanline, ppu.cycles, ppu.status_register.vblank()
-        // );
-        
-        self.ppu_cycles += 1;
-        // prevent overflows
-        if self.cpu_cycles > 1_000_000 {
-            self.cpu_cycles -= 1_000_000;
-        }
-        if self.ppu_cycles > 3_000_000 {
-            self.ppu_cycles -= 3_000_000;
-        }
-
+        // trace!("NES: cpu_cycles={} ppu_cycles={}", self.bus.cpu.cycles, self.bus.ppu.global_ppu_ticks);
         frame_ready
     }
 

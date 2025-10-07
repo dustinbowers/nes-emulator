@@ -18,10 +18,11 @@ impl Traceable for CPU {
                 self.skip_cycles, self.program_counter, self.register_a, self.register_x, self.register_y, self.status, self.stack_pointer, self.last_opcode_desc
             ))
         } else {
-            Some(format!(
-                "(skip: {}) PC={:04X}",
-                self.skip_cycles, self.program_counter
-            ))
+            // Some(format!(
+            //     "(skip: {}) PC={:04X}",
+            //     self.skip_cycles, self.program_counter
+            // ))
+            None
         }
     }
 

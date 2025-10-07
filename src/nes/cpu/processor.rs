@@ -68,6 +68,7 @@ pub trait CpuBusInterface {
 
 pub struct CPU {
     pub bus: Option<*mut dyn CpuBusInterface>,
+    pub cycles: usize,
     pub cpu_mode: CpuMode,
     pub rdy: bool,
     pub halt_scheduled: bool,
@@ -94,6 +95,7 @@ impl CPU {
     pub fn new() -> CPU {
         let cpu = CPU {
             bus: None,
+            cycles: 0,
             cpu_mode: CpuMode::Read,
             halt_scheduled: false,
             rdy: true,
@@ -175,10 +177,12 @@ impl CPU {
 
     // `tick` returns (num_cycles, bytes_consumed, is_breaking)
     pub fn tick(&mut self) -> (u8, u8, bool) {
+        
         // Stall for previous cycles from last instruction
         if self.skip_cycles > 0 {
             self.skip_cycles -= 1;
             self.toggle_mode();
+            self.cycles += 1;
             return (0, 0, false);
         }
 
@@ -193,9 +197,11 @@ impl CPU {
                     self.halt_scheduled = false;
                 }
                 CpuMode::Write => {
+                    trace!("OAM DMA DUMMY READ");
                     self.toggle_mode();
                 }
             }
+            self.cycles += 1;
             return (0, 0, false);
         }
 
@@ -436,6 +442,7 @@ impl CPU {
                 // JAM - This freezes the CPU
                 // NOTE: I'm hijacking this opcode for use in processor_tests
                 //       0x02 now breaks the normal run() loop{}
+                self.cycles += 1;
                 return (11, 1, true);
             }
             0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2 | 0xF2 => {
@@ -480,6 +487,7 @@ impl CPU {
         if !self.skip_pc_advance {
             self.program_counter = self.program_counter.wrapping_add((opcode.size - 1) as u16);
         }
+        self.cycles += 1;
         (cycle_count, opcode.size, false)
     }
 
@@ -505,7 +513,7 @@ impl CPU {
                 let addr = base.wrapping_add(self.register_x as u16);
 
                 // Only read from base page (not the final address)
-                let dummy_addr = (base & 0xFF00) | ((base + self.register_y as u16) & 0x00FF);
+                let dummy_addr = (base & 0xFF00) | ((base.wrapping_add(self.register_y as u16)) & 0x00FF);
                 let _ = self.bus_read(dummy_addr);
 
                 (addr, is_boundary_crossed(base, addr))
@@ -515,7 +523,7 @@ impl CPU {
                 let addr = base.wrapping_add(self.register_y as u16);
 
                 // Only read from base page (not the final address)
-                let dummy_addr = (base & 0xFF00) | ((base + self.register_y as u16) & 0x00FF);
+                let dummy_addr = (base & 0xFF00) | ((base.wrapping_add(self.register_y as u16)) & 0x00FF);
                 let _ = self.bus_read(dummy_addr);
 
                 (addr, is_boundary_crossed(base, addr))
@@ -675,6 +683,7 @@ impl CPU {
         status_flags.set(Flags::BREAK2, interrupt.b_flag_mask & 0b0010_0000 != 0);
         self.stack_push(status_flags.bits());
 
+        // TODO: What does this affect?
         self.status.set(Flags::INTERRUPT_DISABLE, true); // Disable interrupts while handling one
 
         self.extra_cycles += interrupt.cpu_cycles;

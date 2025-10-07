@@ -9,7 +9,7 @@ use crate::{trace, trace_obj};
 
 mod background;
 mod mod_tests;
-mod registers;
+pub mod registers;
 mod sprites;
 
 
@@ -34,9 +34,9 @@ enum PaletteKind {
 
 pub struct PPU {
     pub cycles: usize,
-    pub vblank_cycles: usize,
     pub scanline: usize,
     pub global_ppu_ticks: usize,
+    pub vblank_ticks: usize, // TODO: remove this
 
     bus: Option<*mut dyn PpuBusInterface>,
     pub v_ram: [u8; RAM_SIZE], // $2007 (R - latched)
@@ -84,13 +84,13 @@ impl PPU {
         PPU {
             bus: None,
             v_ram: [0; RAM_SIZE],
-            cycles: 0,
-            vblank_cycles: 0,
-            scanline: 0,
-            global_ppu_ticks: 0,
+            cycles: 100,
+            scanline: 100,
+            global_ppu_ticks: 100,
+            vblank_ticks: 0, // TODO: Remove this
 
             internal_data: 0,
-            frame_is_odd: true,
+            frame_is_odd: false,
             last_byte_read: DecayRegister::new(5_369_318),
 
             ctrl_register: ControlRegister::new(),
@@ -160,6 +160,10 @@ impl PPU {
 
                 // side effects happen AFTER capturing status
                 // println!("READ $2002 CLEARING VBLANK - scanline {} dot {}, global ppu ticks: {}", self.scanline, self.cycles, self.global_ppu_ticks);
+                // if status & 0x80 != 0 {
+                //     trace!("RESETTING VBLANK: vblank lasted: {} ppu ticks", self.vblank_ticks);
+                // }
+                trace!("[CPU READ $2002, CLEARING VBLATCH] cpu-visible VBL = {:08b}, SL={}, dot={}", result, self.scanline, self.cycles);
                 self.status_register.reset_vblank_status(); // clear VBL
                 self.scroll_register.reset_latch(); // reset toggle
 
@@ -168,6 +172,18 @@ impl PPU {
 
                 // trace!("PPU READ $2002 = {:08b}", status);
                 // eprintln!("PPU READ $2002: {:08b}", status);
+                // trace!(
+                //     "[$2002 READ RETURN] result={:08b} (updated status={:08b}) SL={} DOT={}",
+                //     result, self.status_register.bits(), self.scanline, self.cycles
+                // );
+                // trace!(
+                //     "[$2002 READ] result={:08b} pre_clear={:08b} low5=open_bus={:05b} SL={} DOT={}",
+                //     result,
+                //     status,
+                //     self.last_byte_read.output() & 0x1F,
+                //     self.scanline,
+                //     self.cycles
+                // );
                 result
             }
             0x2004 => {
@@ -206,22 +222,26 @@ impl PPU {
         }
         self.last_byte_read.set(addr, value);
     }
-
     pub fn tick(&mut self) -> bool {
-        // --- Current dot and scanline
         let dot = self.cycles;
         let scanline = self.scanline;
         let prerender_scanline = scanline == 261;
         let visible_scanline = scanline < 240;
         let rendering_enabled = self.mask_register.rendering_enabled();
 
-        // --- VBlank clear on pre-render line (dot 1)
-        // TODO dot == 0 ????
-        if prerender_scanline && dot == 0 {
-            println!(
-                "CLEAR VBLANK - scanline {} dot {}, global ppu ticks: {}",
-                scanline, dot, self.global_ppu_ticks
+        // --- Frame start logging
+        if scanline == 0 && dot == 0 {
+            trace!("[FRAME START] scanline={} cycles={} global_ppu_ticks={}", scanline, dot, self.global_ppu_ticks);
+        }
+
+        // --- VBLANK clear at start of prerender scanline (dot 1)
+        if prerender_scanline && dot == 1 {
+            trace!(
+                "[PPU] CLEAR VBLANK: scanline={} dot={} global_ppu_ticks={} vblank_ticks={}",
+                scanline, dot, self.global_ppu_ticks, self.vblank_ticks
             );
+            trace!("[PPU] FRAME END: scanline={} dot={} global_ppu_ticks={}", scanline, dot, self.global_ppu_ticks);
+
             self.status_register.reset_vblank_status();
             self.status_register.set_sprite_zero_hit(false);
             self.status_register.set_sprite_overflow(false);
@@ -229,23 +249,29 @@ impl PPU {
             self.reset_sprite_evaluation();
         }
 
-        // --- VBlank set at scanline 241, dot 1
+        // --- VBLANK set at start of scanline 241 (dot 1)
         if scanline == 241 && dot == 1 {
-            // println!(
-            //     "SET VBLANK - scanline {} dot {}, global ppu ticks: {}",
-            //     scanline, dot, self.global_ppu_ticks
-            // );
+            self.vblank_ticks = 0;
             self.status_register.set_vblank_status();
+
+            trace!(
+                "[PPU] VBLANK SET: scanline={} dot={} vblank_ticks={} global_ppu_ticks={}",
+                scanline, dot, self.vblank_ticks, self.global_ppu_ticks
+            );
+
             if self.ctrl_register.generate_vblank_nmi() {
+                trace!("[PPU] NMI TRIGGERED: scanline={} dot={} global_ppu_ticks={}", scanline, dot, self.global_ppu_ticks);
                 if let Some(bus_ptr) = self.bus {
-                    unsafe {
-                        (*bus_ptr).nmi();
-                    }
+                    unsafe { (*bus_ptr).nmi(); }
                 }
             }
         }
 
-        // --- Rendering pipeline (background + sprites)
+        if (scanline >= 241 && dot >= 1) || (scanline <= 261 && dot <= 1) {
+            self.vblank_ticks += 1;
+        }
+
+        // --- Rendering pipeline
         if rendering_enabled && (visible_scanline || prerender_scanline) {
             // Background fetches (dots 1..=256, 321..=336)
             if (1..=256).contains(&dot) || (321..=336).contains(&dot) {
@@ -293,8 +319,8 @@ impl PPU {
             }
 
             // Sprite pattern fetches (dots 257–320, every 8 dots)
-            if (257..=320).contains(&dot) {
-                if (dot - 257) % 8 == 0 && (visible_scanline || prerender_scanline) {
+            if (257..=320).contains(&dot) && (dot - 257) % 8 == 0 {
+                if visible_scanline || prerender_scanline {
                     let sprite_num = (dot - 257) / 8;
                     self.sprite_fill_register(sprite_num as usize, scanline);
                 }
@@ -312,26 +338,40 @@ impl PPU {
             }
         }
 
-        // --- Odd-frame cycle skip (prerender scanline, dot 340, rendering enabled)
+        // --- Odd-frame skip (prerender scanline dot 340)
         if prerender_scanline && dot == 340 && self.frame_is_odd && rendering_enabled {
+            // self.frame_is_odd = false; // mark odd frame skip
+            trace!(
+                "[ODD SKIP] prerender dot=340, last cycle skipped; frame_is_odd={}",
+                self.frame_is_odd
+            );
+            trace!("[FRAME END] SL={} dot={} frame_is_odd becomes: {}", scanline, dot, self.frame_is_odd);
+            self.global_ppu_ticks += 1; // account for the skipped tick
+            self.frame_is_odd = !self.frame_is_odd; // toggle odd/even now
             self.cycles = 0;
             self.scanline = 0;
-            self.frame_is_odd = !self.frame_is_odd;
             return true;
         }
 
         // --- Advance cycle/scanline/frame counters
         self.global_ppu_ticks += 1;
         self.cycles += 1;
+
         let mut frame_complete = false;
         if self.cycles > 340 {
             self.cycles = 0;
             self.scanline += 1;
+
             if self.scanline > 261 {
                 self.scanline = 0;
                 frame_complete = true;
-                self.frame_is_odd = !self.frame_is_odd;
+                self.frame_is_odd = !self.frame_is_odd; // toggle at real frame end
+                trace!("[FRAME END] SL={} dot={} frame_is_odd becomes: {}", scanline, dot, self.frame_is_odd);
             }
+        }
+        
+        if self.global_ppu_ticks > 1_000_000 {
+            self.global_ppu_ticks -= 1_000_000;
         }
 
         frame_complete
@@ -362,35 +402,49 @@ impl PPU {
 // Private implementations
 impl PPU {
     fn render_dot(&mut self) -> u8 {
-        let bg_color = self.get_background_pixel();
-        let (sprite_color, sprite_in_front, sprite_zero_rendered) = self.get_sprite_pixel();
+        // Get raw palette indices for background and sprite
+        let (bg_palette_index, bg_pixel) = self.get_background_pixel();
+        let (sprite_palette_index, sprite_pixel, sprite_in_front, sprite_zero_rendered) = self.get_sprite_pixel();
 
         // Only set sprite-0 hit if it's not already set
-        if sprite_zero_rendered && bg_color != 0 && self.cycles < 255 {
-            if !self
-                .status_register
-                .contains(StatusRegister::SPRITE_ZERO_HIT)
-            {
-                println!(
-                    "\tset_sprite_zero_hit TRUE @ scanline {} dot {}",
-                    self.scanline, self.cycles
-                );
-                self.status_register.set_sprite_zero_hit(true);
+        if sprite_zero_rendered
+            && bg_palette_index != 0
+            && self.scanline < 240
+            && self.cycles < 255 {
+            if self.cycles >= 8
+                || (self.mask_register.leftmost_8pxl_background()
+                && self.mask_register.leftmost_8pxl_sprite()) {
+                if !self
+                    .status_register
+                    .contains(StatusRegister::SPRITE_ZERO_HIT)
+                {
+                    trace!(
+                        "\tset_sprite_zero_hit TRUE @ scanline {} dot {}",
+                        self.scanline, self.cycles
+                    );
+                    self.status_register.set_sprite_zero_hit(true);
+                }
             }
         }
 
-        let final_color = if sprite_color == 0 {
-            bg_color
-        } else if bg_color == 0 {
-            sprite_color
+        // NES priority: if both nonzero, sprite_in_front decides, but if sprite is behind and bg is 0, sprite shows
+        let (palette, pixel, kind) = if sprite_pixel == 0 {
+            // No sprite pixel — just background
+            (bg_palette_index, bg_pixel, PaletteKind::Background)
+        } else if bg_pixel == 0 {
+            // No background pixel — sprite wins
+            // sprite_palette_index
+            (sprite_palette_index, sprite_pixel, PaletteKind::Sprite)
+        } else if sprite_in_front {
+            // Both nonzero, sprite has priority
+            (sprite_palette_index, sprite_pixel, PaletteKind::Sprite)
         } else {
-            if sprite_in_front {
-                sprite_color
-            } else {
-                bg_color
-            }
+            // Both nonzero, sprite behind background
+            (bg_palette_index, bg_pixel, PaletteKind::Background)
         };
-        final_color & 0x3F
+
+        // Now map to actual color
+        self.read_palette_color(palette, pixel, kind) & 0x3F
     }
 
     fn chr_read(&mut self, addr: u16) -> u8 {
@@ -509,8 +563,12 @@ impl PPU {
             PaletteKind::Background => 0x3F00,
             PaletteKind::Sprite => 0x3F10,
         };
-        let index = base + ((palette as u16) << 2) + (pixel as u16);
-        self.read_bus(index)
+        let mut addr = base + ((palette as u16) << 2) + (pixel as u16);
+        // Mirror sprite palettes $3F10/$3F14/$3F18/$3F1C
+        if addr == 0x3F10 || addr == 0x3F14 || addr == 0x3F18 || addr == 0x3F1C {
+            addr -= 0x10;
+        }
+        self.read_bus(addr)
     }
 
     /// `read_bus` directs memory reads to correct sources (without any buffering)
@@ -646,14 +704,28 @@ impl PPU {
 impl Traceable for PPU {
     fn trace_name(&self) -> &'static str { "PPU" }
     fn trace_state(&self) -> Option<String> {
-        Some(format!(
-            "ppu_cycles={} scanline={} dot={} VBL={} odd={}",
-            self.global_ppu_ticks,
-            self.scanline,
-            self.cycles,
-            self.status_register.contains(StatusRegister::VBLANK_STARTED),
-            self.frame_is_odd
-        ))
+        // if (0..=10).contains(&self.cycles) {
+        let mut is_vblank = false;
+        if (self.scanline >= 241 && self.cycles >= 1) {
+            is_vblank = true;
+        }
+        if (self.scanline >= 261 && self.cycles >= 1) {
+            is_vblank = false;
+        }
+            Some(format!(
+                "ppu_cycles={} scanline={} dot={} VBL={} cpu_visible_vblank={} odd={} global_ppu_cycles={} ppu_status={:08b}",
+                self.global_ppu_ticks,
+                self.scanline,
+                self.cycles,
+                is_vblank,
+                self.status_register.contains(StatusRegister::VBLANK_STARTED),
+                self.frame_is_odd,
+                self.global_ppu_ticks,
+                self.status_register.bits()
+            ))
+        // } else {
+        //     None
+        // }
     }
 }
 

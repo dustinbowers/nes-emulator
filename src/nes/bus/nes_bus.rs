@@ -5,6 +5,7 @@ use crate::nes::controller::joypad::Joypad;
 use crate::nes::cpu::processor::{CpuBusInterface, CPU};
 use crate::nes::ppu::{PpuBusInterface, PPU};
 use crate::nes::controller::NesController;
+use crate::nes::ppu::registers::status_register::StatusRegister;
 use crate::nes::tracer::traceable::Traceable;
 use crate::trace;
 
@@ -91,13 +92,14 @@ impl CpuBusInterface for NesBus {
             PPU_REGISTERS_START..=PPU_REGISTERS_END => {
                 // PPU Registers mirrored every 8 bytes
                 // let reg = 0x2000 + (addr & 0x0007);
-                let result = self.ppu.read_register(addr);
                 if addr == 0x2002 {
                     trace!("{}",format!(
-                        "[PPU READ $2002] CPU_PC=${:04X} PPU cyc={} SL={} DOT={} -> {:08b}",
-                        self.cpu.program_counter, self.ppu.global_ppu_ticks, self.ppu.scanline, self.ppu.cycles, result
+                        "[CPU READ $2002] CPU_PC=${:04X} PPU global_cycles={} SL={} DOT={}, (cpu_view_vblank={:?})",
+                        self.cpu.program_counter, self.ppu.global_ppu_ticks, self.ppu.scanline, self.ppu.cycles,
+                        self.ppu.status_register.contains(StatusRegister::VBLANK_STARTED)
                     ));
                 }
+                let result = self.ppu.read_register(addr);
                 result
             }
             // 0x4000..=0x4013 => {
@@ -171,9 +173,10 @@ impl PpuBusInterface for NesBus {
         self.cart.mirroring()
     }
     fn nmi(&mut self) {
-        // self.cpu.trigger_nmi();
-        self.nmi_scheduled = Some(7);// * 3);
-        println!("scheduling NMI! {:?}", self.nmi_scheduled);
+        trace!("CPU Triggering NMI!");
+        self.cpu.trigger_nmi();
+        // self.nmi_scheduled = Some(0);// * 3);
+        // println!("scheduling NMI! {:?}", self.nmi_scheduled);
     }
 }
 

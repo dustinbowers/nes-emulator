@@ -32,15 +32,15 @@ impl StatusRegister {
 
     pub fn set_vblank_status(&mut self) {
         // println!("StatusRegister.set_vblank_status({:?})", status);
-        trace!("SET VBLANK");
-        self.set(StatusRegister::VBLANK_STARTED, true);
+        // trace!("SET VBLANK");
+        self.insert(StatusRegister::VBLANK_STARTED);
     }
 
     pub fn reset_vblank_status(&mut self) {
         // println!("StatusRegister.reset_vblank_status()");
-        if self.contains(StatusRegister::VBLANK_STARTED) {
-            trace!("CLEAR VBLANK: set -> unset");
-        }
+        // if self.contains(StatusRegister::VBLANK_STARTED) {
+        //     trace!("CLEAR VBLANK: set -> unset");
+        // }
         self.remove(StatusRegister::VBLANK_STARTED);
     }
 

@@ -1,5 +1,8 @@
 pub mod traceable;
 
+use std::collections::VecDeque;
+use std::sync::Mutex;
+use once_cell::sync::Lazy;
 use crate::nes::tracer::traceable::Traceable;
 
 #[macro_export]
@@ -23,7 +26,7 @@ macro_rules! trace_obj {
 }
 
 #[cfg(feature = "tracing")]
-pub static TRACER: Lazy<Mutex<Tracer>> = Lazy::new(|| Mutex::new(Tracer::new(1_000_000)));
+pub static TRACER: Lazy<Mutex<Tracer>> = Lazy::new(|| Mutex::new(Tracer::new(5_000_000)));
 
 /// Global tracer (enabled only if `tracing` feature is active)
 #[cfg(feature = "tracing")]
