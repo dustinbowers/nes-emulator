@@ -14,10 +14,6 @@ impl LengthCounter {
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
-        println!(
-            "LengthCounter::set_enabled({:?}) - value = {}",
-            enabled, self.value
-        );
         self.enabled = enabled;
         if self.enabled == false {
             self.value = 0;
@@ -26,14 +22,10 @@ impl LengthCounter {
     }
 
     pub fn set_halt(&mut self, halted: bool) {
-        // println!("LengthCounter::set_halt({:?}) - value = {}", halted, self.value);
         self.halted = halted;
     }
 
     pub fn set(&mut self, pos: u8) {
-        // if self.enabled == false {
-        //     return;
-        // }
         if self.halted {
             // Don't change value if counter is halted
             return;
@@ -60,7 +52,7 @@ impl LengthCounter {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    
     fn setup_length_counter() -> LengthCounter {
         LengthCounter::new()
     }

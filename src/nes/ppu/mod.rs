@@ -35,6 +35,7 @@ enum PaletteKind {
 pub struct PPU {
     pub cycles: usize,
     pub scanline: usize,
+    pub suppress_vblank: bool,
     pub global_ppu_ticks: usize,
     pub vblank_ticks: usize, // TODO: remove this
 
@@ -86,6 +87,7 @@ impl PPU {
             v_ram: [0; RAM_SIZE],
             cycles: 100,
             scanline: 100,
+            suppress_vblank: false,
             global_ppu_ticks: 100,
             vblank_ticks: 0, // TODO: Remove this
 
@@ -153,37 +155,25 @@ impl PPU {
                 // PPUSTATUS - latch current status before side effects
                 let status = self.status_register.bits();
 
-                // Form return value:
+                // From return value:
                 // bits 7–5 = real status
                 // bits 4–0 = open bus (last read)
                 let result = (status & 0xE0) | (self.last_byte_read.output() & 0x1F);
 
                 // side effects happen AFTER capturing status
-                // println!("READ $2002 CLEARING VBLANK - scanline {} dot {}, global ppu ticks: {}", self.scanline, self.cycles, self.global_ppu_ticks);
-                // if status & 0x80 != 0 {
-                //     trace!("RESETTING VBLANK: vblank lasted: {} ppu ticks", self.vblank_ticks);
-                // }
-                trace!("[CPU READ $2002, CLEARING VBLATCH] cpu-visible VBL = {:08b}, SL={}, dot={}", result, self.scanline, self.cycles);
-                self.status_register.reset_vblank_status(); // clear VBL
-                self.scroll_register.reset_latch(); // reset toggle
+                self.status_register.reset_vblank_status();
+                self.scroll_register.reset_latch();
 
                 // update open bus with what was read
                 self.last_byte_read.set(reg, result);
+                
+                // Quirk: Skip VBL and NMI if READ PPUSTATUS on SL240 dot0
+                println!("READ $2002 - SL={} dot={}", self.scanline, self.cycles);
+                if self.scanline==241 && self.cycles == 0 {
+                    println!("supressing vblank...");
+                    self.suppress_vblank = true;
+                }
 
-                // trace!("PPU READ $2002 = {:08b}", status);
-                // eprintln!("PPU READ $2002: {:08b}", status);
-                // trace!(
-                //     "[$2002 READ RETURN] result={:08b} (updated status={:08b}) SL={} DOT={}",
-                //     result, self.status_register.bits(), self.scanline, self.cycles
-                // );
-                // trace!(
-                //     "[$2002 READ] result={:08b} pre_clear={:08b} low5=open_bus={:05b} SL={} DOT={}",
-                //     result,
-                //     status,
-                //     self.last_byte_read.output() & 0x1F,
-                //     self.scanline,
-                //     self.cycles
-                // );
                 result
             }
             0x2004 => {
@@ -249,24 +239,6 @@ impl PPU {
             self.status_register.set_sprite_overflow(false);
             self.scroll_register.reset_latch();
             self.reset_sprite_evaluation();
-        }
-
-        // --- VBLANK set at start of scanline 241 (dot 1)
-        if scanline == 241 && dot == 1 {
-            self.vblank_ticks = 0;
-            self.status_register.set_vblank_status();
-
-            trace!(
-                "[PPU] VBLANK SET: scanline={} dot={} vblank_ticks={} global_ppu_ticks={}",
-                scanline, dot, self.vblank_ticks, self.global_ppu_ticks
-            );
-
-            if self.ctrl_register.generate_vblank_nmi() {
-                trace!("[PPU] NMI TRIGGERED: scanline={} dot={} global_ppu_ticks={}", scanline, dot, self.global_ppu_ticks);
-                if let Some(bus_ptr) = self.bus {
-                    unsafe { (*bus_ptr).nmi(); }
-                }
-            }
         }
 
         if (scanline >= 241 && dot >= 1) || (scanline <= 261 && dot <= 1) {
@@ -339,14 +311,19 @@ impl PPU {
                 self.scroll_register.copy_vertical_bits();
             }
         }
-
+        
         // --- Advance cycle/scanline/frame counters
         self.global_ppu_ticks += 1;
         self.cycles += 1;
+        
+        // Prevent overflow
+        if self.global_ppu_ticks > 1_000_000 {
+            self.global_ppu_ticks -= 1_000_000;
+        }
 
         // --- Odd-frame skip (prerender scanline dot 340)
         if prerender_scanline && self.cycles == 340 && self.frame_is_odd && rendering_enabled {
-            self.global_ppu_ticks += 1; // account for the skipped tick
+            self.global_ppu_ticks += 1;
             self.frame_is_odd = !self.frame_is_odd; // toggle odd/even now
             self.cycles = 0;
             self.scanline = 0;
@@ -362,14 +339,32 @@ impl PPU {
             if self.scanline > 261 {
                 self.scanline = 0;
                 frame_complete = true;
+                self.suppress_vblank = false;
                 self.frame_is_odd = !self.frame_is_odd; // toggle at real frame end
                 trace!("[FRAME END] SL={} dot={} frame_is_odd becomes: {}", scanline, dot, self.frame_is_odd);
             }
         }
-        
-        // Prevent overflow
-        if self.global_ppu_ticks > 1_000_000 {
-            self.global_ppu_ticks -= 1_000_000;
+
+
+
+        // --- VBLANK set at start of scanline 241 (dot 1)
+        if self.scanline == 241 && self.cycles == 1 {
+            self.vblank_ticks = 0;
+            if !self.suppress_vblank {
+                self.status_register.set_vblank_started();
+            }
+
+            trace!(
+                "[PPU] VBLANK SET: scanline={} dot={} vblank_ticks={} global_ppu_ticks={}",
+                scanline, dot, self.vblank_ticks, self.global_ppu_ticks
+            );
+
+            if !self.suppress_vblank && self.ctrl_register.generate_vblank_nmi() {
+                trace!("[PPU] NMI TRIGGERED: scanline={} dot={} global_ppu_ticks={}", scanline, dot, self.global_ppu_ticks);
+                if let Some(bus_ptr) = self.bus {
+                    unsafe { (*bus_ptr).nmi(); }
+                }
+            }
         }
 
         frame_complete

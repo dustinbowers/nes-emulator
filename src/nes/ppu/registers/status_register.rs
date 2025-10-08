@@ -30,27 +30,16 @@ impl StatusRegister {
         StatusRegister::from_bits_truncate(0)
     }
 
-    pub fn set_vblank_status(&mut self) {
-        // println!("StatusRegister.set_vblank_status({:?})", status);
-        // trace!("SET VBLANK");
+    pub fn set_vblank_started(&mut self) {
         self.insert(StatusRegister::VBLANK_STARTED);
     }
 
     pub fn reset_vblank_status(&mut self) {
-        // println!("StatusRegister.reset_vblank_status()");
-        // if self.contains(StatusRegister::VBLANK_STARTED) {
-        //     trace!("CLEAR VBLANK: set -> unset");
-        // }
         self.remove(StatusRegister::VBLANK_STARTED);
     }
 
     pub fn set_sprite_zero_hit(&mut self, status: bool) {
         self.set(StatusRegister::SPRITE_ZERO_HIT, status);
-        // println!("status_register::set_sprite_zero_hit: {:?}", status);
-        // if status {
-        //     println!("status_register::set_sprite_zero_hit: {:?}", status);
-        //     println!("status register: {:08b}", self);
-        // }
     }
 
     pub fn set_sprite_overflow(&mut self, status: bool) {
