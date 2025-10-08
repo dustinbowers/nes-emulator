@@ -27,8 +27,8 @@
     - [x] Pulse Channels
     - [x] Noise Channel
     - [x] Triangle Channel
-    - [ ] DPCM channel
     - [ ] DMC DMA
+    - [ ] DPCM Channel
 
 ### Resources
 

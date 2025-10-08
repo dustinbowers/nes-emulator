@@ -340,8 +340,12 @@ impl PPU {
             }
         }
 
+        // --- Advance cycle/scanline/frame counters
+        self.global_ppu_ticks += 1;
+        self.cycles += 1;
+
         // --- Odd-frame skip (prerender scanline dot 340)
-        if prerender_scanline && dot == 339 && self.frame_is_odd && rendering_enabled {
+        if prerender_scanline && self.cycles == 340 && self.frame_is_odd && rendering_enabled {
             self.global_ppu_ticks += 1; // account for the skipped tick
             self.frame_is_odd = !self.frame_is_odd; // toggle odd/even now
             self.cycles = 0;
@@ -349,10 +353,6 @@ impl PPU {
             trace!("[FRAME END] SL={} dot={} frame_is_odd becomes: {}", scanline, dot, self.frame_is_odd);
             return true;
         }
-
-        // --- Advance cycle/scanline/frame counters
-        self.global_ppu_ticks += 1;
-        self.cycles += 1;
 
         let mut frame_complete = false;
         if self.cycles > 340 {
@@ -367,6 +367,7 @@ impl PPU {
             }
         }
         
+        // Prevent overflow
         if self.global_ppu_ticks > 1_000_000 {
             self.global_ppu_ticks -= 1_000_000;
         }
