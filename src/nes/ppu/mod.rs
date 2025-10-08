@@ -222,6 +222,8 @@ impl PPU {
         }
         self.last_byte_read.set(addr, value);
     }
+    
+    /// tick Advance the PPU by 1 dot
     pub fn tick(&mut self) -> bool {
         let dot = self.cycles;
         let scanline = self.scanline;
@@ -406,44 +408,45 @@ impl PPU {
         let (bg_palette_index, bg_pixel) = self.get_background_pixel();
         let (sprite_palette_index, sprite_pixel, sprite_in_front, sprite_zero_rendered) = self.get_sprite_pixel();
 
-        // Only set sprite-0 hit if it's not already set
-        if sprite_zero_rendered
-            && bg_palette_index != 0
-            && self.scanline < 240
-            && self.cycles < 255 {
-            if self.cycles >= 8
-                || (self.mask_register.leftmost_8pxl_background()
-                && self.mask_register.leftmost_8pxl_sprite()) {
-                if !self
-                    .status_register
-                    .contains(StatusRegister::SPRITE_ZERO_HIT)
-                {
-                    trace!(
-                        "\tset_sprite_zero_hit TRUE @ scanline {} dot {}",
-                        self.scanline, self.cycles
-                    );
-                    self.status_register.set_sprite_zero_hit(true);
+        // sprite 0 hit only if both rendering enabled, on visible scanlines and dots 1-256
+        let show_bg = self.mask_register.show_background();
+        let show_spr = self.mask_register.show_sprites();
+        let left_bg = self.mask_register.leftmost_8pxl_background();
+        let left_spr = self.mask_register.leftmost_8pxl_sprite();
+        let dot = self.cycles;
+        let scanline = self.scanline;
+
+        // Only check for sprite 0 hit on visible scanlines and dots 1-256
+        if show_bg && show_spr && scanline < 240 && (1..=256).contains(&dot) {
+            // Leftmost 8px masking: if in dots 1-8, require both leftmost bits enabled
+            if dot > 8 || (left_bg && left_spr) {
+                if sprite_zero_rendered && bg_palette_index != 0 {
+                    if !self.status_register.contains(StatusRegister::SPRITE_ZERO_HIT) {
+                        trace!(
+                            "\tset_sprite_zero_hit TRUE @ scanline {} dot {}",
+                            scanline, dot
+                        );
+                        self.status_register.set_sprite_zero_hit(true);
+                    }
                 }
             }
         }
 
-        // NES priority: if both nonzero, sprite_in_front decides, but if sprite is behind and bg is 0, sprite shows
+        // if both nonzero, sprite_in_front decides, but if sprite is behind and bg is 0, sprite shows
         let (palette, pixel, kind) = if sprite_pixel == 0 {
-            // No sprite pixel — just background
+            // No sprite pixel - just background
             (bg_palette_index, bg_pixel, PaletteKind::Background)
         } else if bg_pixel == 0 {
-            // No background pixel — sprite wins
-            // sprite_palette_index
+            // No background pixel - sprite wins
             (sprite_palette_index, sprite_pixel, PaletteKind::Sprite)
         } else if sprite_in_front {
-            // Both nonzero, sprite has priority
+            // Both nonzero, sprite wins
             (sprite_palette_index, sprite_pixel, PaletteKind::Sprite)
         } else {
-            // Both nonzero, sprite behind background
+            // Both nonzero, sprite behind bg
             (bg_palette_index, bg_pixel, PaletteKind::Background)
         };
 
-        // Now map to actual color
         self.read_palette_color(palette, pixel, kind) & 0x3F
     }
 
