@@ -480,8 +480,9 @@ impl CPU {
 
         // Tick the bus for opcode cycles. Add any extra cycles from boundary_crosses and other special cases
         let cycle_count = opcode.cycles + self.extra_cycles;
-        // self.bus.tick(cycle_count as usize);
-        self.skip_cycles = cycle_count;
+        
+        // Subtract one to account for execution of the current cycle
+        self.skip_cycles = cycle_count - 1;
 
         // Advance PC normally if an opcode didn't modify it
         if !self.skip_pc_advance {
