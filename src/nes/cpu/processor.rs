@@ -666,8 +666,6 @@ impl CPU {
     }
 
     fn handle_interrupt(&mut self, interrupt: Interrupt) {
-        println!("handing NMI!");
-        trace!("CPU Handling NMI!");
         // TODO: remove this sanity check
         if interrupt.interrupt_type == InterruptType::NMI
             && self.interrupt_stack.contains(&InterruptType::NMI)

@@ -341,17 +341,12 @@ impl PPU {
         }
 
         // --- Odd-frame skip (prerender scanline dot 340)
-        if prerender_scanline && dot == 340 && self.frame_is_odd && rendering_enabled {
-            // self.frame_is_odd = false; // mark odd frame skip
-            trace!(
-                "[ODD SKIP] prerender dot=340, last cycle skipped; frame_is_odd={}",
-                self.frame_is_odd
-            );
-            trace!("[FRAME END] SL={} dot={} frame_is_odd becomes: {}", scanline, dot, self.frame_is_odd);
+        if prerender_scanline && dot == 339 && self.frame_is_odd && rendering_enabled {
             self.global_ppu_ticks += 1; // account for the skipped tick
             self.frame_is_odd = !self.frame_is_odd; // toggle odd/even now
             self.cycles = 0;
             self.scanline = 0;
+            trace!("[FRAME END] SL={} dot={} frame_is_odd becomes: {}", scanline, dot, self.frame_is_odd);
             return true;
         }
 

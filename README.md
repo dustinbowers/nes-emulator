@@ -24,6 +24,11 @@
 - [x] Encapsulate mapper logic behind Cartridge trait
 - [x] Implement cycle-accurate DMA transfer through Bus
 - [ ] Implement APU
+    - [x] Pulse Channels
+    - [x] Noise Channel
+    - [x] Triangle Channel
+    - [ ] DPCM channel
+    - [ ] DMC DMA
 
 ### Resources
 
