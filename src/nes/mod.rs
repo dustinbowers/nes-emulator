@@ -50,7 +50,7 @@ impl NES {
     pub fn tick(&mut self) -> bool {
         // Tick PPU
         let frame_ready = self.bus.ppu.tick();
-        trace_obj!(self.bus.ppu);
+        // trace_obj!(self.bus.ppu);
         
         // Runs at PPU speed
         self.bus.tick(); 

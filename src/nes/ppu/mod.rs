@@ -36,6 +36,7 @@ pub struct PPU {
     pub cycles: usize,
     pub scanline: usize,
     pub suppress_vblank: bool,
+    pub rendering_enabled_at_prerender: bool,
     pub global_ppu_ticks: usize,
     pub vblank_ticks: usize, // TODO: remove this
 
@@ -88,6 +89,7 @@ impl PPU {
             cycles: 100,
             scanline: 100,
             suppress_vblank: false,
+            rendering_enabled_at_prerender: true,
             global_ppu_ticks: 100,
             vblank_ticks: 0, // TODO: Remove this
 
@@ -219,11 +221,19 @@ impl PPU {
         let scanline = self.scanline;
         let prerender_scanline = scanline == 261;
         let visible_scanline = scanline < 240;
-        let rendering_enabled = self.mask_register.rendering_enabled();
+        // let rendering_enabled = self.mask_register.rendering_enabled();
+        let rendering_enabled = self.rendering_enabled_at_prerender;
 
-        // --- Frame start logging
+        // debug logs
         if scanline == 0 && dot == 0 {
-            trace!("[FRAME START] scanline={} cycles={} global_ppu_ticks={}", scanline, dot, self.global_ppu_ticks);
+            println!("[PPU DEBUG] Frame START: frame_is_odd={}, scanline={}, dot={}", self.frame_is_odd, scanline, dot);
+            trace!("[FRAME START] scanline={} cycles={} global_ppu_ticks={} fame_is_odd={}", scanline, dot, self.global_ppu_ticks, self.frame_is_odd);
+        }
+        if prerender_scanline && dot == 0 {
+            println!("[PPU DEBUG] Latch rendering_enabled_at_prerender: {} (mask={})", self.mask_register.rendering_enabled(), self.mask_register.bits());
+        }
+        if prerender_scanline && dot == 339 {
+            println!("[PPU DEBUG] Odd-frame skip check: frame_is_odd={}, rendering_enabled_at_prerender={}", self.frame_is_odd, rendering_enabled);
         }
 
         // --- VBLANK clear at start of prerender scanline (dot 1)
@@ -233,7 +243,6 @@ impl PPU {
                 scanline, dot, self.global_ppu_ticks, self.vblank_ticks
             );
             trace!("[PPU] FRAME END: scanline={} dot={} global_ppu_ticks={}", scanline, dot, self.global_ppu_ticks);
-
             self.status_register.reset_vblank_status();
             self.status_register.set_sprite_zero_hit(false);
             self.status_register.set_sprite_overflow(false);
@@ -311,24 +320,15 @@ impl PPU {
                 self.scroll_register.copy_vertical_bits();
             }
         }
-        
+
+
         // --- Advance cycle/scanline/frame counters
         self.global_ppu_ticks += 1;
         self.cycles += 1;
-        
+
         // Prevent overflow
         if self.global_ppu_ticks > 1_000_000 {
             self.global_ppu_ticks -= 1_000_000;
-        }
-
-        // --- Odd-frame skip (prerender scanline dot 340)
-        if prerender_scanline && self.cycles == 340 && self.frame_is_odd && rendering_enabled {
-            self.global_ppu_ticks += 1;
-            self.frame_is_odd = !self.frame_is_odd; // toggle odd/even now
-            self.cycles = 0;
-            self.scanline = 0;
-            trace!("[FRAME END] SL={} dot={} frame_is_odd becomes: {}", scanline, dot, self.frame_is_odd);
-            return true;
         }
 
         let mut frame_complete = false;
@@ -340,12 +340,15 @@ impl PPU {
                 self.scanline = 0;
                 frame_complete = true;
                 self.suppress_vblank = false;
-                self.frame_is_odd = !self.frame_is_odd; // toggle at real frame end
+                self.frame_is_odd = !self.frame_is_odd;
                 trace!("[FRAME END] SL={} dot={} frame_is_odd becomes: {}", scanline, dot, self.frame_is_odd);
             }
         }
-
-
+        
+        if self.scanline==261 && self.cycles == 0 {
+            // Latch rendering enabled
+            self.rendering_enabled_at_prerender = self.mask_register.rendering_enabled();
+        }
 
         // --- VBLANK set at start of scanline 241 (dot 1)
         if self.scanline == 241 && self.cycles == 1 {
@@ -355,7 +358,8 @@ impl PPU {
             }
 
             trace!(
-                "[PPU] VBLANK SET: scanline={} dot={} vblank_ticks={} global_ppu_ticks={}",
+                "[PPU] VBLANK SET: frame_is_odd={} scanline={} dot={} vblank_ticks={} global_ppu_ticks={}",
+                self.frame_is_odd,
                 scanline, dot, self.vblank_ticks, self.global_ppu_ticks
             );
 
@@ -365,6 +369,18 @@ impl PPU {
                     unsafe { (*bus_ptr).nmi(); }
                 }
             }
+        }
+
+        // --- Odd-frame skip
+        if prerender_scanline && self.cycles == 340 && self.frame_is_odd && self.rendering_enabled_at_prerender {
+            // NES skips dot 339 on odd frames with rendering enabled at prerender start
+            self.global_ppu_ticks += 1;
+            self.cycles = 0;
+            self.scanline = 0;
+            self.suppress_vblank = false;
+            self.frame_is_odd = !self.frame_is_odd;
+            trace!("[PPU DEBUG] Odd-frame SKIP: frame_is_odd={}, scanline={}, dot={}", self.frame_is_odd, scanline, dot);
+            return true;
         }
 
         frame_complete

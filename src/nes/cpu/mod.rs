@@ -14,7 +14,7 @@ impl Traceable for CPU {
     fn trace_state(&self) -> Option<String> {
         if self.skip_cycles == 0 {
             Some(format!(
-                "(skip: {}) PC={:04X} A={:02X} X={:02X} Y={:02X} P={:02X} SP={:02X} [{:02X?}]",
+                "(skip: {}) PC={:04X} A={:02X} X={:02X} Y={:02X} P={:02X} SP={:02X} [{:?}]",
                 self.skip_cycles, self.program_counter, self.register_a, self.register_x, self.register_y, self.status, self.stack_pointer, self.last_opcode_desc
             ))
         } else {

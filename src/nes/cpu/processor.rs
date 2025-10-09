@@ -247,7 +247,7 @@ impl CPU {
                 opcode.name,
                 operand_bytes
             );
-            self.last_opcode_desc = format!("Opcode: {} {:?}", opcode.name, operand_bytes);
+            self.last_opcode_desc = format!("Opcode: {} {:02x?}", opcode.name, operand_bytes);
             if DEBUG {
                 println!("{trace}");
             }
