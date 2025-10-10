@@ -7,3 +7,4 @@ logs/
 .idea
 *.log
 *.sh
+sdl2-sys/

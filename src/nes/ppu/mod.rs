@@ -170,7 +170,7 @@ impl PPU {
                 self.last_byte_read.set(reg, result);
                 
                 // Quirk: Skip VBL and NMI if READ PPUSTATUS on SL240 dot0
-                println!("READ $2002 - SL={} dot={}", self.scanline, self.cycles);
+                // println!("READ $2002 - SL={} dot={}", self.scanline, self.cycles);
                 if self.scanline==241 && self.cycles == 0 {
                     println!("supressing vblank...");
                     self.suppress_vblank = true;
@@ -225,16 +225,16 @@ impl PPU {
         let rendering_enabled = self.rendering_enabled_at_prerender;
 
         // debug logs
-        if scanline == 0 && dot == 0 {
-            println!("[PPU DEBUG] Frame START: frame_is_odd={}, scanline={}, dot={}", self.frame_is_odd, scanline, dot);
-            trace!("[FRAME START] scanline={} cycles={} global_ppu_ticks={} fame_is_odd={}", scanline, dot, self.global_ppu_ticks, self.frame_is_odd);
-        }
-        if prerender_scanline && dot == 0 {
-            println!("[PPU DEBUG] Latch rendering_enabled_at_prerender: {} (mask={})", self.mask_register.rendering_enabled(), self.mask_register.bits());
-        }
-        if prerender_scanline && dot == 339 {
-            println!("[PPU DEBUG] Odd-frame skip check: frame_is_odd={}, rendering_enabled_at_prerender={}", self.frame_is_odd, rendering_enabled);
-        }
+        // if scanline == 0 && dot == 0 {
+        //     println!("[PPU DEBUG] Frame START: frame_is_odd={}, scanline={}, dot={}", self.frame_is_odd, scanline, dot);
+        //     trace!("[FRAME START] scanline={} cycles={} global_ppu_ticks={} fame_is_odd={}", scanline, dot, self.global_ppu_ticks, self.frame_is_odd);
+        // }
+        // if prerender_scanline && dot == 0 {
+        //     println!("[PPU DEBUG] Latch rendering_enabled_at_prerender: {} (mask={})", self.mask_register.rendering_enabled(), self.mask_register.bits());
+        // }
+        // if prerender_scanline && dot == 339 {
+        //     println!("[PPU DEBUG] Odd-frame skip check: frame_is_odd={}, rendering_enabled_at_prerender={}", self.frame_is_odd, rendering_enabled);
+        // }
 
         // --- VBLANK clear at start of prerender scanline (dot 1)
         if prerender_scanline && dot == 1 {

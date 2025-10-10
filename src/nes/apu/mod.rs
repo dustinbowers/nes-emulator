@@ -1,6 +1,7 @@
 use noise_channel::NoiseChannel;
 use pulse_channel::PulseChannel;
 use triangle_channel::TriangleChannel;
+use crate::nes::apu::dmc_channel::DmcChannel;
 
 mod dmc_channel;
 mod noise_channel;
@@ -33,6 +34,7 @@ pub struct APU {
     pub pulse2: PulseChannel,
     pub triangle: TriangleChannel,
     pub noise: NoiseChannel,
+    pub dmc: DmcChannel,
 
     pub enable_dmc: bool,
     pub enable_noise: bool,
@@ -41,10 +43,10 @@ pub struct APU {
     pub enable_pulse1: bool,
 
     pub master_sequence_mode: bool,
-    pub irq_disable: bool,
     pub frame_clock_counter: u8,
     pub clock_counter: u32,
 
+    pub irq_disable: bool,
     pub dmc_interrupt: bool,
     pub frame_interrupt: bool,
 }
@@ -57,17 +59,19 @@ impl APU {
             pulse2: PulseChannel::new(false),
             triangle: TriangleChannel::new(),
             noise: NoiseChannel::new(),
+            dmc: DmcChannel::new(),
+            
             enable_dmc: false,
             enable_noise: false,
             enable_triangle: false,
             enable_pulse2: false,
             enable_pulse1: false,
-            irq_disable: false,
 
             master_sequence_mode: false,
             frame_clock_counter: 0,
             clock_counter: 0,
 
+            irq_disable: false,
             dmc_interrupt: false,
             frame_interrupt: false,
         }
@@ -132,8 +136,11 @@ impl APU {
             0x400E => self.noise.write_400e(value),
             0x400F => self.noise.write_400f(value),
 
-            0x4010..=0x4013 => { // DMC
-            }
+            0x4010 =>  self.dmc.write_4010(value),
+            0x4011 =>  self.dmc.write_4011(value),
+            0x4012 =>  self.dmc.write_4012(value),
+            0x4013 =>  self.dmc.write_4013(value),
+            
             0x4015 => {
                 // Control / Status
                 self.enable_dmc = value & 1 << 4 != 0;
@@ -141,7 +148,7 @@ impl APU {
                 self.enable_triangle = value & 1 << 2 != 0;
                 self.enable_pulse2 = value & 1 << 1 != 0;
                 self.enable_pulse1 = value & 1 << 0 != 0;
-                println!("APU::write({:04X}, {:08b})", addr, value);
+                // println!("APU::write({:04X}, {:08b})", addr, value);
 
                 if !self.enable_pulse1 {
                     self.pulse1.disable();
@@ -156,7 +163,7 @@ impl APU {
                     self.noise.disable();
                 }
                 if !self.enable_dmc {
-                    // TODO
+                    self.dmc.disable();
                 }
             }
             0x4017 => {

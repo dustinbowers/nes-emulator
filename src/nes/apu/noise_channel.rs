@@ -53,8 +53,20 @@ impl NoiseChannel {
         self.length_counter.set(length_counter_load);
         self.envelope.start();
     }
+}
+
+impl NoiseChannel {
+    pub fn disable(&mut self) {
+        self.length_counter.set_enabled(false);
+        self.length_counter.set_halt(true);
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.length_counter.output() > 0
+    }
 
     fn shift_noise(&mut self) {
+        // Linear feedback shifter
         let feedback = match self.mode {
             NoiseMode::Long => {
                 let a = self.shifter & 0b1;
@@ -68,17 +80,6 @@ impl NoiseChannel {
             }
         };
         self.shifter = (feedback << 14) | (self.shifter >> 1);
-    }
-}
-
-impl NoiseChannel {
-    pub fn disable(&mut self) {
-        self.length_counter.set_enabled(false);
-        self.length_counter.set_halt(true);
-    }
-
-    pub fn is_enabled(&self) -> bool {
-        self.length_counter.output() > 0
     }
 
     pub fn clock(&mut self, quarter_frame_clock: bool, half_frame_clock: bool) {

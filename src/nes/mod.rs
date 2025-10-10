@@ -36,8 +36,6 @@ impl NES {
         let bus = NesBus::new(cartridge);
         Self {
             bus,
-            // ppu_cycles: 0,
-            // cpu_cycles: 0,
             ppu_warmed_up: true,
             dma_mode: DmaMode::None,
             oam_transfer_cycles: 0,
