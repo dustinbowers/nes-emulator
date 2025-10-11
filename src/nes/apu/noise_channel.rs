@@ -44,14 +44,20 @@ impl NoiseChannel {
         const NOISE_TABLE: [u16; 16] = [
             4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
         ];
-        self.seq_timer
-            .set_reload(NOISE_TABLE[timer_period as usize]);
+
+        // since sequence timer's period is reload + 1,
+        // set reload to (table_value - 1).
+        let period_apu_cycles = NOISE_TABLE[timer_period as usize];
+        let reload = period_apu_cycles.saturating_sub(1);
+        self.seq_timer.set_reload(reload);
     }
 
     pub fn write_400f(&mut self, value: u8) {
         let length_counter_load = value >> 3;
         self.length_counter.set(length_counter_load);
-        self.envelope.start();
+
+        // writing 400F sets envelope start flag; actual reset happens on next quarter-frame
+        self.envelope.set_start_flag(true);
     }
 }
 

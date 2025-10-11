@@ -42,7 +42,6 @@ impl PulseChannel {
                 VVVV: Volume (C=1) or Envelope(C=0)
     */
     pub fn write_4000(&mut self, value: u8) {
-        // println!("write_4000({:08b}", value);
         self.duty_cycle = (value & 0b1100_0000) >> 6;
         self.sequence = match self.duty_cycle {
             0 => 0b0100_0000,
@@ -136,7 +135,9 @@ impl PulseChannel {
         let seq_active = (self.sequence & 0b1000_0000) != 0;
         let vol = self.envelope.output();
         let len = self.length_counter.output();
-        if !seq_active || len == 0 || self.seq_timer.output() < 8 {
+
+        // pulse is silenced if the timer period (11-bit reload) is < 8
+        if !seq_active || len == 0 || self.seq_timer.get_reload() < 8 {
             0
         } else {
             vol
@@ -236,8 +237,6 @@ mod tests {
     fn test_write_4002_timer_low() {
         let mut channel = setup_pulse_channel(true);
         channel.write_4002(0x12);
-        // The reload value will be affected by 4003 as well, so we only test the low bits.
-        // We'll have a more comprehensive test for the full timer reload value later.
         assert_eq!(channel.seq_timer.get_reload_low_bits(), 0x12);
     }
 

@@ -32,7 +32,9 @@ impl TriangleChannel {
         self.linear_counter_control_flag = (value & 0b1000_0000) != 0;
         self.linear_counter_reload_value = value & 0b0111_1111;
 
-        self.length_counter.set_halt(true);
+        // when control flag is set, length counter halt is set; otherwise cleared.
+        // bit 7 doubles as the length counter halt for triangle
+        self.length_counter.set_halt(self.linear_counter_control_flag);
     }
 
     pub fn write_400a(&mut self, value: u8) {
@@ -64,7 +66,13 @@ impl TriangleChannel {
 
     pub fn clock(&mut self, quarter_frame_clock: bool) {
         let advance_waveform = self.sequence_timer.clock();
-        if advance_waveform && self.linear_counter_value > 0 && self.length_counter.output() > 0 {
+        // triangle advances only if both length counter and linear counter are non-zero,
+        // and the timer period is at least 2
+        if advance_waveform
+            && self.linear_counter_value > 0
+            && self.length_counter.output() > 0
+            && self.sequence_timer.get_reload() >= 2
+        {
             self.sequence_index = (self.sequence_index + 1) % 32;
         }
 
@@ -75,7 +83,8 @@ impl TriangleChannel {
                 self.linear_counter_value -= 1;
             }
 
-            if self.linear_counter_control_flag == false {
+            // If control flag is clear, the reload flag is cleared on quarter frame clock
+            if !self.linear_counter_control_flag {
                 self.linear_counter_reload_flag = false;
             }
             // println!("TriangleChannel: seq_ind {}\tlinear_ct: {}\tlength_ct:{}", self.sequence_index, self.linear_counter_value, self.length_counter.output());
@@ -88,7 +97,10 @@ impl TriangleChannel {
             11, 12, 13, 14, 15,
         ];
 
-        let value = TRIANGLE_TABLE[self.sequence_index as usize];
-        value
+        if self.linear_counter_value == 0 || self.length_counter.output() == 0 {
+            0
+        } else {
+            TRIANGLE_TABLE[self.sequence_index as usize]
+        }
     }
 }
