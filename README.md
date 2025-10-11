@@ -2,7 +2,7 @@
 
 ***NOTE**: This is still very much a work in progress.*
 
-### TODO
+## TODO
 
 - [x] Implement 6502 CPU (minus APU)
     - [x] Official opcodes
@@ -30,14 +30,38 @@
     - [ ] DMC DMA
     - [ ] DPCM Channel
 
-### Resources
+## Requirements
+
+- You'll need SDL3 and SDL3_ttf
+
+## Building
+
+| Command                    | Command Description                                 |
+|----------------------------|-----------------------------------------------------|
+| `make debug`               | Build debug binary                                  |
+| `make release`             | Build release binary                                |
+| `make release-tracing`     | Build release with tracing enabled (*much* slower)  |
+
+## Running
+
+- Usage: `./nes-emulator <ROM path>`
+
+## Testing 6502 Opcodes
+
+| Command                    | Command Description                                                 |
+|----------------------------|---------------------------------------------------------------------|
+| `make testop op=<opcode>`  | Test 6502 opcodes using single-step-tests (e.g. `make testop op=a9` |
+
+## Resources
 
 - 6502 opcode references:
   - https://www.nesdev.org/obelisk-6502-guide/reference.html
   - http://www.6502.org/tutorials/6502opcodes.html
-- Illegal opcodes: https://www.masswerk.at/nowgobang/2021/6502-illegal-opcodes
-- Single-step opcode tests: https://github.com/SingleStepTests/65x02/tree/main/nes6502/v1
-- iNES file format spec: https://formats.kaitai.io/ines/index.html
-- snake.nes: https://skilldrick.github.io/easy6502/#snake
-- PPU timing chart: https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
-- PPU timing details: https://www.nesdev.org/wiki/PPU_rendering
+- Illegal opcodes - https://www.masswerk.at/nowgobang/2021/6502-illegal-opcodes
+- Single-step opcode tests - https://github.com/SingleStepTests/65x02/tree/main/nes6502/v1
+- iNES file format spec - https://formats.kaitai.io/ines/index.html
+- snake.nes - https://skilldrick.github.io/easy6502/#snake
+- PPU timing chart - https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
+- PPU timing details - https://www.nesdev.org/wiki/PPU_rendering
+- APU details - https://www.nesdev.org/wiki/APU
+- NES APU Sound Hardware Reference - https://www.nesdev.org/apu_ref.txt
