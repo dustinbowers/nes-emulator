@@ -7,10 +7,10 @@ pub mod tracer;
 
 pub mod controller;
 
+use crate::{trace, trace_obj};
 use bus::nes_bus::NesBus;
 use cartridge::Cartridge;
 use cpu::processor::CpuBusInterface;
-use crate::{trace, trace_obj};
 
 const OAM_DMA_START_CYCLES: usize = 0;
 const OAM_DMA_DONE_CYCLES: usize = 512;
@@ -36,8 +36,6 @@ impl NES {
         let bus = NesBus::new(cartridge);
         Self {
             bus,
-            // ppu_cycles: 0,
-            // cpu_cycles: 0,
             ppu_warmed_up: true,
             dma_mode: DmaMode::None,
             oam_transfer_cycles: 0,
@@ -51,10 +49,10 @@ impl NES {
         // Tick PPU
         let frame_ready = self.bus.ppu.tick();
         // trace_obj!(self.bus.ppu);
-        
+
         // Runs at PPU speed
-        self.bus.tick(); 
-        
+        self.bus.tick();
+
         // CPU runs at 1/3 PPU speed
         if self.bus.ppu.global_ppu_ticks.is_multiple_of(3) {
             match self.dma_mode {
@@ -97,7 +95,7 @@ impl NES {
             // Runs at CPU speed
             self.bus.apu.clock(self.bus.cpu.cycles);
         }
-       
+
         // trace!("NES: cpu_cycles={} ppu_cycles={}", self.bus.cpu.cycles, self.bus.ppu.global_ppu_ticks);
         frame_ready
     }

@@ -52,12 +52,12 @@ impl TriangleChannel {
     }
 }
 
-impl TriangleChannel{
+impl TriangleChannel {
     pub fn disable(&mut self) {
         self.length_counter.set_enabled(false);
         self.length_counter.set_halt(true);
     }
-    
+
     pub fn is_enabled(&self) -> bool {
         self.length_counter.output() > 0
     }

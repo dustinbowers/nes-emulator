@@ -33,8 +33,6 @@ impl SequenceTimer {
 
     /// returns `true` if waveform generator needs clocking
     pub fn clock(&mut self) -> bool {
-        let timer = self.reload_value;
-        let freq = 1789773.0 / (16.0 * (timer as f32 + 1.0));
         if self.value == 0 {
             self.value = self.reload_value;
             true

@@ -1,5 +1,5 @@
-use crate::nes::cartridge::rom::Mirroring;
 use super::Cartridge;
+use crate::nes::cartridge::rom::Mirroring;
 
 #[derive(Debug)]
 pub struct NromCart {

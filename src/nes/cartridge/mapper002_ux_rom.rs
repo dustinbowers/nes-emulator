@@ -1,5 +1,5 @@
-use super::Cartridge;
 use super::rom::Mirroring;
+use super::Cartridge;
 
 #[derive(Debug)]
 pub struct Mapper002UxRom {

@@ -1,6 +1,6 @@
-use bitflags::bitflags;
 use crate::nes::tracer::traceable::Traceable;
 use crate::trace;
+use bitflags::bitflags;
 
 bitflags! {
     /* See: https://www.nesdev.org/wiki/PPU_registers#PPUSTATUS

@@ -1,11 +1,11 @@
 use crate::nes::apu::{ApuBusInterface, APU};
-use crate::nes::cartridge::Cartridge;
 use crate::nes::cartridge::rom::Mirroring;
+use crate::nes::cartridge::Cartridge;
 use crate::nes::controller::joypad::Joypad;
-use crate::nes::cpu::processor::{CpuBusInterface, CPU};
-use crate::nes::ppu::{PpuBusInterface, PPU};
 use crate::nes::controller::NesController;
+use crate::nes::cpu::processor::{CpuBusInterface, CPU};
 use crate::nes::ppu::registers::status_register::StatusRegister;
+use crate::nes::ppu::{PpuBusInterface, PPU};
 use crate::nes::tracer::traceable::Traceable;
 use crate::trace;
 
@@ -199,27 +199,27 @@ impl Traceable for &mut NesBus {
     fn trace_state(&self) -> Option<String> {
         let sl = self.ppu.scanline;
         let dot = self.ppu.cycles;
-        if ((241..=241).contains(&sl) || (261..=261).contains(&sl))
-            && (0..=10).contains(&dot) {
-            
+        if ((241..=241).contains(&sl) || (261..=261).contains(&sl)) && (0..=10).contains(&dot) {
             let cpu_trace = self.cpu.trace().unwrap_or("---".to_string());
             let ppu_trace = self.ppu.trace().unwrap_or("---".to_string());
-            let status_register_trace = self.ppu.status_register.trace().unwrap_or("---".to_string());
+            let status_register_trace = self
+                .ppu
+                .status_register
+                .trace()
+                .unwrap_or("---".to_string());
 
             // if cpu_trace != "---" {
             if self.ppu.global_ppu_ticks.is_multiple_of(3) {
-                Some(format!("{{ {} | {} | {} }}",
-                             cpu_trace,
-                             ppu_trace,
-                             status_register_trace
+                Some(format!(
+                    "{{ {} | {} | {} }}",
+                    cpu_trace, ppu_trace, status_register_trace
                 ))
-            }  else {
+            } else {
                 None
             }
             // } else {
             //     None
             // }
-            
         } else {
             None
         }

@@ -1,4 +1,4 @@
-use super::{PaletteKind, PPU};
+use super::PPU;
 
 impl PPU {
     /// get_sprite_pixel determines the sprite pixel.
@@ -11,7 +11,7 @@ impl PPU {
 
         for i in 0..8 {
             if self.sprite_x_counter[i] == 0 {
-                let low_bit  = (self.sprite_pattern_low[i]  >> 7) & 1;
+                let low_bit = (self.sprite_pattern_low[i] >> 7) & 1;
                 let high_bit = (self.sprite_pattern_high[i] >> 7) & 1;
                 let pixel = (high_bit << 1) | low_bit;
 
@@ -26,7 +26,6 @@ impl PPU {
                         let palette = self.sprite_attributes[i] & 0b11;
                         sprite_palette = palette;
                         sprite_pixel = pixel;
-                        //= self.read_palette_color(palette, pixel, PaletteKind::Sprite);
 
                         // Bit 5 = 1 means behind background
                         sprite_in_front = (self.sprite_attributes[i] & 0b0010_0000) == 0;
@@ -35,7 +34,12 @@ impl PPU {
             }
         }
 
-        (sprite_palette, sprite_pixel, sprite_in_front, sprite_zero_rendered)
+        (
+            sprite_palette,
+            sprite_pixel,
+            sprite_in_front,
+            sprite_zero_rendered,
+        )
     }
 
     pub(super) fn sprite_evaluation(&mut self, scanline: usize, dot: usize) {

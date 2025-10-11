@@ -1,6 +1,6 @@
 // use macroquad::color::Color;
 use once_cell::sync::Lazy;
-use sdl2::pixels::Color;
+use sdl3::pixels::Color;
 
 pub static SYSTEM_PALETTE: [(u8, u8, u8); 64] = [
     (0x80, 0x80, 0x80),

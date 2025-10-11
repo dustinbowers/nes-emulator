@@ -52,7 +52,7 @@ impl LengthCounter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     fn setup_length_counter() -> LengthCounter {
         LengthCounter::new()
     }
