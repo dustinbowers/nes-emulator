@@ -1,10 +1,10 @@
 use super::interrupts::{Interrupt, InterruptType};
 use super::{interrupts, opcodes};
 // use crate::nes::cpu::trace::Tracer;
-use bitflags::bitflags;
-use std::collections::HashMap;
 use crate::nes::cpu::opcodes::Opcode;
 use crate::trace;
+use bitflags::bitflags;
+use std::collections::HashMap;
 
 // const DEBUG: bool = true;
 const DEBUG: bool = false;
@@ -177,7 +177,6 @@ impl CPU {
 
     // `tick` returns (num_cycles, bytes_consumed, is_breaking)
     pub fn tick(&mut self) -> (u8, u8, bool) {
-        
         // Stall for previous cycles from last instruction
         if self.skip_cycles > 0 {
             self.skip_cycles -= 1;
@@ -480,7 +479,7 @@ impl CPU {
 
         // Tick the bus for opcode cycles. Add any extra cycles from boundary_crosses and other special cases
         let cycle_count = opcode.cycles + self.extra_cycles;
-        
+
         // Subtract one to account for execution of the current cycle
         self.skip_cycles = cycle_count - 1;
 
@@ -514,7 +513,8 @@ impl CPU {
                 let addr = base.wrapping_add(self.register_x as u16);
 
                 // Only read from base page (not the final address)
-                let dummy_addr = (base & 0xFF00) | ((base.wrapping_add(self.register_y as u16)) & 0x00FF);
+                let dummy_addr =
+                    (base & 0xFF00) | ((base.wrapping_add(self.register_y as u16)) & 0x00FF);
                 let _ = self.bus_read(dummy_addr);
 
                 (addr, is_boundary_crossed(base, addr))
@@ -524,7 +524,8 @@ impl CPU {
                 let addr = base.wrapping_add(self.register_y as u16);
 
                 // Only read from base page (not the final address)
-                let dummy_addr = (base & 0xFF00) | ((base.wrapping_add(self.register_y as u16)) & 0x00FF);
+                let dummy_addr =
+                    (base & 0xFF00) | ((base.wrapping_add(self.register_y as u16)) & 0x00FF);
                 let _ = self.bus_read(dummy_addr);
 
                 (addr, is_boundary_crossed(base, addr))

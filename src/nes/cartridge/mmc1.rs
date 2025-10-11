@@ -1,5 +1,5 @@
-use super::Cartridge;
 use super::rom::Mirroring;
+use super::Cartridge;
 
 // MMC1 mapper (iNES mapper #1)
 pub struct Mmc1 {

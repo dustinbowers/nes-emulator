@@ -15,7 +15,7 @@ pub struct DmcChannel {
 
     sample_address: u16,
     current_address: u16,
-    
+
     sample_length: u8,
     bytes_remaining: u8,
 }
@@ -27,11 +27,10 @@ impl DmcChannel {
             irq_enabled: false,
             loop_flag: false,
             // output: DmcOutput::new(),
-            
             register: 0,
             level: 0,
             current_bit: 0,
-            
+
             // rate: 0,
             sample_address: 0,
             sample_length: 0,
@@ -42,10 +41,10 @@ impl DmcChannel {
 
     pub fn write_4010(&mut self, value: u8) {
         /* $4010:       IL--.RRRR (write)
-               bit 7    I---.---- IRQ enabled flag
-               bit 6    -L--.---- Loop flag
-               bits 3-0 ----.RRRR Rate index
-         */
+              bit 7    I---.---- IRQ enabled flag
+              bit 6    -L--.---- Loop flag
+              bits 3-0 ----.RRRR Rate index
+        */
         self.irq_enabled = value & 0b1000_0000 != 0;
         self.loop_flag = value & 0b0100_0000 != 0;
 
@@ -59,8 +58,8 @@ impl DmcChannel {
 
     pub fn write_4011(&mut self, value: u8) {
         /* $4011:       -DDD.DDDD Direct load (write)
-               bits 6-0	-DDD.DDDD The DMC output level is set to D, an unsigned value.
-         */
+              bits 6-0	-DDD.DDDD The DMC output level is set to D, an unsigned value.
+        */
         // self.output.direct_load(value & 0b0111_1111);
         self.level = value & 0b0111_1111;
     }
@@ -81,31 +80,31 @@ impl DmcChannel {
         self.current_address = self.sample_address;
         self.bytes_remaining = self.sample_length;
     }
-    
+
     pub fn disable(&mut self) {
         // TODO
     }
-    
+
     pub fn clock(&mut self) {
         let advance_output = self.seq_timer.clock();
         if self.bytes_remaining > 0 {
             self.seq_timer.reset();
         }
-        
+
         if advance_output {
             self.current_bit += 1;
             if self.current_bit >= 8 {
                 // TODO: pause CPU and load another byte
                 self.current_bit = 0;
                 self.bytes_remaining -= 1;
-                
+
                 // Loop if enabled
                 if self.bytes_remaining == 0 && self.loop_flag {
                     self.bytes_remaining = self.sample_length;
                     self.current_address = self.sample_address;
                 }
             }
-            
+
             let level_up = (self.register >> self.current_bit) & 0b1 != 0;
             if self.level >= 2 && self.level <= 125 {
                 if level_up {
@@ -116,7 +115,7 @@ impl DmcChannel {
             }
         }
     }
-    
+
     pub fn sample(&self) -> u8 {
         self.level
     }

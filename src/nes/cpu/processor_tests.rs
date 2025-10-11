@@ -6,7 +6,9 @@ mod test {
     // };
 
     use crate::nes::bus::simple_bus::SimpleBus;
-    use crate::nes::cpu::processor::{CpuBusInterface, Flags, rotate_value_left, rotate_value_right};
+    use crate::nes::cpu::processor::{
+        rotate_value_left, rotate_value_right, CpuBusInterface, Flags,
+    };
 
     fn init_cpu_and_bus(program: &[u8]) -> SimpleBus {
         let mut bus = SimpleBus::new(program.to_vec());

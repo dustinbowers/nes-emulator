@@ -1,16 +1,14 @@
-use super::{PaletteKind, PPU};
+use super::PPU;
 
 impl PPU {
     /// `get_background_pixel` returns palette-index and color-index of bg pixel at (self.cycles, self.scanline)
     pub(super) fn get_background_pixel(&mut self) -> (u8, u8) {
         if !self.mask_register.show_background() {
-            // return self.read_palette_color(0, 0, PaletteKind::Background);
             return (0, 0);
         }
 
         // Handle left 8 pixels masking
         if self.cycles <= 8 && !self.mask_register.leftmost_8pxl_background() {
-            // return self.read_palette_color(0, 0, PaletteKind::Background);
             return (0, 0);
         }
 
@@ -20,7 +18,6 @@ impl PPU {
 
         // Ensure we don't shift by more than 15
         if bit > 15 {
-            // return self.read_palette_color(0, 0, PaletteKind::Background);
             return (0, 0);
         }
 
@@ -32,27 +29,7 @@ impl PPU {
         let attr_high = (self.bg_attr_shift_high >> bit) & 1;
         let palette_index = ((attr_high << 1) | attr_low) as u8;
 
-        // self.read_palette_color(palette_index, pixel, PaletteKind::Background)
         (palette_index, pixel)
-    }
-
-    /// get_background_palette_index get raw background palette index (0-3)
-    /// Returns ((pixel_high << 1) | pixel_low)
-    pub(super) fn get_background_palette_index(&mut self) -> u8 {
-        if !self.mask_register.show_background() {
-            return 0;
-        }
-        if self.cycles <= 8 && !self.mask_register.leftmost_8pxl_background() {
-            return 0;
-        }
-        let fine_x = self.scroll_register.x;
-        let bit = 15 - fine_x;
-        if bit > 15 {
-            return 0;
-        }
-        let pixel_low = (self.bg_pattern_shift_low >> bit) & 1;
-        let pixel_high = (self.bg_pattern_shift_high >> bit) & 1;
-        ((pixel_high << 1) | pixel_low) as u8
     }
 
     /// Load the next tile’s pattern and attribute bytes into the low byte of the shifters

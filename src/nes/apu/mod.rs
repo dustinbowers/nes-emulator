@@ -1,7 +1,7 @@
+use crate::nes::apu::dmc_channel::DmcChannel;
 use noise_channel::NoiseChannel;
 use pulse_channel::PulseChannel;
 use triangle_channel::TriangleChannel;
-use crate::nes::apu::dmc_channel::DmcChannel;
 
 mod dmc_channel;
 mod noise_channel;
@@ -60,7 +60,7 @@ impl APU {
             triangle: TriangleChannel::new(),
             noise: NoiseChannel::new(),
             dmc: DmcChannel::new(),
-            
+
             enable_dmc: false,
             enable_noise: false,
             enable_triangle: false,
@@ -136,11 +136,11 @@ impl APU {
             0x400E => self.noise.write_400e(value),
             0x400F => self.noise.write_400f(value),
 
-            0x4010 =>  self.dmc.write_4010(value),
-            0x4011 =>  self.dmc.write_4011(value),
-            0x4012 =>  self.dmc.write_4012(value),
-            0x4013 =>  self.dmc.write_4013(value),
-            
+            0x4010 => self.dmc.write_4010(value),
+            0x4011 => self.dmc.write_4011(value),
+            0x4012 => self.dmc.write_4012(value),
+            0x4013 => self.dmc.write_4013(value),
+
             0x4015 => {
                 // Control / Status
                 self.enable_dmc = value & 1 << 4 != 0;

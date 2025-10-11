@@ -2,28 +2,27 @@ mod display;
 mod nes;
 
 use nes::NES;
+use sdl3::audio::{AudioCallback, AudioFormat, AudioSpec, AudioStream};
 
+use crate::nes::cartridge::rom::Rom;
 use crate::nes::controller::joypad::JoypadButtons;
 use display::color_map::COLOR_MAP;
 use display::consts::{PIXEL_HEIGHT, PIXEL_WIDTH};
 use display::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
-use sdl2::audio::{AudioCallback, AudioSpecDesired};
-use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
-use sdl2::pixels::{Color, PixelFormatEnum};
-use sdl2::rect::Rect;
-use sdl2::render::{BlendMode, TextureAccess, TextureCreator, WindowCanvas};
-use sdl2::rwops::RWops;
-use sdl2::ttf::{Font, Sdl2TtfContext};
-use sdl2::video::{Window, WindowContext};
-use sdl2::{AudioSubsystem, Sdl};
+use sdl3::event::Event;
+use sdl3::keyboard::Keycode;
+use sdl3::pixels::{Color, PixelFormat};
+use sdl3::rect::Rect;
+use sdl3::render::{BlendMode, FRect, TextureAccess, TextureCreator, WindowCanvas};
+use sdl3::ttf::{Font, Sdl3TtfContext};
+use sdl3::video::{Window, WindowContext};
+use sdl3::Sdl;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 use std::{env, process};
-use crate::nes::cartridge::rom::Rom;
 
 #[cfg(feature = "tracing")]
 use crate::nes::tracer::TRACER;
@@ -48,10 +47,16 @@ struct NesAudioCallback {
 //         Box<dyn Cartridge>, CpuBusInterface and PpuBusInterface are not.
 unsafe impl Send for NesAudioCallback {}
 
-impl AudioCallback for NesAudioCallback {
-    type Channel = i16;
+impl AudioCallback<i16> for NesAudioCallback {
+    // type Channel = i16;
 
-    fn callback(&mut self, out: &mut [Self::Channel]) {
+    fn callback(&mut self, stream: &mut AudioStream, requested: i32) {
+        // During shutdown, emit silence and avoid touching NES state
+        if STOP_AUDIO.load(Ordering::Relaxed) {
+            let silence = vec![0i16; requested as usize];
+            let _ = stream.put_data_i16(&silence);
+            return;
+        }
         let nes: &mut NES = unsafe { self.nes_ptr.as_mut() };
 
         nes.bus
@@ -62,7 +67,8 @@ impl AudioCallback for NesAudioCallback {
         let ppu_cycles_per_sample = 5369318.0 / 44100.0; // ~121.7 PPU cycles per sample
         let mut cycle_acc = self.cycle_acc;
 
-        for sample in out.iter_mut() {
+        let mut out = Vec::<i16>::with_capacity(requested as usize);
+        for _ in 0..requested {
             cycle_acc += ppu_cycles_per_sample;
 
             while cycle_acc >= 1.0 {
@@ -72,27 +78,30 @@ impl AudioCallback for NesAudioCallback {
 
             let raw = nes.bus.apu.sample();
             let scaled = (raw * 32767.0) as i16;
-            *sample = scaled;
+            out.push(scaled);
         }
+        let _ = stream.put_data_i16(&out);
 
         self.cycle_acc = cycle_acc;
     }
 }
 
 struct SharedInput {
-    buttons: AtomicU8, // bitmask of controller buttons
+    buttons: AtomicU8, // bitmask of controller1 buttons
 }
+static CONTROLLER1: SharedInput = SharedInput {
+    buttons: AtomicU8::new(0),
+};
 
-fn init_sdl() -> (Sdl, Sdl2TtfContext, AudioSubsystem, Window) {
-    let sdl_context = sdl2::init().expect("SDL Init failed!");
-    let ttf_context = sdl2::ttf::init().map_err(|e| e.to_string()).unwrap();
+// Signal used to tell the audio callback to stop touching emulator state during teardown
+static STOP_AUDIO: AtomicBool = AtomicBool::new(false);
+
+fn init_sdl() -> (Sdl, Sdl3TtfContext, Window) {
+    let sdl_context = sdl3::init().expect("SDL Init failed!");
+    let ttf_context = sdl3::ttf::init().map_err(|e| e.to_string()).unwrap();
     let video_subsystem = sdl_context
         .video()
         .expect("SDL Video Subsystem failed to init!");
-
-    let audio_subsystem = sdl_context
-        .audio()
-        .expect("SDL Audio Subsystem failed to init!");
 
     let window: Window = video_subsystem
         .window("NES", WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -100,12 +109,8 @@ fn init_sdl() -> (Sdl, Sdl2TtfContext, AudioSubsystem, Window) {
         .build()
         .expect("could not initialize video subsystem");
 
-    (sdl_context, ttf_context, audio_subsystem, window)
+    (sdl_context, ttf_context, window)
 }
-
-static CONTROLLER1: SharedInput = SharedInput {
-    buttons: AtomicU8::new(0),
-};
 
 fn main() -> Result<(), String> {
     let args: Vec<String> = env::args().collect();
@@ -125,18 +130,26 @@ fn main() -> Result<(), String> {
         }
     };
 
-    let (sdl_context, ttf_context, audio_subsystem, window) = init_sdl();
+    let (sdl_context, ttf_context, window) = init_sdl();
+    let audio_subsystem = sdl_context
+        .audio()
+        .expect("SDL Audio Subsystem failed to init!");
 
-    // let audio_buffer = Arc::new(Mutex::new(VecDeque::<i16>::with_capacity(8192)));
     let font_bytes: &[u8] = include_bytes!("../assets/JetBrainsMono-Bold.ttf");
-    let font: &Font = &ttf_context.load_font_from_rwops(RWops::from_bytes(font_bytes)?, 16)?;
-    let mut canvas = window.into_canvas().present_vsync().build().unwrap();
+    let tmp_path = std::env::temp_dir().join("JetBrainsMono-Bold.ttf");
+    if !tmp_path.exists() {
+        std::fs::write(&tmp_path, font_bytes).map_err(|e| e.to_string())?;
+    }
+    let font: Font = ttf_context
+        .load_font(&tmp_path, 16.0)
+        .map_err(|e| e.to_string())?;
+    let mut canvas = window.into_canvas();
     let texture_creator: TextureCreator<WindowContext> = canvas.texture_creator();
 
     // Create a streaming texture for pixel data
     let mut texture = texture_creator
         .create_texture(
-            PixelFormatEnum::ARGB8888,
+            PixelFormat::ARGB8888,
             TextureAccess::Streaming, // allows frequent updates
             WINDOW_WIDTH,
             WINDOW_HEIGHT,
@@ -145,45 +158,35 @@ fn main() -> Result<(), String> {
 
     println!("Making NES...");
     let cart = rom.into_cartridge();
-    // let mut nes = NES::new(cart);
 
     // Pin NES so it can never move
     let mut new_nes = NES::new(cart);
     new_nes.set_sample_frequency(44_100);
     let mut nes_box: Pin<Box<NES>> = Box::pin(new_nes);
-    let mut nes_ptr: NonNull<NES> = NonNull::from_mut(nes_box.as_mut().get_mut());
-    // let nes: &mut NES = unsafe { nes_ptr.as_mut() };
-    // nes.set_sample_frequency(44_100);
+    let nes_ptr: NonNull<NES> = NonNull::from_mut(nes_box.as_mut().get_mut());
 
-    // let shared_frame = Arc::new(Mutex::new([0u8; 256 * 240]));
-    // let shared_frame = Arc::new(Mutex::new(SharedFrame {
-    //     pixels: [0; 256 * 240],
-    //     dirty: false,
-    // }));
-
-    // let (input_tx, input_rx) = crossbeam_channel::unbounded();
-
-    let desired_audio_spec = AudioSpecDesired {
+    let desired_audio_spec = AudioSpec {
         freq: Some(44_100),
-        channels: Some(1),  // mono
-        samples: Some(512), // buffer size in samples
+        channels: Some(1), // mono
+        format: Some(AudioFormat::s16_sys()),
     };
     let device = audio_subsystem
-        .open_playback(None, &desired_audio_spec, |_| NesAudioCallback {
-            nes_ptr,
-            // shared_frame: shared_frame.clone(),
-            // input_rx
-            cycle_acc: 0.0,
-        })
+        .open_playback_stream(
+            &desired_audio_spec,
+            NesAudioCallback {
+                nes_ptr,
+                cycle_acc: 0.0,
+            },
+        )
         .unwrap();
 
-    device.resume();
+    device.resume().expect("TODO: panic message");
 
     let key_map_data: &[(Vec<Keycode>, JoypadButtons)] = &[
         (vec![Keycode::K], JoypadButtons::BUTTON_A),
         (vec![Keycode::J], JoypadButtons::BUTTON_B),
-        (vec![Keycode::RETURN], JoypadButtons::START),
-        (vec![Keycode::RSHIFT], JoypadButtons::SELECT),
+        (vec![Keycode::Return], JoypadButtons::START),
+        (vec![Keycode::RShift], JoypadButtons::SELECT),
         (vec![Keycode::W], JoypadButtons::UP),
         (vec![Keycode::S], JoypadButtons::DOWN),
         (vec![Keycode::A], JoypadButtons::LEFT),
@@ -197,7 +200,7 @@ fn main() -> Result<(), String> {
         }
     }
 
-    let mut event_pump = sdl_context.event_pump()?;
+    let mut event_pump = sdl_context.event_pump().map_err(|e| e.to_string())?;
     let mut pixel_buffer: Vec<u8> = vec![0; (WINDOW_WIDTH * WINDOW_HEIGHT * 4) as usize]; // 4 bytes per pixel (A,R,G,B)
 
     let mut debug_rendering = false;
@@ -210,13 +213,9 @@ fn main() -> Result<(), String> {
     ////////////////////////////
     'running: loop {
         let frame_start_time = Instant::now();
-        // println!("frame=========");
 
-        // while !nes.tick() {}
         let nes: &NES = unsafe { nes_ptr.as_ref() };
         let frame = nes.get_frame_buffer();
-        // println!("frame: {:?}", &frame[100..120]);
-        // let frame = shared_frame.lock().unwrap();
         for (i, c) in frame.iter().enumerate() {
             let x = i % 256;
             let y = i / 256;
@@ -241,6 +240,11 @@ fn main() -> Result<(), String> {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => {
+                    // Stop audio immediately to avoid races during teardown
+                    STOP_AUDIO.store(true, Ordering::Relaxed);
+                    let _ = device.pause();
+                    // Give the audio thread a moment to observe the flag
+                    std::thread::sleep(Duration::from_millis(10));
                     #[cfg(feature = "tracing")]
                     {
                         println!("==== DUMPING TRACE ====");
@@ -263,8 +267,6 @@ fn main() -> Result<(), String> {
                     match keycode {
                         Some(kc) => {
                             if let Some(button) = keycode_to_joypad.get(&kc) {
-                                // nes.bus.controller1.set_button_status(button, pressed);
-                                // input_tx.send((*button, pressed)).unwrap();
                                 if pressed {
                                     CONTROLLER1
                                         .buttons
@@ -289,7 +291,14 @@ fn main() -> Result<(), String> {
         texture
             .update(None, &pixel_buffer, (WINDOW_WIDTH * 4) as usize)
             .unwrap();
-        canvas.copy(&texture, None, None).unwrap(); // copy texture to the entire canvas
+        // copy texture to the entire canvas
+        canvas
+            .copy(
+                &texture,
+                None::<FRect>,
+                Rect::new(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT),
+            )
+            .unwrap();
 
         let elapsed_time = Instant::now().duration_since(frame_start_time);
         if elapsed_time < FRAME_DURATION {
@@ -308,12 +317,7 @@ fn main() -> Result<(), String> {
         );
         draw_text(&status_str, &mut canvas, &font, 5, 5 + 22 * 0);
 
-        let status_str = format!(
-            "addr:{:04X}", // bus_cycles:{} ppu_cycles:{}",
-            nes.bus.ppu.scroll_register.get_addr(),
-            // nes.cpu_cycles,
-            // nes.ppu_cycles,
-        );
+        let status_str = format!("addr:{:04X}", nes.bus.ppu.scroll_register.get_addr(),);
         draw_text(&status_str, &mut canvas, &font, 5, 5 + 22 * 1);
 
         // let ppu_stats = format!("sprite_count: {}", nes.bus.ppu.sprite_count);
@@ -364,7 +368,7 @@ fn draw_text(text: &str, canvas: &mut WindowCanvas, font: &Font, x: i32, y: i32)
     canvas.set_blend_mode(BlendMode::Blend);
     canvas.set_draw_color(Color::RGBA(0, 0, 0, 128));
     canvas.fill_rect(rect!(x, y, width, height)).unwrap();
-    canvas.copy(&texture, None, Some(target_rect)).unwrap();
+    canvas.copy(&texture, None, target_rect).unwrap();
 }
 
 fn debug_render_data(
