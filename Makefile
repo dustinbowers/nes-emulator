@@ -18,7 +18,7 @@ debug:
 	cargo build
 
 release:
-	SDL3_STATIC=1 SDL3_TTF_BUNDLED=1 MACOSX_DEPLOYMENT_TARGET=12.1 cargo build --release --verbose
+	cargo build --release --verbose
 
 release-tracing:
 	cargo build --release --features "tracing"

@@ -9,11 +9,13 @@ bitflags = "2.9.0"
 once_cell = "1.21.1"
 
 sdl3 = { version = "0.15.1", features = ["build-from-source-static", "ttf"] }
+serde_json = "1.0.145"
+serde = { version = "1.0.228", features = ["derive"] }
 
 [features]
 #default = ["tracing"]
 tracing = []
 
-#[[bin]]
-#name = "test-runner"
-#path = "src/test_runner.rs"
+[[bin]]
+name = "test-runner"
+path = "src/test_runner.rs"
