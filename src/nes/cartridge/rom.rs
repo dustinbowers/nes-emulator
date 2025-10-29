@@ -84,6 +84,10 @@ impl Rom {
             screen_mirroring,
         })
     }
+    
+    pub fn empty() -> Rom {
+        Self::new(&vec![]).unwrap()
+    }
 
     pub fn new_custom(
         prg_rom: Vec<u8>,

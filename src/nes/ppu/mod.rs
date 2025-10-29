@@ -136,6 +136,56 @@ impl PPU {
             next_tile_msb: 0,
         }
     }
+    
+    pub fn reset(&mut self) {
+        self.v_ram = [0; RAM_SIZE];
+        self.cycles = 100;
+        self.scanline = 100;
+        self.suppress_vblank = false;
+        self.rendering_enabled_at_prerender = true;
+        self.frame_is_odd = false;
+        self.last_byte_read = DecayRegister::new(5_369_318);
+        
+        self.ctrl_register = ControlRegister::new();
+        self.mask_register = MaskRegister::new();
+        self.status_register = StatusRegister::new();
+        self.scroll_register = ScrollRegister::new();
+        
+        self.frame_buffer = [0u8; 256 * 240];
+
+        // Blarrg's startup palette
+        self.palette_table = [
+            0x09, 0x01, 0x00, 0x01, 0x00, 0x02, 0x02, 0x0D, 0x08, 0x10, 0x08, 0x24, 0x00, 0x00,
+            0x04, 0x2C, 0x09, 0x01, 0x34, 0x03, 0x00, 0x04, 0x00, 0x14, 0x08, 0x3A, 0x00, 0x02,
+            0x00, 0x20, 0x2C, 0x08,
+        ];
+        self.oam_addr = 0;
+        self.oam_data = [0; PRIMARY_OAM_SIZE];
+
+        // During sprite evaluation
+        self.secondary_oam = [0; SECONDARY_OAM_SIZE];
+
+        // For rendering (shift registers)
+        self.sprite_pattern_low = [0; 8];
+        self.sprite_pattern_high = [0; 8];
+        self.sprite_attributes = [0; 8];
+        self.sprite_x_counter = [0; 8];
+        self.sprite_count = 0;
+        self.sprite_zero_in_range = false;
+
+        self.bg_pattern_shift_low = 0;
+        self.bg_pattern_shift_high = 0;
+
+        self.bg_attr_shift_low = 0;
+        self.bg_attr_shift_high = 0;
+        self.bg_attr_latch_low = 0;
+        self.bg_attr_latch_high = 0;
+
+        self.next_tile_id = 0;
+        self.next_tile_attr = 0;
+        self.next_tile_lsb = 0;
+        self.next_tile_msb = 0;
+    }
 
     /// `connect_bus` MUST be called after constructing PPU
     pub fn connect_bus(&mut self, bus: *mut dyn PpuBusInterface) {
