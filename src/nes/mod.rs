@@ -30,6 +30,7 @@ pub struct NES {
 
     audio_time_per_system_sample: f32,
     audio_time_per_nes_clock: f32,
+    pub cycle_acc: f32,
 }
 
 impl NES {
@@ -43,6 +44,7 @@ impl NES {
             oam_transfer_cycles: 0,
             audio_time_per_system_sample: 0.0,
             audio_time_per_nes_clock: 0.0,
+            cycle_acc: 0.0,
         }   
     }
     pub fn new_with_cartridge(cartridge: Box<dyn Cartridge>) -> Self {

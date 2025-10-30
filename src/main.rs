@@ -1,3 +1,4 @@
+#![feature(get_mut_unchecked)]
 #![warn(clippy::all, rust_2018_idioms)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
@@ -34,10 +35,8 @@ fn main() -> eframe::Result {
     //         return Ok(());
     //     }
     // };
-    
+
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
-    
-    
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -88,7 +87,13 @@ fn main() {
             .start(
                 canvas,
                 web_options,
-                Box::new(|cc| Ok(Box::new(EmulatorApp::new(cc)))),
+                Box::new(|cc| {
+                    let mut app = Box::new(EmulatorApp::new(cc));
+                    // let rom_data = include_bytes!("../roms/nestest.nes").to_vec();
+                    let rom_data = include_bytes!("../roms/smb.nes").to_vec();
+                    app.load_rom_data(&rom_data);
+                    Ok(app)
+                }),
             )
             .await;
 
