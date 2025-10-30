@@ -55,6 +55,7 @@ fn main() -> eframe::Result {
         native_options,
         Box::new(|cc| {
             let mut app = Box::new(EmulatorApp::new(cc));
+            // let rom_data = include_bytes!("../roms/smb.nes").to_vec();
             app.load_rom_data(&rom_data);
             Ok(app)
         }),

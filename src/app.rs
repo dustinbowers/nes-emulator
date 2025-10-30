@@ -8,7 +8,11 @@ use tinyaudio::prelude::*;
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::cell::UnsafeCell;
+use std::collections::HashMap;
 use std::sync::Arc;
+use eframe::epaint::textures::TextureOptions;
+use egui::{Key, KeyboardShortcut};
+use crate::nes::controller::joypad::JoypadButtons;
 
 pub struct NesCell(UnsafeCell<NES>);
 
@@ -45,6 +49,11 @@ static CONTROLLER1: SharedInput = SharedInput {
 pub struct EmulatorApp {
     nes_arc: Arc<NesCell>,
     audio_device: OutputDevice,
+    keycode_to_joypad: HashMap<Key, JoypadButtons>,
+
+    // Preallocated pixel buffer to avoid allocations every frame
+    pixel_buffer: Vec<egui::Color32>,
+    texture: Option<egui::TextureHandle>,
 }
 
 impl EmulatorApp {
@@ -55,15 +64,37 @@ impl EmulatorApp {
         let nes_arc = NesCell::new(nes);
         let nes_audio = nes_arc.clone();
 
+        let key_map_data: &[(Vec<Key>, JoypadButtons)] = &[
+            (vec![Key::K], JoypadButtons::BUTTON_A),
+            (vec![Key::J], JoypadButtons::BUTTON_B),
+            (vec![Key::Enter], JoypadButtons::START),
+            (vec![Key::Space], JoypadButtons::SELECT),
+            (vec![Key::W], JoypadButtons::UP),
+            (vec![Key::S], JoypadButtons::DOWN),
+            (vec![Key::A], JoypadButtons::LEFT),
+            (vec![Key::D], JoypadButtons::RIGHT),
+        ];
+
+        let mut keycode_to_joypad: HashMap<Key, JoypadButtons> = HashMap::new();
+        for (keycodes, button) in key_map_data.iter() {
+            for keycode in keycodes.iter() {
+                keycode_to_joypad.insert(*keycode, *button);
+            }
+        }
+
         let audio_device = run_output_device(
             OutputDeviceParameters {
                 channels_count: 1,
                 sample_rate: 44_100,
-                channel_sample_count: 735,
+                channel_sample_count: 4410,
             },
             move |data| {
                 unsafe {
                     let nes = nes_audio.get_mut();
+                    nes.bus
+                        .controller1
+                        .set_buttons(CONTROLLER1.buttons.load(Ordering::Relaxed));
+                    
                     for sample in data.iter_mut() {
                         nes.tick();
                         *sample = nes.bus.apu.sample();
@@ -82,19 +113,24 @@ impl EmulatorApp {
                         }
 
                         let raw = nes.bus.apu.sample();
-                        let scaled = (raw * 32767.0) as i16;
-                        *sample = scaled as f32;
+                        // let scaled = (raw * 32767.0) as i16;
+                        // *sample = scaled as f32;
+                        *sample = raw;
                     }
 
                     nes.cycle_acc = cycle_acc;
                 }
             },
-        )
-            .expect("Failed to start audio output device");
+        ).expect("Failed to start audio output device");
+
+        let pixel_buffer = vec![egui::Color32::BLACK; 256 * 240];
 
         Self {
             nes_arc,
             audio_device,
+            keycode_to_joypad,
+            pixel_buffer,
+            texture: None,
         }
     }
     
@@ -102,7 +138,6 @@ impl EmulatorApp {
         match NES::parse_rom_bytes(rom_bytes) {
             Ok(cart) => {
                 println!("Loading {} rom bytes...", rom_bytes.len());
-                // self.nes.lock().unwrap().insert_cartridge(cart);
                 unsafe {
                     let nes: &mut NES = self.nes_arc.get_mut();
                     nes.insert_cartridge(cart);
@@ -121,7 +156,17 @@ impl eframe::App for EmulatorApp {
 
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-     
+
+        ctx.input(|i| {
+            for (key, joy_button) in self.keycode_to_joypad.iter() {
+                if i.key_down(*key) {
+                    CONTROLLER1.buttons.fetch_or((*joy_button).bits(), Ordering::Relaxed);
+                } else {
+                    CONTROLLER1.buttons.fetch_and(!(*joy_button).bits(), Ordering::Relaxed);
+                }
+            }
+        });
+
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 // NOTE: no File->Quit on web pages!
@@ -150,40 +195,42 @@ impl eframe::App for EmulatorApp {
             });
         });
 
-        // Need access to NES object here...
         let nes = unsafe { self.nes_arc.get_ref() };
         let frame = nes.get_frame_buffer();
 
-        let width = 256;
-        let height = 240;
-        let mut pixel_buffer: Vec<egui::Color32> = Vec::with_capacity(width * height);
-
+        // Overwrite the preallocated buffer
         for (i, c) in frame.iter().enumerate() {
-            let x = i % 256;
-            let y = i / 256;
-
-            let color = COLOR_MAP.get_color((*c) as usize);
-            let mut ind = (y as usize) * (WINDOW_WIDTH as usize) + x as usize;
-            pixel_buffer.push(*color);
+            self.pixel_buffer[i] = *COLOR_MAP.get_color(*c as usize);
         }
-       
+
+        // Wrap buffer in ColorImage only once per frame without cloning
         let color_image = egui::ColorImage {
-            size: [width, height],
+            size: [256, 240],
+            pixels: std::mem::take(&mut self.pixel_buffer), // move out buffer temporarily
             source_size: Default::default(),
-            pixels: pixel_buffer
         };
 
-        let texture = ctx.load_texture(
-            "my_pixel_buffer_texture",
-            color_image,
-            egui::TextureOptions::LINEAR, // Or egui::TextureOptions::NEAREST for pixel art
-        );
+        if let Some(tex) = self.texture.as_mut() {
+            tex.set(color_image, TextureOptions::NEAREST);
+        } else {
+            self.texture = Some(ctx.load_texture(
+                "nes_texture",
+                color_image,
+                TextureOptions::NEAREST,
+            ));
+        }
 
+        // Put pixel_buffer back in place (so we can reuse it next frame)
+        self.pixel_buffer = vec![egui::Color32::BLACK; 256 * 240];
+      
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.image(&texture);
+            if let Some(tex) = &self.texture {
+                ui.image(tex);
+            }
             ui.label(format!("PC: {:04x}", nes.bus.cpu.program_counter));
         });
 
-        ctx.request_repaint_after(Duration::from_millis(16));
+        // ctx.request_repaint_after(Duration::from_millis(16));
+        ctx.request_repaint();
     }
 }
