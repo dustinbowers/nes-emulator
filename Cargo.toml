@@ -1,31 +1,27 @@
 [package]
 name = "nes-emulator"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 bitflags = "2.9.0"
 once_cell = "1.21.1"
-egui = "0.33.0"
-eframe = { version = "0.33.0", default-features = false, features = [
-    #    "accesskit",     # Make egui compatible with screen readers. NOTE: adds a lot of dependencies.
-    "default_fonts", # Embed the default egui fonts.
-    "glow",          # Use the glow rendering backend. Alternative: "wgpu".
-    "persistence",   # Enable restoring app state when restarting the app.
-    #    "wayland",       # To support Linux (and CI)
-    #    "x11",           # To support older Linux distributions (restores one of the default features)
-] }
-log = "0.4.27"
+#egui = "0.33.0"
+#eframe = { version = "0.33.0", default-features = false, features = [
+#    #    "accesskit",     # Make egui compatible with screen readers. NOTE: adds a lot of dependencies.
+#    "default_fonts", # Embed the default egui fonts.
+#    "glow",          # Use the glow rendering backend. Alternative: "wgpu".
+#    "persistence",   # Enable restoring app state when restarting the app.
+#    #    "wayland",       # To support Linux (and CI)
+#    #    "x11",           # To support older Linux distributions (restores one of the default features)
+#] }
 tinyaudio = "1.1.0"
+macroquad = "0.4.14"
 
-#serde_json = "1.0.145"
-#serde = { version = "1.0.228", features = ["derive"] }
-#rand = "0.10.0-rc.0"
 
 [features]
 #default = ["tracing"]
 tracing = []
-
 
 
 # native:
@@ -37,9 +33,9 @@ env_logger = "0.11.8"
 #path = "src/test_runner.rs"
 
 # web:
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen-futures = "0.4.54"
-web-sys = "0.3.70"              # to access the DOM (to hide the loading text)
+#[target.'cfg(target_arch = "wasm32")'.dependencies]
+#wasm-bindgen-futures = "0.4.54"
+#web-sys = "0.3.70"              # to access the DOM (to hide the loading text)
 
 [profile.release]
 opt-level = 2 # fast and small wasm

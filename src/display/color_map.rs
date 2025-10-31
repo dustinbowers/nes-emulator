@@ -1,4 +1,5 @@
-use egui::Color32;
+use macroquad::color::Color;
+// use egui::Color32;
 use once_cell::sync::Lazy;
 
 pub static SYSTEM_PALETTE: [(u8, u8, u8); 64] = [
@@ -69,17 +70,17 @@ pub static SYSTEM_PALETTE: [(u8, u8, u8); 64] = [
 ];
 
 pub struct ColorMap {
-    default_map: Vec<Color32>,
+    default_map: Vec<Color>,
 }
 
 impl ColorMap {
     pub fn new() -> Self {
-        let mut color_map: Vec<Color32> = vec![];
+        let mut color_map: Vec<Color> = vec![];
         for c in SYSTEM_PALETTE.iter() {
             let r = c.0;
             let g = c.1;
             let b = c.2;
-            let palette_color = Color32::from_rgb(r, g, b);
+            let palette_color = Color::from_rgba(r, g, b, 255);
             color_map.push(palette_color);
         }
         Self {
@@ -90,7 +91,7 @@ impl ColorMap {
 
 impl ColorMap {
     #[inline]
-    pub fn get_color(&self, ind: usize) -> &Color32 {
+    pub fn get_color(&self, ind: usize) -> &Color {
         &self.default_map[ind]
     }
 }

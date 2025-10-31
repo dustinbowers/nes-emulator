@@ -1,18 +1,14 @@
-use std::time::Duration;
-use crate::display::*;
-use crate::display::color_map::COLOR_MAP;
-use crate::display::consts::WINDOW_WIDTH;
-use crate::nes::cartridge::rom::Rom;
 use crate::nes::NES;
+use macroquad::prelude::*;
 use tinyaudio::prelude::*;
 
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::sync::Arc;
-use eframe::epaint::textures::TextureOptions;
-use egui::{Key, KeyboardShortcut};
-use crate::nes::controller::joypad::JoypadButtons;
+use crate::display::color_map::SYSTEM_PALETTE;
+use crate::error::{EmulatorError, EmulatorErrorType};
+use crate::nes::controller::joypad::JoypadButton;
 
 pub struct NesCell(UnsafeCell<NES>);
 
@@ -43,45 +39,66 @@ static CONTROLLER1: SharedInput = SharedInput {
     buttons: AtomicU8::new(0),
 };
 
-/// We derive Deserialize/Serialize so we can persist app state on shutdown.
-// #[derive(serde::Deserialize, serde::Serialize)]
-// #[serde(default)] // if we add new fields, give them default values when deserializing old state
 pub struct EmulatorApp {
     nes_arc: Arc<NesCell>,
-    audio_device: OutputDevice,
-    keycode_to_joypad: HashMap<Key, JoypadButtons>,
+    audio_device: Option<OutputDevice>,
+    key_map: HashMap<KeyCode, JoypadButton>,
 
-    // Preallocated pixel buffer to avoid allocations every frame
-    pixel_buffer: Vec<egui::Color32>,
-    texture: Option<egui::TextureHandle>,
+    pixel_buffer: Vec<u8>,
+    texture: Option<Texture2D>,
 }
 
 impl EmulatorApp {
     /// Called once before the first frame.
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new() -> Self {
         let mut nes = NES::new();
         nes.set_sample_frequency(44_100);
         let nes_arc = NesCell::new(nes);
         let nes_audio = nes_arc.clone();
 
-        let key_map_data: &[(Vec<Key>, JoypadButtons)] = &[
-            (vec![Key::K], JoypadButtons::BUTTON_A),
-            (vec![Key::J], JoypadButtons::BUTTON_B),
-            (vec![Key::Enter], JoypadButtons::START),
-            (vec![Key::Space], JoypadButtons::SELECT),
-            (vec![Key::W], JoypadButtons::UP),
-            (vec![Key::S], JoypadButtons::DOWN),
-            (vec![Key::A], JoypadButtons::LEFT),
-            (vec![Key::D], JoypadButtons::RIGHT),
+        let key_map_data: &[(KeyCode, JoypadButton)] = &[
+            (KeyCode::K, JoypadButton::BUTTON_A),
+            (KeyCode::J, JoypadButton::BUTTON_B),
+            (KeyCode::Enter, JoypadButton::START),
+            (KeyCode::Space, JoypadButton::SELECT),
+            (KeyCode::W, JoypadButton::UP),
+            (KeyCode::S, JoypadButton::DOWN),
+            (KeyCode::A, JoypadButton::LEFT),
+            (KeyCode::D, JoypadButton::RIGHT),
         ];
 
-        let mut keycode_to_joypad: HashMap<Key, JoypadButtons> = HashMap::new();
-        for (keycodes, button) in key_map_data.iter() {
-            for keycode in keycodes.iter() {
-                keycode_to_joypad.insert(*keycode, *button);
-            }
+        let mut keycode_to_joypad: HashMap<KeyCode, JoypadButton> = HashMap::new();
+        for (keycode, button) in key_map_data.iter() {
+            keycode_to_joypad.insert(*keycode, *button);
         }
+        
+        // let pixel_buffer = vec![egui::Color32::BLACK; 256 * 240];
 
+        Self {
+            nes_arc,
+            audio_device: None,
+            key_map: keycode_to_joypad,
+            
+            pixel_buffer: vec![0;240*256],
+            texture: None,
+        }
+    }
+
+    pub fn load_rom_data(&mut self, rom_bytes: &Vec<u8>) {
+        match NES::parse_rom_bytes(rom_bytes) {
+            Ok(cart) => {
+                println!("Loading {} rom bytes...", rom_bytes.len());
+                unsafe {
+                    let nes: &mut NES = self.nes_arc.get_mut();
+                    nes.insert_cartridge(cart);
+                }
+            },
+            Error => panic!("Bad ROM data!") // TODO: handle this gracefully
+        }
+    }
+    
+    pub fn init_audio(&mut self) -> Result<(), EmulatorError>{
+        let nes_clone = self.nes_arc.clone();
         let audio_device = run_output_device(
             OutputDeviceParameters {
                 channels_count: 1,
@@ -90,11 +107,11 @@ impl EmulatorApp {
             },
             move |data| {
                 unsafe {
-                    let nes = nes_audio.get_mut();
+                    let nes = nes_clone.get_mut();
                     nes.bus
                         .controller1
                         .set_buttons(CONTROLLER1.buttons.load(Ordering::Relaxed));
-                    
+
                     for sample in data.iter_mut() {
                         nes.tick();
                         *sample = nes.bus.apu.sample();
@@ -121,116 +138,136 @@ impl EmulatorApp {
                     nes.cycle_acc = cycle_acc;
                 }
             },
-        ).expect("Failed to start audio output device");
-
-        let pixel_buffer = vec![egui::Color32::BLACK; 256 * 240];
-
-        Self {
-            nes_arc,
-            audio_device,
-            keycode_to_joypad,
-            pixel_buffer,
-            texture: None,
+        );
+        
+        match audio_device {
+            Ok(audio_device) => {
+                self.audio_device = Some(audio_device);
+                Ok(())
+            },
+            _ => {
+                self.audio_device = None;
+                Err(EmulatorError::new(EmulatorErrorType::AudioInitFailed, "init_audio()".to_string()))
+            }
         }
     }
     
-    pub fn load_rom_data(&mut self, rom_bytes: &Vec<u8>) {
-        match NES::parse_rom_bytes(rom_bytes) {
-            Ok(cart) => {
-                println!("Loading {} rom bytes...", rom_bytes.len());
-                unsafe {
-                    let nes: &mut NES = self.nes_arc.get_mut();
-                    nes.insert_cartridge(cart);
+    pub async fn run(&mut self) {
+        // TODO: Handle state
+        enum State {
+            Start,
+            InitAudio,
+            Running,
+            Stopped,
+            Error
+        }
+        
+        let mut state = State::Start;
+        loop {
+            match state {
+                State::Start => {
+                    state = State::InitAudio;
                 }
-            },
-            Error => panic!("Bad ROM data!") // TODO: handle this gracefully
+                State::InitAudio => {
+                    if self.audio_device.is_none() {
+                        if let Err(e) = self.init_audio() {
+                            state = State::Error;
+                        }
+                    } else {
+                        state = State::Running;
+                    }
+                }
+                State::Running => self.run_emulation().await,
+                State::Stopped => {}
+                State::Error => {
+                    panic!("Error happened...");
+                }
+            }
         }
     }
-}
-
-impl eframe::App for EmulatorApp {
-    /// Called by the framework to save state before shutdown.
-    fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        // eframe::set_value(storage, eframe::APP_KEY, self);
+    
+    pub async fn run_emulation(&mut self) {
+        let mut last_frame_time = get_time();
+        
+        loop {
+            let current_time = get_time();
+            
+            let delta_time = current_time - last_frame_time;
+            
+            self.handle_input();
+            self.render();
+            
+            let fps = format!("FPS: {}", 1.0 / delta_time);
+            draw_text(&fps, 5.0, 48.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0)); 
+            
+            last_frame_time = current_time;
+            next_frame().await;
+        }
     }
 
-    /// Called each time the UI needs repainting, which may be many times per second.
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-
-        ctx.input(|i| {
-            for (key, joy_button) in self.keycode_to_joypad.iter() {
-                if i.key_down(*key) {
-                    CONTROLLER1.buttons.fetch_or((*joy_button).bits(), Ordering::Relaxed);
+    pub fn handle_input(&mut self) {
+        // Handle user input
+        let keys_down = get_keys_down();
+        for (key, button) in self.key_map.iter() {
+            let mut pressed = false;
+                if keys_down.contains(&key) {
+                    // pressed = true;
+                    CONTROLLER1.buttons.fetch_or((*button).bits(), Ordering::Relaxed);
                 } else {
-                    CONTROLLER1.buttons.fetch_and(!(*joy_button).bits(), Ordering::Relaxed);
+                    CONTROLLER1.buttons.fetch_and(!(*button).bits(), Ordering::Relaxed);
+                    
                 }
-            }
-        });
+        }
+    }
 
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            egui::MenuBar::new().ui(ui, |ui| {
-                // NOTE: no File->Quit on web pages!
-                let is_web = cfg!(target_arch = "wasm32");
-                if !is_web {
-                    ui.menu_button("File", |ui| {
-                        if ui.button("Load ROM...").clicked() {
-                            let rom_path = "roms/SMB.nes";
-                            let rom_data = std::fs::read(rom_path).expect("Error reading ROM file.");
-                            let rom = match Rom::new(&rom_data) {
-                                Ok(rom) => rom,
-                                Err(rom_error) => {
-                                    panic!("Error parsing rom: {:#?}", rom_error);
-                                }
-                            };
+    pub fn render(&mut self) {
+        // SAFETY: only the audio thread mutates the NES
+        let nes: &NES = unsafe { self.nes_arc.get_ref() };
+        
+        let frame_buffer = nes.get_frame_buffer(); // &[u8; 256*240]
+        let width = 256;
+        let height = 240;
 
-                        }
-                        if ui.button("Exit").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                    });
-                    ui.add_space(16.0);
-                }
-
-                egui::widgets::global_theme_preference_buttons(ui);
-            });
-        });
-
-        let nes = unsafe { self.nes_arc.get_ref() };
-        let frame = nes.get_frame_buffer();
-
-        // Overwrite the preallocated buffer
-        for (i, c) in frame.iter().enumerate() {
-            self.pixel_buffer[i] = *COLOR_MAP.get_color(*c as usize);
+        // convert palette indices to RGBA
+        // Allocate once and reuse for speed
+        if self.pixel_buffer.len() != width * height * 4 {
+            self.pixel_buffer.resize(width * height * 4, 0);
         }
 
-        // Wrap buffer in ColorImage only once per frame without cloning
-        let color_image = egui::ColorImage {
-            size: [256, 240],
-            pixels: std::mem::take(&mut self.pixel_buffer), // move out buffer temporarily
-            source_size: Default::default(),
-        };
+        for (i, &p) in frame_buffer.iter().enumerate() {
+            let color = SYSTEM_PALETTE[p as usize]; // spicy!
+            let base = i * 4;
+            self.pixel_buffer[base + 0] = color.0;
+            self.pixel_buffer[base + 1] = color.1;
+            self.pixel_buffer[base + 2] = color.2;
+            self.pixel_buffer[base + 3] = 255; // alpha
+        }
 
-        if let Some(tex) = self.texture.as_mut() {
-            tex.set(color_image, TextureOptions::NEAREST);
+        // --- Create or update GPU texture
+        if self.texture.is_none() {
+            self.texture = Some(Texture2D::from_rgba8(width as u16, height as u16, &self.pixel_buffer));
+            self.texture.as_ref().unwrap().set_filter(FilterMode::Nearest);
         } else {
-            self.texture = Some(ctx.load_texture(
-                "nes_texture",
-                color_image,
-                TextureOptions::NEAREST,
-            ));
+            // TODO: Optimize this. We can avoid creating a whole new texture each frame...
+            self.texture = Some(Texture2D::from_rgba8(width as u16, height as u16, &self.pixel_buffer));
         }
 
-        // Put pixel_buffer back in place (so we can reuse it next frame)
-        self.pixel_buffer = vec![egui::Color32::BLACK; 256 * 240];
-      
-        egui::CentralPanel::default().show(ctx, |ui| {
-            if let Some(tex) = &self.texture {
-                ui.image(tex);
-            }
-            ui.label(format!("PC: {:04x}", nes.bus.cpu.program_counter));
-        });
+        // --- Draw scaled to window
+        clear_background(BLACK);
 
-        // ctx.request_repaint_after(Duration::from_millis(16));
-        ctx.request_repaint();
+        let tex = self.texture.as_ref().unwrap();
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+
+        draw_texture_ex(
+            tex,
+            0.0,
+            0.0,
+            WHITE,
+            DrawTextureParams {
+                dest_size: Some(vec2(screen_w, screen_h)),
+                ..Default::default()
+            },
+        );
     }
 }
