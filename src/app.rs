@@ -197,7 +197,7 @@ impl EmulatorApp {
             self.handle_input();
             self.render();
             
-            let fps = format!("FPS: {}", 1.0 / delta_time);
+            let fps = format!("FPS: {}", (1.0 / delta_time) as usize);
             draw_text(&fps, 5.0, 48.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0)); 
             
             last_frame_time = current_time;
@@ -221,7 +221,7 @@ impl EmulatorApp {
     }
 
     pub fn render(&mut self) {
-        // SAFETY: only the audio thread mutates the NES
+        // SAFETY: only the audio thread mutates the NES (while running)
         let nes: &NES = unsafe { self.nes_arc.get_ref() };
         
         let frame_buffer = nes.get_frame_buffer(); // &[u8; 256*240]
@@ -243,18 +243,20 @@ impl EmulatorApp {
             self.pixel_buffer[base + 3] = 255; // alpha
         }
 
-        // --- Create or update GPU texture
+        // Create/update GPU texture
         if self.texture.is_none() {
             self.texture = Some(Texture2D::from_rgba8(width as u16, height as u16, &self.pixel_buffer));
             self.texture.as_ref().unwrap().set_filter(FilterMode::Nearest);
         } else {
-            // TODO: Optimize this. We can avoid creating a whole new texture each frame...
-            self.texture = Some(Texture2D::from_rgba8(width as u16, height as u16, &self.pixel_buffer));
+            self.texture.as_ref().unwrap().update_from_bytes(
+                width as u32,
+                height as u32,
+                &self.pixel_buffer);
         }
 
-        // --- Draw scaled to window
-        clear_background(BLACK);
-
+        // clear_background(BLACK);
+        
+        // Scale texture to screen
         let tex = self.texture.as_ref().unwrap();
         let screen_w = screen_width();
         let screen_h = screen_height();

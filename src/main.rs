@@ -9,17 +9,20 @@ mod error;
 
 use macroquad::prelude::*;
 use crate::app::EmulatorApp;
+use crate::display::consts::*;
+
+#[cfg(target_arch = "wasm32")]
+use {
+    wasm_bindgen_futures::JsFuture,
+    wasm_bindgen::JsCast,
+    web_sys::{Request, RequestInit, RequestMode, Response},
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 use {
     std::process,
     std::env
 };
-use crate::display::color_map::COLOR_MAP;
-use crate::display::consts::*;
-use crate::nes::cartridge::rom::Rom;
-use crate::nes::controller::joypad::JoypadButton;
-use crate::nes::NES;
 
 fn window_conf() -> Conf {
     Conf {
@@ -50,7 +53,57 @@ async fn main() {
 }
 
 #[cfg(target_arch = "wasm32")]
+#[macroquad::main(window_conf)]
 async fn main() {
-    // TODO implement wasm 
+    // Decide ROM path relative to your served page. Common setups use "roms/SMB.nes".
+    // You can also provide a UI file-picker instead of a hard-coded path.
+    let rom_path = "roms/SMB.nes";
+
+    // fetch the rom bytes (returns Vec<u8>)
+    match fetch_bytes(rom_path).await {
+        Ok(rom_data) => {
+            let mut app = EmulatorApp::new();
+            app.load_rom_data(&rom_data);
+            app.run().await;
+        }
+        Err(err) => {
+            // Show an error message on the page (console.log)
+            web_sys::console::error_1(&format!("Failed to load ROM {}: {:?}", rom_path, err).into());
+            // Optionally: enter a "no-rom" UI or block
+            // But we'll still start the app so the page doesn't do nothing
+            let mut app = EmulatorApp::new();
+            app.run().await;
+        }
+    }
 }
 
+#[cfg(target_arch = "wasm32")]
+async fn fetch_bytes(path: &str) -> anyhow::Result<Vec<u8>> {
+    // Use web_sys fetch to retrieve the ROM as an ArrayBuffer, then copy to Vec<u8>.
+    // Returns Err if fetch or conversion fails.
+    let window = web_sys::window().ok_or_else(|| anyhow::anyhow!("No window"))?;
+    let mut opts = RequestInit::new();
+    opts.method("GET");
+    opts.mode(RequestMode::Cors);
+
+    let request = Request::new_with_str_and_init(path, &opts)
+        .map_err(|e| anyhow::anyhow!("Request creation failed: {:?}", e))?;
+    // Optionally set headers: request.headers().set("Accept", "application/octet-stream")?;
+
+    let resp_value = JsFuture::from(window.fetch_with_request(&request)).await
+        .map_err(|e| anyhow::anyhow!("Fetch failed: {:?}", e))?;
+    // let resp: Response = resp_value.map_err(|_| anyhow::anyhow!("Failed to cast Response"))?;
+    let resp: Response = resp_value.dyn_into().map_err(|_| anyhow::anyhow!("Failed to cast Response"))?;
+    if !resp.ok() {
+        return Err(anyhow::anyhow!("HTTP error: {}", resp.status()));
+    }
+
+    let ab_promise = resp.array_buffer()
+        .map_err(|e| anyhow::anyhow!("array_buffer() failed: {:?}", e))?;
+    let ab = JsFuture::from(ab_promise).await
+        .map_err(|e| anyhow::anyhow!("array_buffer promise failed: {:?}", e))?;
+    let u8_array = js_sys::Uint8Array::new(&ab);
+    let mut v = vec![0u8; u8_array.length() as usize];
+    u8_array.copy_to(&mut v[..]);
+    Ok(v)
+}

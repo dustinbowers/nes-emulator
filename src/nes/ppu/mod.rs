@@ -285,7 +285,7 @@ impl PPU {
         //     println!("[PPU DEBUG] Odd-frame skip check: frame_is_odd={}, rendering_enabled_at_prerender={}", self.frame_is_odd, rendering_enabled);
         // }
 
-        // --- VBLANK clear at start of prerender scanline (dot 1)
+        // VBLANK clear at start of prerender scanline (dot 1)
         if prerender_scanline && dot == 1 {
             trace!(
                 "[PPU] CLEAR VBLANK: scanline={} dot={} global_ppu_ticks={} vblank_ticks={}",
@@ -311,7 +311,7 @@ impl PPU {
             self.vblank_ticks += 1;
         }
 
-        // --- Rendering pipeline
+        // Rendering pipeline
         if rendering_enabled && (visible_scanline || prerender_scanline) {
             // Background fetches (dots 1..=256, 321..=336)
             if (1..=256).contains(&dot) || (321..=336).contains(&dot) {
@@ -378,7 +378,7 @@ impl PPU {
             }
         }
 
-        // --- Advance cycle/scanline/frame counters
+        // Advance cycle/scanline/frame counters
         self.global_ppu_ticks += 1;
         self.cycles += 1;
 
@@ -411,7 +411,7 @@ impl PPU {
             self.rendering_enabled_at_prerender = self.mask_register.rendering_enabled();
         }
 
-        // --- VBLANK set at start of scanline 241 (dot 1)
+        // VBLANK set at start of scanline 241 (dot 1)
         if self.scanline == 241 && self.cycles == 1 {
             self.vblank_ticks = 0;
             if !self.suppress_vblank {
@@ -439,7 +439,7 @@ impl PPU {
             }
         }
 
-        // --- Odd-frame skip
+        // Odd-frame skip
         if prerender_scanline
             && self.cycles == 340
             && self.frame_is_odd
