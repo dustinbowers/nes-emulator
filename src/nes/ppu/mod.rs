@@ -136,6 +136,56 @@ impl PPU {
             next_tile_msb: 0,
         }
     }
+    
+    pub fn reset(&mut self) {
+        self.v_ram = [0; RAM_SIZE];
+        self.cycles = 100;
+        self.scanline = 100;
+        self.suppress_vblank = false;
+        self.rendering_enabled_at_prerender = true;
+        self.frame_is_odd = false;
+        self.last_byte_read = DecayRegister::new(5_369_318);
+        
+        self.ctrl_register = ControlRegister::new();
+        self.mask_register = MaskRegister::new();
+        self.status_register = StatusRegister::new();
+        self.scroll_register = ScrollRegister::new();
+        
+        self.frame_buffer = [0u8; 256 * 240];
+
+        // Blarrg's startup palette
+        self.palette_table = [
+            0x09, 0x01, 0x00, 0x01, 0x00, 0x02, 0x02, 0x0D, 0x08, 0x10, 0x08, 0x24, 0x00, 0x00,
+            0x04, 0x2C, 0x09, 0x01, 0x34, 0x03, 0x00, 0x04, 0x00, 0x14, 0x08, 0x3A, 0x00, 0x02,
+            0x00, 0x20, 0x2C, 0x08,
+        ];
+        self.oam_addr = 0;
+        self.oam_data = [0; PRIMARY_OAM_SIZE];
+
+        // During sprite evaluation
+        self.secondary_oam = [0; SECONDARY_OAM_SIZE];
+
+        // For rendering (shift registers)
+        self.sprite_pattern_low = [0; 8];
+        self.sprite_pattern_high = [0; 8];
+        self.sprite_attributes = [0; 8];
+        self.sprite_x_counter = [0; 8];
+        self.sprite_count = 0;
+        self.sprite_zero_in_range = false;
+
+        self.bg_pattern_shift_low = 0;
+        self.bg_pattern_shift_high = 0;
+
+        self.bg_attr_shift_low = 0;
+        self.bg_attr_shift_high = 0;
+        self.bg_attr_latch_low = 0;
+        self.bg_attr_latch_high = 0;
+
+        self.next_tile_id = 0;
+        self.next_tile_attr = 0;
+        self.next_tile_lsb = 0;
+        self.next_tile_msb = 0;
+    }
 
     /// `connect_bus` MUST be called after constructing PPU
     pub fn connect_bus(&mut self, bus: *mut dyn PpuBusInterface) {
@@ -235,7 +285,7 @@ impl PPU {
         //     println!("[PPU DEBUG] Odd-frame skip check: frame_is_odd={}, rendering_enabled_at_prerender={}", self.frame_is_odd, rendering_enabled);
         // }
 
-        // --- VBLANK clear at start of prerender scanline (dot 1)
+        // VBLANK clear at start of prerender scanline (dot 1)
         if prerender_scanline && dot == 1 {
             trace!(
                 "[PPU] CLEAR VBLANK: scanline={} dot={} global_ppu_ticks={} vblank_ticks={}",
@@ -261,7 +311,7 @@ impl PPU {
             self.vblank_ticks += 1;
         }
 
-        // --- Rendering pipeline
+        // Rendering pipeline
         if rendering_enabled && (visible_scanline || prerender_scanline) {
             // Background fetches (dots 1..=256, 321..=336)
             if (1..=256).contains(&dot) || (321..=336).contains(&dot) {
@@ -328,7 +378,7 @@ impl PPU {
             }
         }
 
-        // --- Advance cycle/scanline/frame counters
+        // Advance cycle/scanline/frame counters
         self.global_ppu_ticks += 1;
         self.cycles += 1;
 
@@ -361,7 +411,7 @@ impl PPU {
             self.rendering_enabled_at_prerender = self.mask_register.rendering_enabled();
         }
 
-        // --- VBLANK set at start of scanline 241 (dot 1)
+        // VBLANK set at start of scanline 241 (dot 1)
         if self.scanline == 241 && self.cycles == 1 {
             self.vblank_ticks = 0;
             if !self.suppress_vblank {
@@ -389,7 +439,7 @@ impl PPU {
             }
         }
 
-        // --- Odd-frame skip
+        // Odd-frame skip
         if prerender_scanline
             && self.cycles == 340
             && self.frame_is_odd

@@ -76,6 +76,25 @@ impl APU {
             frame_interrupt: false,
         }
     }
+    
+    pub fn reset(&mut self) {
+        self.pulse1 = PulseChannel::new(true);
+        self.pulse2 = PulseChannel::new(false);
+        self.triangle = TriangleChannel::new();
+        self.noise = NoiseChannel::new();
+        self.dmc = DmcChannel::new();
+        self.enable_dmc = false;
+        self.enable_noise = false;
+        self.enable_triangle = false;
+        self.enable_pulse2 = false;
+        self.enable_pulse1 = false;
+        self.master_sequence_mode = false;
+        self.frame_clock_counter = 0;
+        self.clock_counter = 0;
+        self.irq_disable = false;
+        self.dmc_interrupt = false;
+        self.frame_interrupt = false;
+    }
 
     pub fn read(&self, addr: u16) -> u8 {
         println!("APU::read({:04X})", addr);

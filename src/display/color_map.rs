@@ -1,6 +1,6 @@
-// use macroquad::color::Color;
+use macroquad::color::Color;
+// use egui::Color32;
 use once_cell::sync::Lazy;
-use sdl3::pixels::Color;
 
 pub static SYSTEM_PALETTE: [(u8, u8, u8); 64] = [
     (0x80, 0x80, 0x80),
@@ -80,7 +80,7 @@ impl ColorMap {
             let r = c.0;
             let g = c.1;
             let b = c.2;
-            let palette_color = Color::RGB(r, g, b);
+            let palette_color = Color::from_rgba(r, g, b, 255);
             color_map.push(palette_color);
         }
         Self {

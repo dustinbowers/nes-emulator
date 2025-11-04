@@ -11,6 +11,7 @@ use crate::{trace, trace_obj};
 use bus::nes_bus::NesBus;
 use cartridge::Cartridge;
 use cpu::processor::CpuBusInterface;
+use crate::nes::cartridge::rom::{Rom, RomError};
 
 const OAM_DMA_START_CYCLES: usize = 0;
 const OAM_DMA_DONE_CYCLES: usize = 512;
@@ -29,11 +30,13 @@ pub struct NES {
 
     audio_time_per_system_sample: f32,
     audio_time_per_nes_clock: f32,
+    pub cycle_acc: f32,
 }
 
 impl NES {
-    pub fn new(cartridge: Box<dyn Cartridge>) -> Self {
-        let bus = NesBus::new(cartridge);
+    
+    pub fn new() -> Self {
+        let bus = NesBus::new();
         Self {
             bus,
             ppu_warmed_up: true,
@@ -41,7 +44,22 @@ impl NES {
             oam_transfer_cycles: 0,
             audio_time_per_system_sample: 0.0,
             audio_time_per_nes_clock: 0.0,
-        }
+            cycle_acc: 0.0,
+        }   
+    }
+    pub fn new_with_cartridge(cartridge: Box<dyn Cartridge>) -> Self {
+        let mut nes = NES::new();
+        nes.insert_cartridge(cartridge);
+        nes
+    }
+
+    pub fn insert_cartridge(&mut self, cartridge: Box<dyn Cartridge>) {
+        self.bus.insert_cartridge(cartridge);
+    }
+    
+    pub fn parse_rom_bytes(rom_bytes: &Vec<u8>) -> Result<Box<dyn Cartridge>, RomError> {
+        let rom = Rom::new(rom_bytes)?;
+        Ok(rom.into_cartridge())
     }
 
     // Tick once at PPU frequency

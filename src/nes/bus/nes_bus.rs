@@ -19,7 +19,7 @@ const CART_START: u16 = 0x4200;
 const CART_END: u16 = 0xFFFF;
 
 pub struct NesBus {
-    cart: Box<dyn Cartridge>,
+    cart: Option<Box<dyn Cartridge>>,
 
     pub cpu_ram: [u8; CPU_RAM_SIZE],
     // pub cycles: usize,
@@ -40,9 +40,9 @@ pub struct NesBus {
 }
 
 impl NesBus {
-    pub fn new(cartridge: Box<dyn Cartridge>) -> &'static mut NesBus {
+    pub fn new() -> &'static mut NesBus {
         let mut bus = Box::new(NesBus {
-            cart: cartridge,
+            cart: None,
             cpu_ram: [0; CPU_RAM_SIZE],
             // cycles: 0,
             cpu: CPU::new(),
@@ -64,6 +64,31 @@ impl NesBus {
         bus.ppu.connect_bus(bus_ptr as *mut dyn PpuBusInterface);
 
         Box::leak(bus)
+    }
+    
+    pub fn reset(&mut self) {
+        self.cart = None;
+        self.cpu_ram = [0; CPU_RAM_SIZE];
+        self.nmi_scheduled = None;
+        self.oam_dma_addr = 0;
+        self.last_cpu_read = 0;
+        self.controller1 = Box::new(Joypad::new());
+        
+        self.cpu.reset();
+        self.ppu.reset();
+        self.apu.reset();
+    }
+    
+    pub fn new_with_cartridge(cart: Box<dyn Cartridge>) -> &'static mut NesBus {
+        let bus = NesBus::new();
+        bus.insert_cartridge(cart);
+        bus
+    }
+    
+    pub fn insert_cartridge(&mut self, cart: Box<dyn Cartridge>) {
+        println!("NesBus::insert_cartridge()");
+        self.reset();
+        self.cart = Some(cart);
     }
 
     pub fn tick(&mut self) {
@@ -123,8 +148,14 @@ impl CpuBusInterface for NesBus {
                 self.last_cpu_read
             }
             CART_START..=CART_END => {
-                let byte = self.cart.prg_read(addr);
-                byte
+                // if let Some(cart) = self.cart {
+                //     let byte = self.cart.prg_read(addr);
+                //     byte
+                // }
+                match &mut self.cart {
+                    Some(cart) => cart.prg_read(addr),
+                    None => 0
+                }
             }
             _ => self.last_cpu_read,
         };
@@ -154,7 +185,11 @@ impl CpuBusInterface for NesBus {
             }
 
             0x4018..=0x401F => { /* Open bus */ }
-            CART_START..=CART_END => self.cart.prg_write(addr, value),
+            CART_START..=CART_END => {
+                if let Some(cart) = &mut self.cart {
+                    cart.prg_write(addr, value);
+                }
+            },
             _ => {
                 // println!("Unhandled CPU write at {:04X}", addr);
             }
@@ -164,13 +199,22 @@ impl CpuBusInterface for NesBus {
 
 impl PpuBusInterface for NesBus {
     fn chr_read(&mut self, addr: u16) -> u8 {
-        self.cart.chr_read(addr)
+        match &mut self.cart {
+            Some(cart) => cart.chr_read(addr),
+            _ => 0
+        }
     }
     fn chr_write(&mut self, addr: u16, value: u8) {
-        self.cart.chr_write(addr, value);
+        if let Some(cart) = &mut self.cart {
+            cart.chr_write(addr, value);
+        }
     }
     fn mirroring(&mut self) -> Mirroring {
-        self.cart.mirroring()
+        match &self.cart {
+            Some(cart) => cart.mirroring(),
+            None => Mirroring::Horizontal,
+            
+        }
     }
     fn nmi(&mut self) {
         trace!("CPU Triggering NMI!");

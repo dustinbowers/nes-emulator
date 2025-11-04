@@ -5,7 +5,7 @@ use bitflags::bitflags;
 
 bitflags! {
        #[derive(Copy, Clone, Debug)]
-       pub struct JoypadButtons: u8 {
+       pub struct JoypadButton: u8 {
            const BUTTON_A          = 0b0000_0001;
            const BUTTON_B          = 0b0000_0010;
            const SELECT            = 0b0000_0100;
@@ -18,7 +18,7 @@ bitflags! {
 }
 
 pub struct Joypad {
-    buttons: JoypadButtons,
+    buttons: JoypadButton,
     button_index: u8,
     strobe: bool,
 }
@@ -47,18 +47,18 @@ impl NesController for Joypad {
 impl Joypad {
     pub fn new() -> Self {
         Self {
-            buttons: JoypadButtons::from_bits_truncate(0),
+            buttons: JoypadButton::from_bits_truncate(0),
             button_index: 0,
             strobe: false,
         }
     }
 
-    pub fn set_button_status(&mut self, button: &JoypadButtons, state: bool) {
+    pub fn set_button_status(&mut self, button: &JoypadButton, state: bool) {
         self.buttons.set(button.clone(), state);
     }
 
     pub fn set_buttons(&mut self, buttons: u8) {
-        self.buttons = JoypadButtons::from_bits_truncate(buttons);
+        self.buttons = JoypadButton::from_bits_truncate(buttons);
     }
 }
 
@@ -79,24 +79,24 @@ mod tests {
         let mut joypad = Joypad::new();
 
         // Press A and Start
-        joypad.set_button_status(&JoypadButtons::BUTTON_A, true);
-        joypad.set_button_status(&JoypadButtons::START, true);
+        joypad.set_button_status(&JoypadButton::BUTTON_A, true);
+        joypad.set_button_status(&JoypadButton::START, true);
 
-        assert!(joypad.buttons.contains(JoypadButtons::BUTTON_A));
-        assert!(joypad.buttons.contains(JoypadButtons::START));
-        assert!(!joypad.buttons.contains(JoypadButtons::BUTTON_B));
+        assert!(joypad.buttons.contains(JoypadButton::BUTTON_A));
+        assert!(joypad.buttons.contains(JoypadButton::START));
+        assert!(!joypad.buttons.contains(JoypadButton::BUTTON_B));
 
         // Release A
-        joypad.set_button_status(&JoypadButtons::BUTTON_A, false);
-        assert!(!joypad.buttons.contains(JoypadButtons::BUTTON_A));
+        joypad.set_button_status(&JoypadButton::BUTTON_A, false);
+        assert!(!joypad.buttons.contains(JoypadButton::BUTTON_A));
     }
 
     #[test]
     fn test_strobe_behavior() {
         let mut joypad = Joypad::new();
 
-        joypad.set_button_status(&JoypadButtons::BUTTON_A, true);
-        joypad.set_button_status(&JoypadButtons::RIGHT, true);
+        joypad.set_button_status(&JoypadButton::BUTTON_A, true);
+        joypad.set_button_status(&JoypadButton::RIGHT, true);
 
         // Enable strobe
         joypad.write(1);
@@ -115,14 +115,14 @@ mod tests {
 
         // Sequential read for each button
         let expected = [
-            JoypadButtons::BUTTON_A,
-            JoypadButtons::BUTTON_B,
-            JoypadButtons::SELECT,
-            JoypadButtons::START,
-            JoypadButtons::UP,
-            JoypadButtons::DOWN,
-            JoypadButtons::LEFT,
-            JoypadButtons::RIGHT,
+            JoypadButton::BUTTON_A,
+            JoypadButton::BUTTON_B,
+            JoypadButton::SELECT,
+            JoypadButton::START,
+            JoypadButton::UP,
+            JoypadButton::DOWN,
+            JoypadButton::LEFT,
+            JoypadButton::RIGHT,
         ];
 
         for i in 0..8 {

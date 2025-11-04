@@ -8,3 +8,5 @@ logs/
 *.log
 *.sh
 sdl2-sys/
+dist/
+img/

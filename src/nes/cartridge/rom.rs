@@ -1,7 +1,7 @@
 use crate::nes::cartridge::mapper000_nrom::NromCart;
 use crate::nes::cartridge::mapper002_ux_rom::Mapper002UxRom;
 use crate::nes::cartridge::mapper003_cn_rom::Mapper003CnRom;
-use crate::nes::cartridge::mmc1::Mmc1;
+use crate::nes::cartridge::mapper001_mmc1::Mmc1;
 use crate::nes::cartridge::Cartridge;
 
 const NES_MAGIC_BYTES: &[u8; 4] = b"NES\x1A";
@@ -83,6 +83,10 @@ impl Rom {
             mapper,
             screen_mirroring,
         })
+    }
+    
+    pub fn empty() -> Rom {
+        Self::new(&vec![]).unwrap()
     }
 
     pub fn new_custom(
