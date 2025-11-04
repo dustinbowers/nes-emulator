@@ -29,6 +29,14 @@
     - [x] Triangle Channel
     - [ ] DMC DMA
     - [ ] DPCM Channel
+- [ ] Implement mappers
+    - [x] iNES 1.0 Mapper 000 - NROM
+    - [x] iNES 1.0 Mapper 001 - MMC1
+    - [x] iNES 1.0 Mapper 002 - UxROM
+    - [x] iNES 1.0 Mapper 003 - CNROM
+    - [ ] iNES 1.0 Mapper 004 - MMC3
+    - [ ] iNES 1.0 Mapper 005 - MMC5
+    - [ ] ...plus more...
 
 ## Requirements
 
