@@ -1,4 +1,4 @@
-.PHONY: debug release release-tracing testop logs testall
+.PHONY: debug release release-tracing clean wasm-debug wasm-release testop logs testall
 
 all: release
 
