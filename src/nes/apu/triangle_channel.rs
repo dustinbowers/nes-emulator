@@ -34,7 +34,8 @@ impl TriangleChannel {
 
         // when control flag is set, length counter halt is set; otherwise cleared.
         // bit 7 doubles as the length counter halt for triangle
-        self.length_counter.set_halt(self.linear_counter_control_flag);
+        self.length_counter
+            .set_halt(self.linear_counter_control_flag);
     }
 
     pub fn write_400a(&mut self, value: u8) {

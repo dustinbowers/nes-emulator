@@ -1,6 +1,2 @@
-pub const FRAME_COLS: u32 = 256;
-pub const FRAME_ROWS: u32 = 240;
 pub const WINDOW_HEIGHT: u32 = 480;
 pub const WINDOW_WIDTH: u32 = 512;
-pub const PIXEL_WIDTH: u32 = WINDOW_WIDTH / FRAME_COLS;
-pub const PIXEL_HEIGHT: u32 = WINDOW_HEIGHT / FRAME_ROWS;

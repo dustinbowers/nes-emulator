@@ -1,28 +1,26 @@
 #![feature(get_mut_unchecked)]
 #![warn(clippy::all, rust_2018_idioms)]
+#![allow(unused_imports, dead_code, unused_variables)] // TODO: Remove this later
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-mod nes;
-mod display;
 mod app;
+mod display;
 mod error;
+mod nes;
 
-use macroquad::prelude::*;
 use crate::app::EmulatorApp;
 use crate::display::consts::*;
+use macroquad::prelude::*;
 
 #[cfg(target_arch = "wasm32")]
 use {
-    wasm_bindgen_futures::JsFuture,
     wasm_bindgen::JsCast,
+    wasm_bindgen_futures::JsFuture,
     web_sys::{Request, RequestInit, RequestMode, Response},
 };
 
 #[cfg(not(target_arch = "wasm32"))]
-use {
-    std::process,
-    std::env
-};
+use {std::env, std::process};
 
 fn window_conf() -> Conf {
     Conf {
@@ -68,7 +66,9 @@ async fn main() {
         }
         Err(err) => {
             // Show an error message on the page (console.log)
-            web_sys::console::error_1(&format!("Failed to load ROM {}: {:?}", rom_path, err).into());
+            web_sys::console::error_1(
+                &format!("Failed to load ROM {}: {:?}", rom_path, err).into(),
+            );
             // Optionally: enter a "no-rom" UI or block
             // But we'll still start the app so the page doesn't do nothing
             let mut app = EmulatorApp::new();
@@ -90,17 +90,22 @@ async fn fetch_bytes(path: &str) -> anyhow::Result<Vec<u8>> {
         .map_err(|e| anyhow::anyhow!("Request creation failed: {:?}", e))?;
     // Optionally set headers: request.headers().set("Accept", "application/octet-stream")?;
 
-    let resp_value = JsFuture::from(window.fetch_with_request(&request)).await
+    let resp_value = JsFuture::from(window.fetch_with_request(&request))
+        .await
         .map_err(|e| anyhow::anyhow!("Fetch failed: {:?}", e))?;
     // let resp: Response = resp_value.map_err(|_| anyhow::anyhow!("Failed to cast Response"))?;
-    let resp: Response = resp_value.dyn_into().map_err(|_| anyhow::anyhow!("Failed to cast Response"))?;
+    let resp: Response = resp_value
+        .dyn_into()
+        .map_err(|_| anyhow::anyhow!("Failed to cast Response"))?;
     if !resp.ok() {
         return Err(anyhow::anyhow!("HTTP error: {}", resp.status()));
     }
 
-    let ab_promise = resp.array_buffer()
+    let ab_promise = resp
+        .array_buffer()
         .map_err(|e| anyhow::anyhow!("array_buffer() failed: {:?}", e))?;
-    let ab = JsFuture::from(ab_promise).await
+    let ab = JsFuture::from(ab_promise)
+        .await
         .map_err(|e| anyhow::anyhow!("array_buffer promise failed: {:?}", e))?;
     let u8_array = js_sys::Uint8Array::new(&ab);
     let mut v = vec![0u8; u8_array.length() as usize];

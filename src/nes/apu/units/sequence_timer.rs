@@ -47,7 +47,7 @@ impl SequenceTimer {
     }
 
     pub fn output(&self) -> u16 {
-        return self.value;
+        self.value
     }
 
     pub fn get_reload(&self) -> u16 {

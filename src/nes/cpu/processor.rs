@@ -1,7 +1,5 @@
 use super::interrupts::{Interrupt, InterruptType};
 use super::{interrupts, opcodes};
-// use crate::nes::cpu::trace::Tracer;
-use crate::nes::cpu::opcodes::Opcode;
 use crate::trace;
 use bitflags::bitflags;
 use std::collections::HashMap;
@@ -155,6 +153,7 @@ impl CPU {
         self.interrupt_stack = vec![]; // This prevents nested NMI (while allowing nested BRKs)
     }
 
+    #[allow(dead_code)]
     pub fn run(&mut self) {
         loop {
             let (_, _, should_break) = self.tick();
@@ -169,7 +168,7 @@ impl CPU {
     }
 
     fn toggle_mode(&mut self) {
-        self.cpu_mode = match (&self.cpu_mode) {
+        self.cpu_mode = match &self.cpu_mode {
             CpuMode::Read => CpuMode::Write,
             CpuMode::Write => CpuMode::Read,
         };
@@ -471,10 +470,7 @@ impl CPU {
             0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 | 0x04 | 0x44 | 0x64 | 0x14 | 0x34 | 0x54 | 0x74
             | 0xD4 | 0xF4 | 0x0C | 0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => {
                 // Various single and multiple-byte NOPs
-            }
-            _ => {
-                unreachable!()
-            }
+            } // _ => unreachable!()
         }
 
         // Tick the bus for opcode cycles. Add any extra cycles from boundary_crosses and other special cases

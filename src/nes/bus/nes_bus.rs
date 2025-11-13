@@ -1,11 +1,10 @@
-use crate::nes::apu::{ApuBusInterface, APU};
-use crate::nes::cartridge::rom::Mirroring;
+use crate::nes::apu::{APU, ApuBusInterface};
 use crate::nes::cartridge::Cartridge;
-use crate::nes::controller::joypad::Joypad;
+use crate::nes::cartridge::rom::Mirroring;
 use crate::nes::controller::NesController;
-use crate::nes::cpu::processor::{CpuBusInterface, CPU};
-use crate::nes::ppu::registers::status_register::StatusRegister;
-use crate::nes::ppu::{PpuBusInterface, PPU};
+use crate::nes::controller::joypad::Joypad;
+use crate::nes::cpu::processor::{CPU, CpuBusInterface};
+use crate::nes::ppu::{PPU, PpuBusInterface};
 use crate::nes::tracer::traceable::Traceable;
 use crate::trace;
 
@@ -65,7 +64,7 @@ impl NesBus {
 
         Box::leak(bus)
     }
-    
+
     pub fn reset(&mut self) {
         self.cart = None;
         self.cpu_ram = [0; CPU_RAM_SIZE];
@@ -73,18 +72,19 @@ impl NesBus {
         self.oam_dma_addr = 0;
         self.last_cpu_read = 0;
         self.controller1 = Box::new(Joypad::new());
-        
+
         self.cpu.reset();
         self.ppu.reset();
         self.apu.reset();
     }
-    
+
+    #[allow(dead_code)]
     pub fn new_with_cartridge(cart: Box<dyn Cartridge>) -> &'static mut NesBus {
         let bus = NesBus::new();
         bus.insert_cartridge(cart);
         bus
     }
-    
+
     pub fn insert_cartridge(&mut self, cart: Box<dyn Cartridge>) {
         println!("NesBus::insert_cartridge()");
         self.reset();
@@ -118,11 +118,19 @@ impl CpuBusInterface for NesBus {
                 // PPU Registers mirrored every 8 bytes
                 // let reg = 0x2000 + (addr & 0x0007);
                 if addr == 0x2002 {
-                    trace!("{}",format!(
-                        "[CPU READ $2002] CPU_PC=${:04X} PPU global_cycles={} SL={} DOT={}, (cpu_view_vblank={:?})",
-                        self.cpu.program_counter, self.ppu.global_ppu_ticks, self.ppu.scanline, self.ppu.cycles,
-                        self.ppu.status_register.contains(StatusRegister::VBLANK_STARTED)
-                    ));
+                    trace!(
+                        "{}",
+                        format!(
+                            "[CPU READ $2002] CPU_PC=${:04X} PPU global_cycles={} SL={} DOT={}, (cpu_view_vblank={:?})",
+                            self.cpu.program_counter,
+                            self.ppu.global_ppu_ticks,
+                            self.ppu.scanline,
+                            self.ppu.cycles,
+                            self.ppu
+                                .status_register
+                                .contains(StatusRegister::VBLANK_STARTED)
+                        )
+                    );
                 }
                 let result = self.ppu.read_register(addr);
                 result
@@ -154,7 +162,7 @@ impl CpuBusInterface for NesBus {
                 // }
                 match &mut self.cart {
                     Some(cart) => cart.prg_read(addr),
-                    None => 0
+                    None => 0,
                 }
             }
             _ => self.last_cpu_read,
@@ -189,7 +197,7 @@ impl CpuBusInterface for NesBus {
                 if let Some(cart) = &mut self.cart {
                     cart.prg_write(addr, value);
                 }
-            },
+            }
             _ => {
                 // println!("Unhandled CPU write at {:04X}", addr);
             }
@@ -201,7 +209,7 @@ impl PpuBusInterface for NesBus {
     fn chr_read(&mut self, addr: u16) -> u8 {
         match &mut self.cart {
             Some(cart) => cart.chr_read(addr),
-            _ => 0
+            _ => 0,
         }
     }
     fn chr_write(&mut self, addr: u16, value: u8) {
@@ -213,7 +221,6 @@ impl PpuBusInterface for NesBus {
         match &self.cart {
             Some(cart) => cart.mirroring(),
             None => Mirroring::Horizontal,
-            
         }
     }
     fn nmi(&mut self) {

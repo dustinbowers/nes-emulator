@@ -60,11 +60,7 @@ impl Sweep {
                         // (*timer).wrapping_sub(change).wrapping_sub(1)
                     }
                     PulseType::Pulse2 => {
-                        if change > *timer {
-                            0
-                        } else {
-                            *timer - change
-                        }
+                        if change > *timer { 0 } else { *timer - change }
                         // (*timer).wrapping_sub(change)
                     }
                 }

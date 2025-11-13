@@ -4,43 +4,40 @@
 
 ## TODO
 
-- [x] Implement 6502 CPU (minus APU)
-    - [x] Official opcodes
-    - [x] Unofficial opcodes
-    - [x] Ensure cycle accuracy
-- [x] Create 6502 CPU test runner for single-step tests
-- [x] Implement iNES 1.0 ROM parsing
-- [x] Implement Bus-centric architecture (NES wrapper handles orchestration)
-- [x] Implement interrupt handling
-    - [x] Non-maskable-interrupts
-    - [x] Software-defined interrupts
-- [x] Implement user-input via Joypad 1
-- [x] Implement PPU
-    - [x] Background nametable rendering
-    - [x] 8x8 sprite rendering (with horiz/vert flips)
-    - [x] 8x16 sprite rendering
-    - [x] Sprite collision detection
-    - [x] Detect sprite-overflow
-- [x] Encapsulate mapper logic behind Cartridge trait
-- [x] Implement cycle-accurate DMA transfer through Bus
-- [ ] Implement APU
-    - [x] Pulse Channels
-    - [x] Noise Channel
-    - [x] Triangle Channel
-    - [ ] DMC DMA
-    - [ ] DPCM Channel
-- [ ] Implement mappers
-    - [x] iNES 1.0 Mapper 000 - NROM
-    - [x] iNES 1.0 Mapper 001 - MMC1
-    - [x] iNES 1.0 Mapper 002 - UxROM
-    - [x] iNES 1.0 Mapper 003 - CNROM
-    - [ ] iNES 1.0 Mapper 004 - MMC3
-    - [ ] iNES 1.0 Mapper 005 - MMC5
-    - [ ] ...plus more...
+- ✅ Implement 6502 CPU (minus APU)
+  - ✅ Official opcodes
+  - ✅ Unofficial opcodes
+  - ✅ Ensure cycle accuracy
+- ✅ Create 6502 CPU test runner for single-step tests
+- ✅ Implement iNES 1.0 ROM parsing
+- ✅ Implement Bus-centric architecture (NES wrapper handles orchestration)
+- ✅ Implement interrupt handling
+  - ✅ Non-maskable-interrupts
+  - ✅ Software-defined interrupts
+- ✅ Implement user-input via Joypad 1
+- ✅ Implement PPU
+  - ✅ Background nametable rendering
+  - ✅ 8x8 sprite rendering (with horiz/vert flips)
+  - ✅ 8x16 sprite rendering
+  - ✅ Sprite collision detection
+  - ✅ Detect sprite-overflow
+- ✅ Encapsulate mapper logic behind Cartridge trait
+- ✅ Implement cycle-accurate DMA transfer through Bus
+- ⬜ Implement APU
+  - ✅ Pulse Channels
+  - ✅ Noise Channel
+  - ✅ Triangle Channel
+  - ⬜ DMC DMA
+  - ⬜ DPCM Channel
+- ⬜ Implement mappers
+  - ✅ iNES 1.0 Mapper 000 - NROM
+  - ✅ iNES 1.0 Mapper 001 - MMC1
+  - ✅ iNES 1.0 Mapper 002 - UxROM
+  - ✅ iNES 1.0 Mapper 003 - CNROM
+  - ⬜ iNES 1.0 Mapper 004 - MMC3
+  - ⬜ iNES 1.0 Mapper 005 - MMC5
+  - ⬜ ...plus more...
 
-## Requirements
-
-- You'll need SDL3 and SDL3_ttf
 
 ## Building
 

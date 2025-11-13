@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod test {
     use crate::nes::cartridge::rom::Mirroring;
-    use crate::nes::ppu::{PpuBusInterface, PPU};
+    use crate::nes::ppu::{PPU, PpuBusInterface};
 
     struct MockPpuBus {
         pub chr: [u8; 0x2000],

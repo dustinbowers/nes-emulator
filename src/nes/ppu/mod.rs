@@ -5,7 +5,7 @@ use crate::nes::ppu::registers::mask_register::MaskRegister;
 use crate::nes::ppu::registers::scroll_register::ScrollRegister;
 use crate::nes::ppu::registers::status_register::StatusRegister;
 use crate::nes::tracer::traceable::Traceable;
-use crate::{trace, trace_obj};
+use crate::trace;
 
 mod background;
 mod mod_tests;
@@ -136,7 +136,7 @@ impl PPU {
             next_tile_msb: 0,
         }
     }
-    
+
     pub fn reset(&mut self) {
         self.v_ram = [0; RAM_SIZE];
         self.cycles = 100;
@@ -145,12 +145,12 @@ impl PPU {
         self.rendering_enabled_at_prerender = true;
         self.frame_is_odd = false;
         self.last_byte_read = DecayRegister::new(5_369_318);
-        
+
         self.ctrl_register = ControlRegister::new();
         self.mask_register = MaskRegister::new();
         self.status_register = StatusRegister::new();
         self.scroll_register = ScrollRegister::new();
-        
+
         self.frame_buffer = [0u8; 256 * 240];
 
         // Blarrg's startup palette
@@ -289,16 +289,11 @@ impl PPU {
         if prerender_scanline && dot == 1 {
             trace!(
                 "[PPU] CLEAR VBLANK: scanline={} dot={} global_ppu_ticks={} vblank_ticks={}",
-                scanline,
-                dot,
-                self.global_ppu_ticks,
-                self.vblank_ticks
+                scanline, dot, self.global_ppu_ticks, self.vblank_ticks
             );
             trace!(
                 "[PPU] FRAME END: scanline={} dot={} global_ppu_ticks={}",
-                scanline,
-                dot,
-                self.global_ppu_ticks
+                scanline, dot, self.global_ppu_ticks
             );
             self.status_register.reset_vblank_status();
             self.status_register.set_sprite_zero_hit(false);
@@ -399,9 +394,7 @@ impl PPU {
                 self.frame_is_odd = !self.frame_is_odd;
                 trace!(
                     "[FRAME END] SL={} dot={} frame_is_odd becomes: {}",
-                    scanline,
-                    dot,
-                    self.frame_is_odd
+                    scanline, dot, self.frame_is_odd
                 );
             }
         }
@@ -420,16 +413,13 @@ impl PPU {
 
             trace!(
                 "[PPU] VBLANK SET: frame_is_odd={} scanline={} dot={} vblank_ticks={} global_ppu_ticks={}",
-                self.frame_is_odd,
-                scanline, dot, self.vblank_ticks, self.global_ppu_ticks
+                self.frame_is_odd, scanline, dot, self.vblank_ticks, self.global_ppu_ticks
             );
 
             if !self.suppress_vblank && self.ctrl_register.generate_vblank_nmi() {
                 trace!(
                     "[PPU] NMI TRIGGERED: scanline={} dot={} global_ppu_ticks={}",
-                    scanline,
-                    dot,
-                    self.global_ppu_ticks
+                    scanline, dot, self.global_ppu_ticks
                 );
                 if let Some(bus_ptr) = self.bus {
                     unsafe {
@@ -453,9 +443,7 @@ impl PPU {
             self.frame_is_odd = !self.frame_is_odd;
             trace!(
                 "[PPU DEBUG] Odd-frame SKIP: frame_is_odd={}, scanline={}, dot={}",
-                self.frame_is_odd,
-                scanline,
-                dot
+                self.frame_is_odd, scanline, dot
             );
             return true;
         }
@@ -463,6 +451,7 @@ impl PPU {
         frame_complete
     }
 
+    #[cfg(test)]
     pub fn run_until_vblank(&mut self) {
         // Tick the PPU until VBLANK
         while !self
@@ -473,16 +462,16 @@ impl PPU {
         }
     }
 
-    pub fn write_to_oam_byte(&mut self, index: u8, value: u8) {
-        self.oam_data[index as usize] = value;
-    }
-
-    pub fn write_to_oam_dma(&mut self, data: &[u8; 256]) {
-        for x in data.iter() {
-            self.oam_data[self.oam_addr as usize] = *x;
-            self.oam_addr = self.oam_addr.wrapping_add(1);
-        }
-    }
+    // pub fn write_to_oam_byte(&mut self, index: u8, value: u8) {
+    //     self.oam_data[index as usize] = value;
+    // }
+    //
+    // pub fn write_to_oam_dma(&mut self, data: &[u8; 256]) {
+    //     for x in data.iter() {
+    //         self.oam_data[self.oam_addr as usize] = *x;
+    //         self.oam_addr = self.oam_addr.wrapping_add(1);
+    //     }
+    // }
 }
 
 // Private implementations
@@ -512,8 +501,7 @@ impl PPU {
                     {
                         trace!(
                             "\tset_sprite_zero_hit TRUE @ scanline {} dot {}",
-                            scanline,
-                            dot
+                            scanline, dot
                         );
                         self.status_register.set_sprite_zero_hit(true);
                     }
@@ -627,7 +615,7 @@ impl PPU {
                 self.v_ram[mirrored as usize] = value;
             }
             0x3F00..=0x3FFF => {
-                let mut palette_addr = self.mirror_palette_addr(addr);
+                let palette_addr = self.mirror_palette_addr(addr);
 
                 // Handle mirrors of universal background color
                 // match palette_addr {
@@ -788,7 +776,6 @@ impl PPU {
                 // always map to $2400 (NT1)
                 offset + NAME_TABLE_SIZE
             }
-            _ => unimplemented!(),
         }
     }
 }
@@ -800,23 +787,24 @@ impl Traceable for PPU {
     fn trace_state(&self) -> Option<String> {
         // if (0..=10).contains(&self.cycles) {
         let mut is_vblank = false;
-        if (self.scanline >= 241 && self.cycles >= 1) {
+        if self.scanline >= 241 && self.cycles >= 1 {
             is_vblank = true;
         }
-        if (self.scanline >= 261 && self.cycles >= 1) {
+        if self.scanline >= 261 && self.cycles >= 1 {
             is_vblank = false;
         }
         Some(format!(
-                "ppu_cycles={} scanline={} dot={} VBL={} cpu_visible_vblank={} odd={} global_ppu_cycles={} ppu_status={:08b}",
-                self.global_ppu_ticks,
-                self.scanline,
-                self.cycles,
-                is_vblank,
-                self.status_register.contains(StatusRegister::VBLANK_STARTED),
-                self.frame_is_odd,
-                self.global_ppu_ticks,
-                self.status_register.bits()
-            ))
+            "ppu_cycles={} scanline={} dot={} VBL={} cpu_visible_vblank={} odd={} global_ppu_cycles={} ppu_status={:08b}",
+            self.global_ppu_ticks,
+            self.scanline,
+            self.cycles,
+            is_vblank,
+            self.status_register
+                .contains(StatusRegister::VBLANK_STARTED),
+            self.frame_is_odd,
+            self.global_ppu_ticks,
+            self.status_register.bits()
+        ))
         // } else {
         //     None
         // }

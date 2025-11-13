@@ -36,7 +36,7 @@ impl Envelope {
     pub fn set(&mut self, value: u8) {
         // println!("envelope: set({:?})", value);
         self.period = value & 0b0000_1111; // lower 4 bits
-                                           // println!("period: {:?}", self.period);
+        // println!("period: {:?}", self.period);
         self.constant_volume = self.period;
         self.loop_flag = (value & 0b0010_0000) != 0; // bit 5
         self.volume_mode = if (value & 0b0001_0000) == 0 {

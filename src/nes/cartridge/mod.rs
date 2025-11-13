@@ -1,9 +1,9 @@
 use rom::Mirroring;
 
 pub mod mapper000_nrom;
+pub mod mapper001_mmc1;
 pub mod mapper002_ux_rom;
 pub mod mapper003_cn_rom;
-pub mod mapper001_mmc1;
 pub mod rom;
 
 pub trait Cartridge {
