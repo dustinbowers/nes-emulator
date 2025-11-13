@@ -1,4 +1,3 @@
-use super::units::dmc_output::DmcOutput;
 use super::units::sequence_timer::SequenceTimer;
 
 pub struct DmcChannel {

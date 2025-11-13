@@ -120,12 +120,10 @@ mod test {
             }
 
             bus.cpu.bus_write(0x2007, val);
-            println!("VLBANK: i={} ppu.scanline={} ppu.cycles={}\tppu.scroll_register.v=${:04X} data={:02X}",
-                     i,
-                     bus.ppu.scanline,
-                     bus.ppu.cycles,
-                     bus.ppu.scroll_register.v,
-                     val);
+            println!(
+                "VLBANK: i={} ppu.scanline={} ppu.cycles={}\tppu.scroll_register.v=${:04X} data={:02X}",
+                i, bus.ppu.scanline, bus.ppu.cycles, bus.ppu.scroll_register.v, val
+            );
 
             let expected_addr = start_addr + i as u16;
             let mirrored = bus.ppu.mirror_ram_addr(expected_addr);

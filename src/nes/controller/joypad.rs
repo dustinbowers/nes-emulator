@@ -53,9 +53,9 @@ impl Joypad {
         }
     }
 
-    pub fn set_button_status(&mut self, button: &JoypadButton, state: bool) {
-        self.buttons.set(button.clone(), state);
-    }
+    // pub fn set_button_status(&mut self, button: &JoypadButton, state: bool) {
+    //     self.buttons.set(button.clone(), state);
+    // }
 
     pub fn set_buttons(&mut self, buttons: u8) {
         self.buttons = JoypadButton::from_bits_truncate(buttons);

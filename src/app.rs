@@ -2,13 +2,13 @@ use crate::nes::NES;
 use macroquad::prelude::*;
 use tinyaudio::prelude::*;
 
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::cell::UnsafeCell;
-use std::collections::HashMap;
-use std::sync::Arc;
 use crate::display::color_map::SYSTEM_PALETTE;
 use crate::error::{EmulatorError, EmulatorErrorType};
 use crate::nes::controller::joypad::JoypadButton;
+use std::cell::UnsafeCell;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 pub struct NesCell(UnsafeCell<NES>);
 
@@ -23,12 +23,12 @@ impl NesCell {
 
     #[inline(always)]
     pub unsafe fn get_mut(&self) -> &mut NES {
-        &mut *self.0.get()
+        unsafe { &mut *self.0.get() }
     }
 
     #[inline(always)]
     pub unsafe fn get_ref(&self) -> &NES {
-        &*self.0.get()
+        unsafe { &*self.0.get() }
     }
 }
 
@@ -54,7 +54,6 @@ impl EmulatorApp {
         let mut nes = NES::new();
         nes.set_sample_frequency(44_100);
         let nes_arc = NesCell::new(nes);
-        let nes_audio = nes_arc.clone();
 
         let key_map_data: &[(KeyCode, JoypadButton)] = &[
             (KeyCode::K, JoypadButton::BUTTON_A),
@@ -71,15 +70,15 @@ impl EmulatorApp {
         for (keycode, button) in key_map_data.iter() {
             keycode_to_joypad.insert(*keycode, *button);
         }
-        
+
         // let pixel_buffer = vec![egui::Color32::BLACK; 256 * 240];
 
         Self {
             nes_arc,
             audio_device: None,
             key_map: keycode_to_joypad,
-            
-            pixel_buffer: vec![0;240*256],
+
+            pixel_buffer: vec![0; 240 * 256],
             texture: None,
         }
     }
@@ -92,12 +91,12 @@ impl EmulatorApp {
                     let nes: &mut NES = self.nes_arc.get_mut();
                     nes.insert_cartridge(cart);
                 }
-            },
-            Error => panic!("Bad ROM data!") // TODO: handle this gracefully
+            }
+            _error => panic!("Bad ROM data!"), // TODO: handle this gracefully
         }
     }
-    
-    pub fn init_audio(&mut self) -> Result<(), EmulatorError>{
+
+    pub fn init_audio(&mut self) -> Result<(), EmulatorError> {
         let nes_clone = self.nes_arc.clone();
         let audio_device = run_output_device(
             OutputDeviceParameters {
@@ -139,29 +138,32 @@ impl EmulatorApp {
                 }
             },
         );
-        
+
         match audio_device {
             Ok(audio_device) => {
                 self.audio_device = Some(audio_device);
                 Ok(())
-            },
+            }
             _ => {
                 self.audio_device = None;
-                Err(EmulatorError::new(EmulatorErrorType::AudioInitFailed, "init_audio()".to_string()))
+                Err(EmulatorError::new(
+                    EmulatorErrorType::AudioInitFailed,
+                    "init_audio()".to_string(),
+                ))
             }
         }
     }
-    
+
     pub async fn run(&mut self) {
         // TODO: Handle state
         enum State {
             Start,
             InitAudio,
             Running,
-            Stopped,
-            Error
+            // Stopped,
+            Error,
         }
-        
+
         let mut state = State::Start;
         loop {
             match state {
@@ -170,7 +172,7 @@ impl EmulatorApp {
                 }
                 State::InitAudio => {
                     if self.audio_device.is_none() {
-                        if let Err(e) = self.init_audio() {
+                        if let Err(_e) = self.init_audio() {
                             state = State::Error;
                         }
                     } else {
@@ -178,28 +180,28 @@ impl EmulatorApp {
                     }
                 }
                 State::Running => self.run_emulation().await,
-                State::Stopped => {}
+                // State::Stopped => {}
                 State::Error => {
-                    panic!("Error happened...");
+                    panic!("Error happened..."); // TODO: Handle this gracefully
                 }
             }
         }
     }
-    
+
     pub async fn run_emulation(&mut self) {
         let mut last_frame_time = get_time();
-        
+
         loop {
             let current_time = get_time();
-            
+
             let delta_time = current_time - last_frame_time;
-            
+
             self.handle_input();
             self.render();
-            
+
             let fps = format!("FPS: {}", (1.0 / delta_time) as usize);
-            draw_text(&fps, 5.0, 48.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0)); 
-            
+            draw_text(&fps, 5.0, 48.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0));
+
             last_frame_time = current_time;
             next_frame().await;
         }
@@ -209,21 +211,22 @@ impl EmulatorApp {
         // Handle user input
         let keys_down = get_keys_down();
         for (key, button) in self.key_map.iter() {
-            let mut pressed = false;
-                if keys_down.contains(&key) {
-                    // pressed = true;
-                    CONTROLLER1.buttons.fetch_or((*button).bits(), Ordering::Relaxed);
-                } else {
-                    CONTROLLER1.buttons.fetch_and(!(*button).bits(), Ordering::Relaxed);
-                    
-                }
+            if keys_down.contains(&key) {
+                CONTROLLER1
+                    .buttons
+                    .fetch_or((*button).bits(), Ordering::Relaxed);
+            } else {
+                CONTROLLER1
+                    .buttons
+                    .fetch_and(!(*button).bits(), Ordering::Relaxed);
+            }
         }
     }
 
     pub fn render(&mut self) {
         // SAFETY: only the audio thread mutates the NES (while running)
         let nes: &NES = unsafe { self.nes_arc.get_ref() };
-        
+
         let frame_buffer = nes.get_frame_buffer(); // &[u8; 256*240]
         let width = 256;
         let height = 240;
@@ -245,17 +248,25 @@ impl EmulatorApp {
 
         // Create/update GPU texture
         if self.texture.is_none() {
-            self.texture = Some(Texture2D::from_rgba8(width as u16, height as u16, &self.pixel_buffer));
-            self.texture.as_ref().unwrap().set_filter(FilterMode::Nearest);
+            self.texture = Some(Texture2D::from_rgba8(
+                width as u16,
+                height as u16,
+                &self.pixel_buffer,
+            ));
+            self.texture
+                .as_ref()
+                .unwrap()
+                .set_filter(FilterMode::Nearest);
         } else {
             self.texture.as_ref().unwrap().update_from_bytes(
                 width as u32,
                 height as u32,
-                &self.pixel_buffer);
+                &self.pixel_buffer,
+            );
         }
 
         // clear_background(BLACK);
-        
+
         // Scale texture to screen
         let tex = self.texture.as_ref().unwrap();
         let screen_w = screen_width();

@@ -9,12 +9,6 @@ mod pulse_channel;
 mod triangle_channel;
 mod units;
 
-enum MasterSequenceMode {
-    FourStep,
-    FiveStep,
-}
-const SAMPLE_RATE: f32 = 44_100.0;
-
 pub trait ApuBusInterface {
     fn apu_bus_read(&mut self, addr: u16) -> u8;
     fn irq(&mut self);
@@ -76,7 +70,7 @@ impl APU {
             frame_interrupt: false,
         }
     }
-    
+
     pub fn reset(&mut self) {
         self.pulse1 = PulseChannel::new(true);
         self.pulse2 = PulseChannel::new(false);

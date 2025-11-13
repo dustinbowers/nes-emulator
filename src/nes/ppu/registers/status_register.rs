@@ -1,5 +1,4 @@
 use crate::nes::tracer::traceable::Traceable;
-use crate::trace;
 use bitflags::bitflags;
 
 bitflags! {
@@ -44,10 +43,6 @@ impl StatusRegister {
 
     pub fn set_sprite_overflow(&mut self, status: bool) {
         self.set(StatusRegister::SPRITE_OVERFLOW, status);
-    }
-
-    pub fn value(&mut self) -> u8 {
-        self.bits()
     }
 }
 

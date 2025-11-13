@@ -3,7 +3,6 @@ use std::fmt::{Display, Formatter};
 
 pub mod color_map;
 pub mod consts;
-pub mod shared_frame;
 
 impl Display for RomError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

@@ -18,7 +18,6 @@ impl DecayRegister {
     pub fn tick(&mut self) {
         self.cycle -= 1;
         if self.cycle <= 0 {
-            println!("CLEARED DECAY REGISTER");
             self.value = 0;
         }
     }

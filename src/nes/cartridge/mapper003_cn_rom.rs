@@ -1,5 +1,5 @@
-use super::rom::Mirroring;
 use super::Cartridge;
+use super::rom::Mirroring;
 
 #[derive(Debug)]
 pub struct Mapper003CnRom {
@@ -23,9 +23,9 @@ impl Mapper003CnRom {
         }
     }
 
-    fn prg_bank_count(&self) -> usize {
-        self.prg_rom.len() / 0x4000
-    }
+    // fn prg_bank_count(&self) -> usize {
+    //     self.prg_rom.len() / 0x4000
+    // }
 
     fn chr_bank_count(&self) -> usize {
         self.chr.len() / 0x2000

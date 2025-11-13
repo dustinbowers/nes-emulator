@@ -7,15 +7,15 @@ pub mod tracer;
 
 pub mod controller;
 
+use crate::nes::cartridge::rom::{Rom, RomError};
 use crate::{trace, trace_obj};
 use bus::nes_bus::NesBus;
 use cartridge::Cartridge;
 use cpu::processor::CpuBusInterface;
-use crate::nes::cartridge::rom::{Rom, RomError};
 
 const OAM_DMA_START_CYCLES: usize = 0;
 const OAM_DMA_DONE_CYCLES: usize = 512;
-const PPU_WARMUP_CYCLES: usize = 89343;
+// const PPU_WARMUP_CYCLES: usize = 89343;
 
 enum DmaMode {
     Oam,
@@ -23,7 +23,7 @@ enum DmaMode {
 }
 pub struct NES {
     pub bus: &'static mut NesBus,
-    pub ppu_warmed_up: bool,
+    // pub ppu_warmed_up: bool,
     dma_mode: DmaMode,
 
     pub oam_transfer_cycles: usize,
@@ -34,19 +34,20 @@ pub struct NES {
 }
 
 impl NES {
-    
     pub fn new() -> Self {
         let bus = NesBus::new();
         Self {
             bus,
-            ppu_warmed_up: true,
+            // ppu_warmed_up: true,
             dma_mode: DmaMode::None,
             oam_transfer_cycles: 0,
             audio_time_per_system_sample: 0.0,
             audio_time_per_nes_clock: 0.0,
             cycle_acc: 0.0,
-        }   
+        }
     }
+
+    #[allow(dead_code)]
     pub fn new_with_cartridge(cartridge: Box<dyn Cartridge>) -> Self {
         let mut nes = NES::new();
         nes.insert_cartridge(cartridge);
@@ -56,7 +57,7 @@ impl NES {
     pub fn insert_cartridge(&mut self, cartridge: Box<dyn Cartridge>) {
         self.bus.insert_cartridge(cartridge);
     }
-    
+
     pub fn parse_rom_bytes(rom_bytes: &Vec<u8>) -> Result<Box<dyn Cartridge>, RomError> {
         let rom = Rom::new(rom_bytes)?;
         Ok(rom.into_cartridge())

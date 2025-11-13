@@ -1,8 +1,8 @@
+use crate::nes::cartridge::Cartridge;
 use crate::nes::cartridge::mapper000_nrom::NromCart;
+use crate::nes::cartridge::mapper001_mmc1::Mmc1;
 use crate::nes::cartridge::mapper002_ux_rom::Mapper002UxRom;
 use crate::nes::cartridge::mapper003_cn_rom::Mapper003CnRom;
-use crate::nes::cartridge::mapper001_mmc1::Mmc1;
-use crate::nes::cartridge::Cartridge;
 
 const NES_MAGIC_BYTES: &[u8; 4] = b"NES\x1A";
 const PRG_ROM_PAGE_SIZE: usize = 0x4000;
@@ -84,11 +84,13 @@ impl Rom {
             screen_mirroring,
         })
     }
-    
+
+    #[cfg(test)]
     pub fn empty() -> Rom {
         Self::new(&vec![]).unwrap()
     }
 
+    #[cfg(test)]
     pub fn new_custom(
         prg_rom: Vec<u8>,
         chr_rom: Vec<u8>,
