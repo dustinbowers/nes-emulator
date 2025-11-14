@@ -12,6 +12,7 @@ tinyaudio = "1.1.0"
 [features]
 #default = ["tracing"]
 tracing = []
+logging = []
 
 
 # native:

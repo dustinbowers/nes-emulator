@@ -1,85 +1,55 @@
-<html lang="en">
+<!DOCTYPE html>
+<html lang="en-US">
 <head>
-    <meta charset="utf-8">
-    <title>NES Emulator</title>
-    <style>
-        html,
-        body {
-            margin: 0;
-            padding: 0;
-            height: 100vh;
-            width: 100vw;
-        }
-        canvas {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            position: absolute;
-            z-index: 0;
-        }
-        #run-container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100%;
-            flex-direction: column;
-        }
-    </style>
-</head>
-<body>
-<canvas id="glcanvas" tabindex='1' hidden></canvas>
-<!--<script src="https://not-fl3.github.io/miniquad-samples/mq_js_bundle_0.4.7.js"></script>-->
-<script src="macroquad.js"></script>
-<script type="module">
-    import init, { set_wasm } from "./nes-emulator.js";
-
-    let rom_url = "smb.nes";
-    let ROM_DATA = "";
-
-    function reset_chip8() {
-        load("nes-emulator_bg.wasm");
-    }
-    window.play_rom = function(src_url) {
-        let oReq = new XMLHttpRequest()
-        oReq.open("GET", src_url, true)
-        oReq.responseType = "arraybuffer"
-
-        oReq.onload = function (oEvent) {
-            const arrayBuffer = oReq.response
-            if (arrayBuffer) {
-                ROM_DATA = new Uint8Array(arrayBuffer);
-                reset_chip8();
+    <meta charset="UTF-8">
+    <title>NES</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {}
             }
-        }
-        oReq.send(null)
-    }
-    async function impl_run() {
-        let wbg = await init();
+        };
+    </script>
+    <script type="application/javascript">
+        document.addEventListener("DOMContentLoaded", () => {
+            const iframe = document.getElementById("emulator-frame");
+            const playbtn = document.getElementById("play-btn");
+            const rom_select = document.getElementById("rom-select");
 
-        miniquad_add_plugin({
-            register_plugin: (a) => {
-                a.wbg = wbg;
-            },
-            on_init: () => {
-                set_wasm(wasm_exports)
-                // reset_core();
-            },
-            version: "0.0.1",
-            name: "wbg",
+            playbtn.addEventListener("click", () => {
+                const rom_filename = rom_select.value;
+                const url = `demo_roms/${rom_filename}`;
+                iframe.contentWindow.play_rom(url);
+            });
         });
-        play_rom(rom_url);
-    }
-    window.run = function() {
-        document.getElementById("run-container").remove();
-        document.getElementById("glcanvas").removeAttribute("hidden");
-        document.getElementById("glcanvas").focus();
-        impl_run();
-    }
-</script>
-<div id="run-container">
-    <button onclick="run()">Run Game</button>
+    </script>
+</head>
+<body class="bg-gray-100 p-6">
+<div class="flex flex-col items-center">
+    <div class="bg-white p-5 rounded-lg shadow-lg w-full max-w-lg">
+        <h1 class="text-2xl font-bold text-center mb-4">NES & WASM</h1>
+        <div class="w-full max-w-[512px] mx-auto aspect-[512/480]">
+            <iframe
+                    id="emulator-frame"
+                    src="emulator.html"
+                    title="NES Emulator"
+                    class="w-full h-full border-0 rounded"
+            ></iframe>
+        </div>
+        <div class="mt-4">
+            <form class="flex flex-row items-center space-x-4">
+                <label for="rom-select" class="font-semibold">Select ROM:</label>
+                <select id="rom-select" class="flex-grow border border-gray-300 rounded-md p-2">
+                    <option value="smb.nes">smb.nes</option>
+                    <option value="nestest.nes">NESTEST.nes</option>
+                </select>
+                <button id="play-btn" type="button" class="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 focus:outline-none">
+                    Play
+                </button>
+            </form>
+        </div>
+    </div>
 </div>
 </body>
 </html>

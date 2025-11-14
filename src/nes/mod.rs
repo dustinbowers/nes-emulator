@@ -30,7 +30,7 @@ pub struct NES {
 
     audio_time_per_system_sample: f32,
     audio_time_per_nes_clock: f32,
-    pub cycle_acc: f32,
+    pub cycle_acc: f64,
 }
 
 impl NES {
