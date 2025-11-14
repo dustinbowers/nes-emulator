@@ -41,15 +41,18 @@
 
 ## Building
 
-| Command                    | Command Description                                 |
-|----------------------------|-----------------------------------------------------|
-| `make debug`               | Build debug binary                                  |
-| `make release`             | Build release binary                                |
-| `make release-tracing`     | Build release with tracing enabled (*much* slower)  |
+| Command                | Command Description                                |
+|------------------------|----------------------------------------------------|
+| `make debug`           | Build debug binary                                 |
+| `make release`         | Build release binary                               |
+| `make release-tracing` | Build release with tracing enabled (*much* slower) |
+| `make wasm-debug`      | Build WASM debug to `dist/` (*much* slower)        |
+| `make wasm-release`    | Build WASM release to `dist/`                      |
 
 ## Running
 
-- Usage: `./nes-emulator <ROM path>`
+- Native usage: `./nes-emulator <iNES 1.0 ROM path>`
+- For wasm usage: serve `dist/` locally with `python -m http.server 8080` or similar
 
 ## Testing 6502 Opcodes
 

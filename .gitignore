@@ -1,12 +1,12 @@
 .DS_Store
-target
+.idea
+target/
 nes6502-tests/
+nes-test-roms/
 mapper_docs/
 roms/
 logs/
-.idea
 *.log
 *.sh
-sdl2-sys/
 dist/
 img/

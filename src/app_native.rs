@@ -3,16 +3,17 @@ use macroquad::prelude::*;
 use tinyaudio::prelude::*;
 
 use crate::display::color_map::SYSTEM_PALETTE;
+use crate::display::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
 use crate::error::{EmulatorError, EmulatorErrorType};
 use crate::nes::controller::joypad::JoypadButton;
-use std::cell::UnsafeCell;
+use std::cell::{OnceCell, UnsafeCell};
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub struct NesCell(UnsafeCell<NES>);
 
-// Safety: only the audio thread will ever mutate the NES.
+// Safety: only the audio thread will ever mutate the NES while running
 unsafe impl Send for NesCell {}
 unsafe impl Sync for NesCell {}
 
@@ -39,7 +40,7 @@ static CONTROLLER1: SharedInput = SharedInput {
     buttons: AtomicU8::new(0),
 };
 
-pub struct EmulatorApp {
+pub struct AppNative {
     nes_arc: Arc<NesCell>,
     audio_device: Option<OutputDevice>,
     key_map: HashMap<KeyCode, JoypadButton>,
@@ -48,9 +49,9 @@ pub struct EmulatorApp {
     texture: Option<Texture2D>,
 }
 
-impl EmulatorApp {
+impl AppNative {
     /// Called once before the first frame.
-    pub fn new() -> Self {
+    pub fn new(rom_bytes: &Vec<u8>) -> Self {
         let mut nes = NES::new();
         nes.set_sample_frequency(44_100);
         let nes_arc = NesCell::new(nes);
@@ -71,19 +72,20 @@ impl EmulatorApp {
             keycode_to_joypad.insert(*keycode, *button);
         }
 
-        // let pixel_buffer = vec![egui::Color32::BLACK; 256 * 240];
-
-        Self {
+        let mut app = Self {
             nes_arc,
             audio_device: None,
             key_map: keycode_to_joypad,
 
             pixel_buffer: vec![0; 240 * 256],
             texture: None,
-        }
+        };
+
+        app.load_rom_data(rom_bytes);
+        app
     }
 
-    pub fn load_rom_data(&mut self, rom_bytes: &Vec<u8>) {
+    fn load_rom_data(&mut self, rom_bytes: &Vec<u8>) {
         match NES::parse_rom_bytes(rom_bytes) {
             Ok(cart) => {
                 println!("Loading {} rom bytes...", rom_bytes.len());
@@ -97,45 +99,36 @@ impl EmulatorApp {
     }
 
     pub fn init_audio(&mut self) -> Result<(), EmulatorError> {
+        Self::log(&"init_audio()".to_owned());
         let nes_clone = self.nes_arc.clone();
         let audio_device = run_output_device(
             OutputDeviceParameters {
                 channels_count: 1,
                 sample_rate: 44_100,
-                channel_sample_count: 4410,
+                channel_sample_count: 1200,
             },
             move |data| {
-                unsafe {
-                    let nes = nes_clone.get_mut();
-                    nes.bus
-                        .controller1
-                        .set_buttons(CONTROLLER1.buttons.load(Ordering::Relaxed));
+                let nes = unsafe { nes_clone.get_mut() };
+                nes.bus
+                    .controller1
+                    .set_buttons(CONTROLLER1.buttons.load(Ordering::Relaxed));
 
-                    for sample in data.iter_mut() {
-                        nes.tick();
-                        *sample = nes.bus.apu.sample();
+                // PPU cycles per audio sample (5.369318 MHz / 44.1 kHz)
+                let ppu_cycles_per_sample = 5369318.0 / 44100.0; // ~121.7 PPU cycles per sample
+                let mut cycle_acc = nes.cycle_acc;
+
+                for sample in data {
+                    cycle_acc += ppu_cycles_per_sample;
+
+                    while cycle_acc >= 1.0 {
+                        nes.tick(); // tick at PPU frequency
+                        cycle_acc -= 1.0;
                     }
 
-                    // PPU cycles per audio sample (5.369318 MHz / 44.1 kHz)
-                    let ppu_cycles_per_sample = 5369318.0 / 44100.0; // ~121.7 PPU cycles per sample
-                    let mut cycle_acc = nes.cycle_acc;
-
-                    for sample in data {
-                        cycle_acc += ppu_cycles_per_sample;
-
-                        while cycle_acc >= 1.0 {
-                            nes.tick(); // tick at PPU frequency
-                            cycle_acc -= 1.0;
-                        }
-
-                        let raw = nes.bus.apu.sample();
-                        // let scaled = (raw * 32767.0) as i16;
-                        // *sample = scaled as f32;
-                        *sample = raw;
-                    }
-
-                    nes.cycle_acc = cycle_acc;
+                    let raw = nes.bus.apu.sample();
+                    *sample = raw;
                 }
+                nes.cycle_acc = cycle_acc;
             },
         );
 
@@ -155,54 +148,44 @@ impl EmulatorApp {
     }
 
     pub async fn run(&mut self) {
-        // TODO: Handle state
+        #[derive(Debug)]
         enum State {
             Start,
-            InitAudio,
             Running,
-            // Stopped,
             Error,
         }
 
         let mut state = State::Start;
+        let mut last_frame_time = get_time();
         loop {
+            Self::log(&format!("state = {:#?}", state));
             match state {
                 State::Start => {
-                    state = State::InitAudio;
-                }
-                State::InitAudio => {
-                    if self.audio_device.is_none() {
-                        if let Err(_e) = self.init_audio() {
-                            state = State::Error;
-                        }
-                    } else {
-                        state = State::Running;
+                    Self::log(&"InitAudio".to_owned());
+                    if let Err(_) = self.init_audio() {
+                        panic!("Audio init failed!");
                     }
+                    state = State::Running;
                 }
-                State::Running => self.run_emulation().await,
-                // State::Stopped => {}
+                State::Running => {
+                    Self::log(&"run_emulation()".to_owned());
+                    self.handle_input();
+                    self.render();
+                }
                 State::Error => {
                     panic!("Error happened..."); // TODO: Handle this gracefully
                 }
             }
-        }
-    }
+            Self::log(&"frame.await".into());
 
-    pub async fn run_emulation(&mut self) {
-        let mut last_frame_time = get_time();
-
-        loop {
+            // Render FPS
             let current_time = get_time();
-
             let delta_time = current_time - last_frame_time;
-
-            self.handle_input();
-            self.render();
-
             let fps = format!("FPS: {}", (1.0 / delta_time) as usize);
+            Self::log(&fps);
             draw_text(&fps, 5.0, 48.0, 24.0, Color::new(1.0, 1.0, 0.0, 1.0));
-
             last_frame_time = current_time;
+
             next_frame().await;
         }
     }
@@ -221,6 +204,11 @@ impl EmulatorApp {
                     .fetch_and(!(*button).bits(), Ordering::Relaxed);
             }
         }
+    }
+
+    pub fn reset(&mut self) {
+        let nes: &mut NES = unsafe { self.nes_arc.get_mut() };
+        nes.bus.reset();
     }
 
     pub fn render(&mut self) {
@@ -265,8 +253,6 @@ impl EmulatorApp {
             );
         }
 
-        // clear_background(BLACK);
-
         // Scale texture to screen
         let tex = self.texture.as_ref().unwrap();
         let screen_w = screen_width();
@@ -282,5 +268,9 @@ impl EmulatorApp {
                 ..Default::default()
             },
         );
+    }
+
+    fn log(message: &String) {
+        println!("{}", message);
     }
 }

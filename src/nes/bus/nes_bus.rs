@@ -7,6 +7,7 @@ use crate::nes::cpu::processor::{CPU, CpuBusInterface};
 use crate::nes::ppu::{PPU, PpuBusInterface};
 use crate::nes::tracer::traceable::Traceable;
 use crate::trace;
+use std::pin::Pin;
 
 const CPU_RAM_SIZE: usize = 2048;
 const CPU_RAM_START: u16 = 0x0000;
