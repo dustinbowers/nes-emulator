@@ -60,7 +60,8 @@ impl NES {
 
     pub fn parse_rom_bytes(rom_bytes: &Vec<u8>) -> Result<Box<dyn Cartridge>, RomError> {
         let rom = Rom::new(rom_bytes)?;
-        Ok(rom.into_cartridge())
+        let cart = rom.into_cartridge()?;
+        Ok(cart)
     }
 
     // Tick once at PPU frequency

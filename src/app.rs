@@ -6,9 +6,12 @@ use crate::nes::controller::joypad::JoypadButton;
 use macroquad::prelude::*;
 use std::cell::UnsafeCell;
 use std::collections::{HashMap, VecDeque};
+use std::error::Error;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use tinyaudio::prelude::*;
+
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::wasm_bindgen;
 
 pub struct NesCell(UnsafeCell<NES>);
@@ -40,26 +43,43 @@ static CONTROLLER1: SharedInput = SharedInput {
     buttons: AtomicU8::new(0),
 };
 
+// TODO: Potentially rename these to better reflect the "done-ness" of the respective states
 pub static TRIGGER_LOAD: AtomicBool = AtomicBool::new(false);
 pub static TRIGGER_RESET: AtomicBool = AtomicBool::new(false);
+pub static PAUSE_EMULATION: AtomicBool = AtomicBool::new(true);
 pub static ROM_DATA: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn set_rom_data(rom_bytes: js_sys::Uint8Array) {
-    web_sys::console::log_1(&"set_rom_data".into());
+    trigger_reset();
     let mut rom_data = ROM_DATA.lock().unwrap();
     *rom_data = rom_bytes.to_vec();
+    web_sys::console::log_1(&format!("set_rom_data() with {} bytes", (*rom_data).len()).into());
+    trigger_load();
+}
+#[cfg(not(target_arch = "wasm32"))]
+pub fn set_rom_data(rom_bytes: Vec<u8>) {
+    let mut rom_data = ROM_DATA.lock().unwrap();
+    *rom_data = rom_bytes;
+    TRIGGER_LOAD.store(true, Ordering::SeqCst);
+    TRIGGER_RESET.store(false, Ordering::SeqCst);
 }
 
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn trigger_load() {
     web_sys::console::log_1(&"trigger_load()".into());
+    // TRIGGER_RESET.store(false, Ordering::SeqCst);
     TRIGGER_LOAD.store(true, Ordering::SeqCst);
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn trigger_reset() {
     web_sys::console::log_1(&"trigger_reset()".into());
+    // TRIGGER_LOAD.store(false, Ordering::SeqCst);
     TRIGGER_RESET.store(true, Ordering::SeqCst);
 }
 
@@ -70,16 +90,17 @@ enum State {
     Error,
 }
 
-pub struct AppWasm {
+pub struct App {
     nes_arc: Arc<NesCell>,
     key_map: HashMap<KeyCode, JoypadButton>,
     pixel_buffer: Vec<u8>,
     texture: Option<Texture2D>,
     audio_device: Option<tinyaudio::OutputDevice>,
     state: State,
+    error: Option<String>,
 }
 
-impl AppWasm {
+impl App {
     pub fn new() -> Self {
         let mut nes = NES::new();
         nes.set_sample_frequency(44_100);
@@ -108,6 +129,7 @@ impl AppWasm {
             texture: None,
             audio_device: None,
             state: State::Start,
+            error: None,
         }
     }
 
@@ -122,9 +144,16 @@ impl AppWasm {
             },
             move |data| {
                 let nes = unsafe { nes_clone.get_mut() };
+
+                // if paused, send silence
+                if PAUSE_EMULATION.load(Ordering::SeqCst) {
+                    for s in data.iter_mut() { *s = 0.0; }
+                    return;
+                }
+                
                 nes.bus
                     .controller1
-                    .set_buttons(CONTROLLER1.buttons.load(Ordering::Relaxed));
+                    .set_buttons(CONTROLLER1.buttons.load(Ordering::SeqCst));
 
                 // PPU cycles per audio sample (5.369318 MHz / 44.1 kHz)
                 let ppu_cycles_per_sample = 5369318.0 / 44100.0; // ~121.7 PPU cycles per sample
@@ -168,20 +197,7 @@ impl AppWasm {
                 }
                 State::Waiting => {
                     Self::log("[rust] waiting...");
-                    if TRIGGER_LOAD.swap(false, Ordering::Relaxed) {
-                        if let Err(_) = self.init_audio() {
-                            self.state = State::Error;
-                            continue;
-                        }
-                        let nes = unsafe { self.nes_arc.get_mut() };
-                        if let Ok(cart) = Rom::new(&ROM_DATA.lock().unwrap().clone()) {
-                            nes.insert_cartridge(cart.into());
-                            self.state = State::Running;
-                            TRIGGER_RESET.store(false, Ordering::Relaxed);
-                        } else {
-                            self.state = State::Error;
-                        }
-                    }
+                   
                     let alpha = ((get_time() % 2.0) / 2.0) as f32;
                     let size = 48.0;
                     let str = "Insert a Cartridge";
@@ -190,19 +206,65 @@ impl AppWasm {
 
                     clear_background(Color::new(0.1, 0.1, 0.1, 1.0));
                     draw_text(str, x, y, size, Color::new(1.0, 1.0, 1.0, alpha));
+                    if TRIGGER_LOAD.swap(false, Ordering::SeqCst) {
+                        if self.audio_device.is_none() {
+                            if let Err(_) = self.init_audio() {
+                                self.set_error("Audio initialization failed!".to_owned())
+                            }
+                        }
+                        let nes = unsafe { self.nes_arc.get_mut() };
+                        let rom_data = ROM_DATA.lock().unwrap();
+                        match Rom::new(&rom_data) {
+                            Ok(rom) => {
+                                match rom.into_cartridge() {
+                                    Ok(cart) => {
+                                        nes.insert_cartridge(cart);
+                                        self.state = State::Running;
+                                        TRIGGER_RESET.store(false, Ordering::SeqCst);
+                                        PAUSE_EMULATION.store(false, Ordering::SeqCst);
+                                    }
+                                    Err(err) => {
+                                        self.set_error(err.to_string());
+                                    }
+                                }
+                            }
+                            Err(err) => {
+                                self.set_error(err.to_string());
+                            }
+                        }
+                    }
                 }
                 State::Running => {
                     Self::log("[rust] running...");
                     self.handle_input();
                     self.render();
 
-                    if TRIGGER_RESET.swap(false, Ordering::Relaxed) {
+                    if TRIGGER_RESET.swap(false, Ordering::SeqCst) {
                         self.reset();
                         self.state = State::Waiting;
+                        continue;
+                    }
+                    
+                    // Error checking
+                    let nes: &NES = unsafe { self.nes_arc.get_ref() };
+                    if let Some(err) = &nes.bus.cpu.error {
+                        self.set_error(err.to_string());
+                        continue;
                     }
                 }
                 State::Error => {
-                    panic!("error"); // TODO: handle gracefullt
+                    let msg = self.error
+                        .as_ref()
+                        .map(|e| e.to_string())
+                        .unwrap_or_else(|| "Unknown emulator error".to_string());
+
+                    self.draw_error_screen(&msg);
+
+                    // wait for user to press R
+                    if is_key_pressed(KeyCode::R) 
+                        || TRIGGER_RESET.swap(false, Ordering::SeqCst) {
+                        self.reset();
+                    }
                 }
             }
             next_frame().await;
@@ -215,23 +277,29 @@ impl AppWasm {
             if keys_down.contains(key) {
                 CONTROLLER1
                     .buttons
-                    .fetch_or(button.bits(), Ordering::Relaxed);
+                    .fetch_or(button.bits(), Ordering::SeqCst);
             } else {
                 CONTROLLER1
                     .buttons
-                    .fetch_and(!button.bits(), Ordering::Relaxed);
+                    .fetch_and(!button.bits(), Ordering::SeqCst);
             }
         }
     }
 
     fn reset(&mut self) {
+        PAUSE_EMULATION.store(true, Ordering::SeqCst);
+        let mut rom_data = ROM_DATA.lock().unwrap();
+        *rom_data = vec![];
+        TRIGGER_LOAD.store(false, Ordering::SeqCst);
+        TRIGGER_RESET.store(false, Ordering::SeqCst);
+        self.error = None;
+        self.state = State::Waiting;
+        
         let nes = unsafe { self.nes_arc.get_mut() };
         nes.bus.reset();
     }
 
     pub fn render(&mut self) {
-        clear_background(BLACK);
-
         let nes = unsafe { self.nes_arc.get_ref() };
         let frame = nes.get_frame_buffer();
 
@@ -269,9 +337,58 @@ impl AppWasm {
             },
         );
     }
+    
+    fn set_error(&mut self, err: String) {
+        PAUSE_EMULATION.store(true, Ordering::SeqCst);
+        TRIGGER_RESET.store(false, Ordering::SeqCst);
+        TRIGGER_LOAD.store(false, Ordering::SeqCst);
+        self.error = Some(err.to_string());
+        self.state = State::Error;
+    }
 
     fn log(msg: &str) {
         #[cfg(feature = "logging")]
-        web_sys::console::log_1(&msg.into());
+        {
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::log_1(&msg.into());
+            #[cfg(not(target_arch = "wasm32"))]
+            println!("{}", msg);
+        }
+    }
+    pub fn draw_error_screen(&self, msg: &str) {
+        let (w, h) = (screen_width(), screen_height());
+
+        // Background
+        draw_rectangle(0.0, 0.0, w, h, Color::new(0.05, 0.0, 0.0, 0.85));
+
+        let title = "EMULATOR ERROR";
+        let title_dim = measure_text(title, None, 40, 1.0);
+        draw_text(
+            title,
+            w * 0.5 - title_dim.width * 0.5,
+            h * 0.3,
+            40.0,
+            RED,
+        );
+
+        // message
+        let msg_dim = measure_text(msg, None, 28, 1.0);
+        draw_text(
+            msg,
+            w * 0.5 - msg_dim.width * 0.5,
+            h * 0.45,
+            28.0,
+            WHITE,
+        );
+
+        let hint = "Press R to reset";
+        let hint_dim = measure_text(hint, None, 24, 1.0);
+        draw_text(
+            hint,
+            w * 0.5 - hint_dim.width * 0.5,
+            h * 0.6,
+            24.0,
+            GRAY,
+        );
     }
 }

@@ -675,7 +675,9 @@ impl PPU {
                 self.palette_table[mirrored_addr]
             }
 
-            _ => panic!("open bus"), // TODO: Technically it's open bus or invalid
+            _ => {
+                self.last_byte_read.output()
+            }, 
         }
     }
 

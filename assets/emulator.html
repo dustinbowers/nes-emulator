@@ -79,12 +79,12 @@
     function startNES() {
         if (!ROM_DATA) return console.error("ROM_DATA missing");
         set_rom_data(ROM_DATA);
-        trigger_reset();
-        trigger_load();
+        // trigger_reset();
+        // trigger_load();
     }
 
     async function start() {
-        console.log("[iframe] initializing WASM…");
+        console.log("[iframe] initializing WASM");
 
         wbg = await init();
 
