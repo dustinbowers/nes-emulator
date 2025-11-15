@@ -37,7 +37,7 @@
     let wasmReady = false;
     let wbg = null;
 
-    window.play_rom = async function(url) {
+    window.play_rom_url = async function(url) {
         console.log("[iframe] play_rom:", url);
 
         if (!wasmReady) {
@@ -46,6 +46,19 @@
         }
 
         await loadRom(url);
+        startNES();
+    };
+
+    window.play_rom_bytes = async function(bytes) {
+        console.log("[iframe] play_rom_bytes, length =", bytes.length);
+
+        if (!wasmReady) {
+            console.warn("[iframe] play_rom_bytes() called before WASM ready. Retrying...");
+            await waitUntilReady();
+        }
+
+        // Load and start nes
+        ROM_DATA = new Uint8Array(bytes);
         startNES();
     };
 

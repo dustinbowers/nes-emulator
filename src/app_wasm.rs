@@ -182,7 +182,7 @@ impl AppWasm {
                             self.state = State::Error;
                         }
                     }
-                    let alpha = 1.0;
+                    let alpha = ((get_time() % 2.0) / 2.0) as f32;
                     let size = 48.0;
                     let str = "Insert a Cartridge";
                     let x = WINDOW_WIDTH as f32 / 2.0 - (size / 2.0 * str.len() as f32 / 2.0);

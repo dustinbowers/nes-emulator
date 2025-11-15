@@ -14,7 +14,7 @@ release-tracing:
 
 # Clean distribution directory
 clean:
-	rm -rf ./dist/*.html ./dist/*.js
+	rm -rf ./dist/*.html ./dist/*.js ./dist/nes-test-roms
 
 # WebAssembly build targets
 wasm-debug: clean
@@ -28,9 +28,10 @@ wasm-release: clean
 # Copy assets to distribution
 copy-assets:
 	mkdir -p ./dist
-	cp -f ./assets/index.html ./dist/
-	cp -f ./assets/emulator.html ./dist/
-	cp -f ./assets/macroquad.js ./dist/
+	cp -r ./assets/nes-test-roms ./dist/
+	cp -f  ./assets/index.html ./dist/
+	cp -f  ./assets/emulator.html ./dist/
+	cp -f  ./assets/macroquad.js ./dist/
 
 # Test specific operation
 testop:  # Usage: make testop op=a9
