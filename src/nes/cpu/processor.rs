@@ -3,6 +3,7 @@ use super::{interrupts, opcodes};
 use crate::trace;
 use bitflags::bitflags;
 use std::collections::HashMap;
+use thiserror::Error;
 
 // const DEBUG: bool = true;
 const DEBUG: bool = false;
@@ -64,6 +65,24 @@ pub trait CpuBusInterface {
     fn cpu_bus_write(&mut self, addr: u16, value: u8);
 }
 
+#[derive(Debug, Error)]
+pub enum CpuError {
+    #[error("JAM opcode encountered: 0x{0:02X}")]
+    JamOpcode(u8),
+
+    #[error("Unknown opcode: 0x{0:02X}")]
+    UnknownOpcode(u8),
+
+    #[error("Unstable opcode: 0x{0:02X}")]
+    UnstableOpcode(u8),
+
+    #[error("Invalid NMI encountered")]
+    InvalidNMI,
+    
+    #[error("Invalid opcode: 0x{0:02X}")]
+    InvalidOpcode(u8),
+}
+
 pub struct CPU {
     pub bus: Option<*mut dyn CpuBusInterface>,
     pub cycles: usize,
@@ -87,6 +106,8 @@ pub struct CPU {
 
     pub last_opcode_desc: String,
     // pub tracer: Tracer,
+
+    pub error: Option<CpuError>,
 }
 
 impl CPU {
@@ -110,6 +131,7 @@ impl CPU {
             nmi_pending: false,
             interrupt_stack: vec![],
             last_opcode_desc: "".to_string(),
+            error: None
         };
         cpu
     }
@@ -148,9 +170,9 @@ impl CPU {
         self.extra_cycles = 0;
         self.skip_cycles = 0;
         self.skip_pc_advance = false;
-
         self.nmi_pending = false; // PPU will notify CPU when NMI needs handling
         self.interrupt_stack = vec![]; // This prevents nested NMI (while allowing nested BRKs)
+        self.error = None;
     }
 
     #[allow(dead_code)]
@@ -221,7 +243,8 @@ impl CPU {
             Some(opcode) => *opcode,
             None => {
                 // self.tracer.print_trace();
-                panic!("Unknown opcode: {:02X}", &code);
+                self.error = Some(CpuError::UnknownOpcode(code));
+                return (0, 0, true);
             }
         };
 
@@ -445,21 +468,14 @@ impl CPU {
             }
             0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2 | 0xF2 => {
                 // JAM - These instructions freeze the CPU
-                panic!(
-                    "{}",
-                    &format!("JAM instruction 0x{:02X} freezes CPU!", opcode.value)
-                )
+                self.error = Some(CpuError::JamOpcode(opcode.value));
+                return (0, 0, true);
             }
 
             0x8B | 0xAB | 0x9F | 0x93 | 0x9E | 0x9C | 0x9B => {
                 // Unstable and highly-unstable opcodes (Purposely unimplemented)
-                panic!(
-                    "{}",
-                    &format!(
-                        "Instruction 0x{:02X} unimplemented. It's too unstable!",
-                        opcode.value
-                    )
-                )
+                self.error = Some(CpuError::UnstableOpcode(opcode.value));
+                return (0, 0, true);
             }
 
             0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC => {
@@ -667,7 +683,8 @@ impl CPU {
         if interrupt.interrupt_type == InterruptType::NMI
             && self.interrupt_stack.contains(&InterruptType::NMI)
         {
-            panic!("Error: Nested NMI detected! This should be impossible");
+            self.error = Some(CpuError::InvalidNMI);
+            return;
         }
 
         self.interrupt_stack.push(interrupt.interrupt_type);
@@ -688,7 +705,7 @@ impl CPU {
     }
 
     // Opcodes
-    /////////////
+    ////////////j/
     fn lda(&mut self, opcode: &opcodes::Opcode) {
         let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
         self.extra_cycles += boundary_cross as u8; // boundary_cross adds 1 extra cycle

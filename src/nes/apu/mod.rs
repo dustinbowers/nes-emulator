@@ -1,3 +1,4 @@
+use thiserror::Error;
 use crate::nes::apu::dmc_channel::DmcChannel;
 use noise_channel::NoiseChannel;
 use pulse_channel::PulseChannel;
@@ -12,6 +13,15 @@ mod units;
 pub trait ApuBusInterface {
     fn apu_bus_read(&mut self, addr: u16) -> u8;
     fn irq(&mut self);
+}
+
+#[derive(Debug, Error)]
+pub enum ApuError {
+    #[error("Invalid APU register read: 0x{0:02X}")]
+    InvalidRegisterRead(u16),
+
+    #[error("Invalid APU register write: 0x{0:02X}")]
+    InvalidRegisterWrite(u16),
 }
 
 /*
@@ -43,6 +53,8 @@ pub struct APU {
     pub irq_disable: bool,
     pub dmc_interrupt: bool,
     pub frame_interrupt: bool,
+    
+    pub error: Option<ApuError>,
 }
 
 impl APU {
@@ -68,6 +80,8 @@ impl APU {
             irq_disable: false,
             dmc_interrupt: false,
             frame_interrupt: false,
+            
+            error: None,
         }
     }
 
@@ -88,9 +102,10 @@ impl APU {
         self.irq_disable = false;
         self.dmc_interrupt = false;
         self.frame_interrupt = false;
+        self.error = None;
     }
 
-    pub fn read(&self, addr: u16) -> u8 {
+    pub fn read(&mut self, addr: u16) -> u8 {
         println!("APU::read({:04X})", addr);
         match addr {
             0x4015 => {
@@ -122,7 +137,8 @@ impl APU {
                 output
             }
             _ => {
-                panic!("Bad APU register read!");
+                self.error = Some(ApuError::InvalidRegisterRead(addr));
+                0
             }
         }
     }
@@ -198,7 +214,7 @@ impl APU {
                 }
             }
             _ => {
-                panic!("API write to invalid register! {:04x}", addr);
+                self.error = Some(ApuError::InvalidRegisterWrite(addr));
             }
         }
     }

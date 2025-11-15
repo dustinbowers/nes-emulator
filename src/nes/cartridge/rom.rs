@@ -1,3 +1,4 @@
+use thiserror::Error;
 use crate::nes::cartridge::Cartridge;
 use crate::nes::cartridge::mapper000_nrom::NromCart;
 use crate::nes::cartridge::mapper001_mmc1::Mmc1;
@@ -8,11 +9,16 @@ const NES_MAGIC_BYTES: &[u8; 4] = b"NES\x1A";
 const PRG_ROM_PAGE_SIZE: usize = 0x4000;
 const CHR_ROM_PAGE_SIZE: usize = 0x2000;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum RomError {
+    #[error("{0}")]
     InvalidFormat(String),
-    UnsupportedVersion(String),
-    // OutOfBounds(String),
+    
+    #[error("Unsupported ROM version: v{0}")]
+    UnsupportedVersion(u8),
+    
+    #[error("Unsupported Mapper: {0}")]
+    UnsupportedMapper(u8),
 }
 // impl Display for RomError {
 //     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -43,10 +49,8 @@ pub struct Rom {
 impl Rom {
     pub fn new(raw: &Vec<u8>) -> Result<Rom, RomError> {
         // Check NES magic bytes
-        if raw.get(0..4) != Some(NES_MAGIC_BYTES) {
-            return Err(RomError::InvalidFormat(
-                "File is not iNES file format".to_string(),
-            ));
+        if raw.len() < 16 || &raw[0..4] != NES_MAGIC_BYTES {
+            return Err(RomError::InvalidFormat("Not an iNES file".into()));
         }
 
         // Extract mapper information
@@ -55,9 +59,7 @@ impl Rom {
         // Check iNES version
         let ines_ver = (raw[7] >> 2) & 0b11;
         if ines_ver != 0 {
-            return Err(RomError::UnsupportedVersion(
-                "NES2.0 format is not supported".to_string(),
-            ));
+            return Err(RomError::UnsupportedVersion(2));
         }
 
         // Determine mirroring type
@@ -105,7 +107,7 @@ impl Rom {
         }
     }
 
-    pub fn into_cartridge(self) -> Box<dyn Cartridge> {
+    pub fn into_cartridge(self) -> Result<Box<dyn Cartridge>, RomError> {
         match self.mapper {
             0 => {
                 let chr_rom_len = self.chr_rom.len();
@@ -115,29 +117,25 @@ impl Rom {
                     println!("Nrom, setting chr_is_ram = true");
                     cart.chr_is_ram = true;
                 }
-                Box::new(cart)
+                Ok(Box::new(cart))
             }
             1 => {
                 let cart = Mmc1::new(self.prg_rom, self.chr_rom, 0x2000);
-                Box::new(cart)
+                Ok(Box::new(cart))
             }
             2 => {
                 let cart = Mapper002UxRom::new(self.prg_rom, self.chr_rom, self.screen_mirroring);
-                Box::new(cart)
+                Ok(Box::new(cart))
             }
             3 => {
                 let cart = Mapper003CnRom::new(self.prg_rom, self.chr_rom, self.screen_mirroring);
-                Box::new(cart)
+                Ok(Box::new(cart))
             }
 
             // TODO
-            id => panic!("Unsupported mapper id: {}", id),
+            id => {
+                Err(RomError::UnsupportedMapper(id))
+            },
         }
-    }
-}
-
-impl Into<Box<dyn Cartridge>> for Rom {
-    fn into(self) -> Box<dyn Cartridge> {
-        self.into_cartridge()
     }
 }
