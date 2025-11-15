@@ -9,6 +9,8 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use tinyaudio::prelude::*;
+
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::wasm_bindgen;
 
 pub struct NesCell(UnsafeCell<NES>);
@@ -44,19 +46,30 @@ pub static TRIGGER_LOAD: AtomicBool = AtomicBool::new(false);
 pub static TRIGGER_RESET: AtomicBool = AtomicBool::new(false);
 pub static ROM_DATA: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn set_rom_data(rom_bytes: js_sys::Uint8Array) {
     web_sys::console::log_1(&"set_rom_data".into());
     let mut rom_data = ROM_DATA.lock().unwrap();
     *rom_data = rom_bytes.to_vec();
 }
+#[cfg(not(target_arch = "wasm32"))]
+pub fn set_rom_data(rom_bytes: Vec<u8>) {
+    let mut rom_data = ROM_DATA.lock().unwrap();
+    *rom_data = rom_bytes;
+    TRIGGER_LOAD.store(true, Ordering::Relaxed);
+    TRIGGER_RESET.store(false, Ordering::Relaxed);
+}
 
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn trigger_load() {
     web_sys::console::log_1(&"trigger_load()".into());
     TRIGGER_LOAD.store(true, Ordering::SeqCst);
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn trigger_reset() {
     web_sys::console::log_1(&"trigger_reset()".into());
@@ -70,7 +83,7 @@ enum State {
     Error,
 }
 
-pub struct AppWasm {
+pub struct App {
     nes_arc: Arc<NesCell>,
     key_map: HashMap<KeyCode, JoypadButton>,
     pixel_buffer: Vec<u8>,
@@ -79,7 +92,7 @@ pub struct AppWasm {
     state: State,
 }
 
-impl AppWasm {
+impl App {
     pub fn new() -> Self {
         let mut nes = NES::new();
         nes.set_sample_frequency(44_100);
@@ -230,8 +243,6 @@ impl AppWasm {
     }
 
     pub fn render(&mut self) {
-        clear_background(BLACK);
-
         let nes = unsafe { self.nes_arc.get_ref() };
         let frame = nes.get_frame_buffer();
 
@@ -272,6 +283,11 @@ impl AppWasm {
 
     fn log(msg: &str) {
         #[cfg(feature = "logging")]
-        web_sys::console::log_1(&msg.into());
+        {
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::log_1(&msg.into());
+            #[cfg(not(target_arch = "wasm32"))]
+            println!("{}", msg);
+        }
     }
 }

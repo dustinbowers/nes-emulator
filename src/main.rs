@@ -7,18 +7,22 @@ mod display;
 mod error;
 mod nes;
 
-#[cfg(not(target_arch = "wasm32"))]
-mod app_native;
-#[cfg(target_arch = "wasm32")]
-mod app_wasm;
+// #[cfg(not(target_arch = "wasm32"))]
+// mod app_native;
+// #[cfg(target_arch = "wasm32")]
+// mod app_wasm;
+mod app;
 
-#[cfg(target_arch = "wasm32")]
-use crate::app_wasm::AppWasm;
-#[cfg(not(target_arch = "wasm32"))]
-use {
-    crate::app_native::AppNative,
-    std::{env, fs, process},
-};
+// #[cfg(target_arch = "wasm32")]
+// use crate::app_wasm::AppWasm;
+// #[cfg(not(target_arch = "wasm32"))]
+// use {
+//     crate::app_native::AppNative,
+//     std::{env, fs, process},
+// };
+
+use crate::app::App;
+use crate::app::set_rom_data;
 
 use crate::display::consts::*;
 use macroquad::prelude::*;
@@ -43,14 +47,15 @@ async fn main() {
             eprintln!("Usage: {} <iNES 1.0 ROM path>", args[0]);
         }
         let rom_data = std::fs::read(args[1].clone()).expect("File not found");
-        let mut app = AppNative::new(&rom_data);
+        let mut app = App::new();
+        set_rom_data(rom_data);
         app.run().await;
     }
 
     // WASM App
     #[cfg(target_arch = "wasm32")]
     {
-        let mut app = AppWasm::new();
+        let mut app = App::new();
         app.run().await;
     }
 }
