@@ -267,6 +267,25 @@ impl App {
                     }
                 }
             }
+            
+            let nes: &mut NES = unsafe { self.nes_arc.get_mut() };
+            if is_key_pressed(KeyCode::Key1) {
+                nes.bus.apu.mute_pulse1 = !nes.bus.apu.mute_pulse1;
+            }
+            if is_key_pressed(KeyCode::Key2) {
+                nes.bus.apu.mute_pulse2 = !nes.bus.apu.mute_pulse2;
+            }
+            if is_key_pressed(KeyCode::Key3) {
+                nes.bus.apu.mute_triangle = !nes.bus.apu.mute_triangle;
+            }
+            if is_key_pressed(KeyCode::Key4) {
+                nes.bus.apu.mute_noise = !nes.bus.apu.mute_noise;
+            }
+            if is_key_pressed(KeyCode::Key5) {
+                nes.bus.apu.mute_dmc = !nes.bus.apu.mute_dmc;
+            }
+            
+            
             next_frame().await;
         }
     }
@@ -295,7 +314,7 @@ impl App {
         self.error = None;
         self.state = State::Waiting;
         
-        let nes = unsafe { self.nes_arc.get_mut() };
+        let nes: &mut NES = unsafe { self.nes_arc.get_mut() };
         nes.bus.reset();
     }
 

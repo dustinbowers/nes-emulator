@@ -39,6 +39,12 @@ pub struct APU {
     pub triangle: TriangleChannel,
     pub noise: NoiseChannel,
     pub dmc: DmcChannel,
+    
+    pub mute_pulse1: bool,
+    pub mute_pulse2: bool,
+    pub mute_triangle: bool,
+    pub mute_noise: bool,
+    pub mute_dmc: bool,
 
     pub enable_dmc: bool,
     pub enable_noise: bool,
@@ -66,6 +72,12 @@ impl APU {
             triangle: TriangleChannel::new(),
             noise: NoiseChannel::new(),
             dmc: DmcChannel::new(),
+            
+            mute_pulse1: false,
+            mute_pulse2: false,
+            mute_triangle: false,
+            mute_noise: false,
+            mute_dmc: false,
 
             enable_dmc: false,
             enable_noise: false,
@@ -286,11 +298,11 @@ impl APU {
     }
 
     pub fn sample(&self) -> f32 {
-        let pulse1 = self.pulse1.sample() as f32;
-        let pulse2 = self.pulse2.sample() as f32;
-        let triangle = self.triangle.sample() as f32;
-        let noise = self.noise.sample() as f32;
-        let dmc = 0.0; // TODO
+        let pulse1 = if self.mute_pulse1 { 0.0 } else { self.pulse1.sample() as f32 };
+        let pulse2 = if self.mute_pulse2 { 0.0 } else { self.pulse2.sample() as f32 };
+        let triangle = if self.mute_triangle { 0.0 } else { self.triangle.sample() as f32 };
+        let noise = if self.mute_noise { 0.0 } else { self.noise.sample() as f32 };
+        let dmc = if self.mute_dmc { 0.0 } else { 0.0 }; // TODO
 
         // pulse_out = 95.88 / (8128.0 / (pulse1 + pulse2) + 100.0);
         // tnd_out   = 159.79 / (1.0 / (triangle/8227.0 + noise/12241.0 + dmc/22638.0) + 100.0);
