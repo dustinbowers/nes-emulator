@@ -1,13 +1,13 @@
 use crate::nes::cpu::processor::{CPU, CpuBusInterface};
 
-#[cfg(test)]
+#[cfg(any(test, feature="test-runner"))]
 pub struct SimpleBus {
     pub cpu_ram: [u8; 0x10000],
     pub cpu: CPU,
     pub cycles: usize,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature="test-runner"))]
 impl SimpleBus {
     pub fn new(program: Vec<u8>) -> SimpleBus {
         let mut bus = SimpleBus {
@@ -34,7 +34,7 @@ impl SimpleBus {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature="test-runner"))]
 impl CpuBusInterface for SimpleBus {
     fn cpu_bus_read(&mut self, addr: u16) -> u8 {
         self.cpu_ram[addr as usize]

@@ -143,9 +143,13 @@ impl PPU {
         self.scanline = 100;
         self.suppress_vblank = false;
         self.rendering_enabled_at_prerender = true;
+        self.global_ppu_ticks = 100;
+        self.vblank_ticks = 0;
+        
+        self.internal_data = 0;
         self.frame_is_odd = false;
         self.last_byte_read = DecayRegister::new(5_369_318);
-
+        
         self.ctrl_register = ControlRegister::new();
         self.mask_register = MaskRegister::new();
         self.status_register = StatusRegister::new();
@@ -159,6 +163,7 @@ impl PPU {
             0x04, 0x2C, 0x09, 0x01, 0x34, 0x03, 0x00, 0x04, 0x00, 0x14, 0x08, 0x3A, 0x00, 0x02,
             0x00, 0x20, 0x2C, 0x08,
         ];
+        
         self.oam_addr = 0;
         self.oam_data = [0; PRIMARY_OAM_SIZE];
 
@@ -825,7 +830,7 @@ mod test {
 
     #[test]
     fn test_palette_addr_mirroring() {
-        let mut ppu = create_empty_ppu(); // adjust constructor if needed
+        let ppu = create_empty_ppu(); // adjust constructor if needed
 
         // All addresses 3F00–3FFF should map to 3F00–3F1F
         for addr in 0x3F00..=0x3FFF {

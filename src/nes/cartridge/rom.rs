@@ -20,15 +20,6 @@ pub enum RomError {
     #[error("Unsupported Mapper: {0}")]
     UnsupportedMapper(u8),
 }
-// impl Display for RomError {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-//         match self {
-//             RomError::InvalidFormat(msg) => write!(f, "{}", msg),
-//             RomError::UnsupportedVersion(msg) => write!(f, "{}", msg),
-//             // RomError::OutOfBounds(msg) => write!(f, "{}", msg),
-//         }
-//     }
-// }
 
 #[derive(Clone, Debug)]
 pub enum Mirroring {

@@ -136,6 +136,25 @@ impl CPU {
         cpu
     }
 
+    pub fn reset(&mut self) {
+        self.cycles = 0;
+        self.halt_scheduled = false;
+        self.rdy = true;
+        self.register_a = 0;
+        self.register_x = 0;
+        self.register_y = 0;
+        self.stack_pointer = CPU_STACK_RESET;
+        self.status = Flags::from_bits_truncate(0b0010_0010);
+        self.program_counter = CPU_PC_RESET;
+        self.skip_cycles = 0;
+        self.extra_cycles = 0;
+        self.skip_pc_advance = false;
+        self.nmi_pending = false; // PPU will notify CPU when NMI needs handling
+        self.interrupt_stack = vec![]; // This prevents nested NMI (while allowing nested BRKs)
+        self.last_opcode_desc = "".to_string();
+        self.error = None;
+    }
+
     /// `connect_bus` MUST be called after constructing CPU
     pub fn connect_bus(&mut self, bus: *mut dyn CpuBusInterface) {
         self.bus = Some(bus);
@@ -160,20 +179,7 @@ impl CPU {
         }
     }
 
-    pub fn reset(&mut self) {
-        self.register_a = 0;
-        self.register_x = 0;
-        self.register_y = 0;
-        self.stack_pointer = CPU_STACK_RESET;
-        self.program_counter = CPU_PC_RESET;
-        self.status = Flags::from_bits_truncate(0b0010_0010);
-        self.extra_cycles = 0;
-        self.skip_cycles = 0;
-        self.skip_pc_advance = false;
-        self.nmi_pending = false; // PPU will notify CPU when NMI needs handling
-        self.interrupt_stack = vec![]; // This prevents nested NMI (while allowing nested BRKs)
-        self.error = None;
-    }
+
 
     #[allow(dead_code)]
     pub fn run(&mut self) {
@@ -486,7 +492,8 @@ impl CPU {
             0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 | 0x04 | 0x44 | 0x64 | 0x14 | 0x34 | 0x54 | 0x74
             | 0xD4 | 0xF4 | 0x0C | 0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => {
                 // Various single and multiple-byte NOPs
-            } // _ => unreachable!()
+            }
+            _ => unreachable!()
         }
 
         // Tick the bus for opcode cycles. Add any extra cycles from boundary_crosses and other special cases

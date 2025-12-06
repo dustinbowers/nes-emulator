@@ -34,10 +34,9 @@ copy-assets:
 	cp -f  ./assets/macroquad.js ./dist/
 
 # Test specific operation
-testop:  # Usage: make testop op=a9
+testop: # Usage: make testop op=a9
 	@echo "Running tests for operation: $(op)"
-	cargo build --package nes-emulator --bin test-runner
-	cargo run --quiet --package nes-emulator --bin test-runner -- "nes6502-tests/" "$(op)"
+	cargo run --quiet --package nes-emulator --bin test-runner --features test-runner -- "nes6502-tests/" "$(op)"
 	
 # Create logs directory
 logs:
@@ -45,9 +44,9 @@ logs:
 
 # Run all tests ranging from 00 to FF
 testall: | logs
-	@for i in $(seq 0 255); do \
-		hex=$(printf "%02X" $i); \
-		echo "Running test with op=0x$hex"; \
-		make testop op=$hex > logs/$hex.log 2>&1; \
+	@for i in $$(seq 0 255); do \
+		hex=$$(printf "%02X" $$i); \
+		echo "Running test with op=0x$$hex"; \
+		make testop op=$$hex > logs/$$hex.log 2>&1; \
 	done
 

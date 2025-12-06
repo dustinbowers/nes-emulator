@@ -4,26 +4,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod display;
-mod error;
 mod nes;
-
-// #[cfg(not(target_arch = "wasm32"))]
-// mod app_native;
-// #[cfg(target_arch = "wasm32")]
-// mod app_wasm;
 mod app;
 
-// #[cfg(target_arch = "wasm32")]
-// use crate::app_wasm::AppWasm;
-// #[cfg(not(target_arch = "wasm32"))]
-// use {
-//     crate::app_native::AppNative,
-//     std::{env, fs, process},
-// };
 
 use crate::app::App;
 use crate::app::set_rom_data;
-
 use crate::display::consts::*;
 use macroquad::prelude::*;
 

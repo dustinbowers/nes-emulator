@@ -103,17 +103,27 @@ impl APU {
         self.triangle = TriangleChannel::new();
         self.noise = NoiseChannel::new();
         self.dmc = DmcChannel::new();
+        
+        self.mute_pulse1 = false;
+        self.mute_pulse2 = false;
+        self.mute_triangle = false;
+        self.mute_noise = false;
+        self.mute_dmc = false;
+        
         self.enable_dmc = false;
         self.enable_noise = false;
         self.enable_triangle = false;
         self.enable_pulse2 = false;
         self.enable_pulse1 = false;
+        
         self.master_sequence_mode = false;
         self.frame_clock_counter = 0;
         self.clock_counter = 0;
+        
         self.irq_disable = false;
         self.dmc_interrupt = false;
         self.frame_interrupt = false;
+        
         self.error = None;
     }
 

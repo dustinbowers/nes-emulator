@@ -1,5 +1,4 @@
 use crate::display::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
-use crate::error::{EmulatorError, EmulatorErrorType};
 use crate::nes::NES;
 use crate::nes::cartridge::rom::Rom;
 use crate::nes::controller::joypad::JoypadButton;
@@ -133,7 +132,7 @@ impl App {
         }
     }
 
-    pub fn init_audio(&mut self) -> Result<(), EmulatorError> {
+    pub fn init_audio(&mut self) -> Result<(), String> {
         Self::log(&"init_audio()".to_owned());
         let nes_clone = self.nes_arc.clone();
         let audio_device = run_output_device(
@@ -143,9 +142,9 @@ impl App {
                 channel_sample_count: 1200,
             },
             move |data| {
-                let nes = unsafe { nes_clone.get_mut() };
+                let nes: &mut NES = unsafe { nes_clone.get_mut() };
 
-                // if paused, send silence
+                // if paused, send silence and don't tick NES
                 if PAUSE_EMULATION.load(Ordering::SeqCst) {
                     for s in data.iter_mut() { *s = 0.0; }
                     return;
@@ -159,10 +158,12 @@ impl App {
                 let ppu_cycles_per_sample = 5369318.0 / 44100.0; // ~121.7 PPU cycles per sample
                 let mut cycle_acc = nes.cycle_acc;
 
+                println!("ticking nes for {} samples", data.len());
                 for sample in data {
                     cycle_acc += ppu_cycles_per_sample;
 
                     while cycle_acc >= 1.0 {
+                        // println!("nes PC = {}", nes.bus.cpu.program_counter);
                         nes.tick(); // tick at PPU frequency
                         cycle_acc -= 1.0;
                     }
@@ -181,10 +182,7 @@ impl App {
             }
             _ => {
                 self.audio_device = None;
-                Err(EmulatorError::new(
-                    EmulatorErrorType::AudioInitFailed,
-                    "init_audio()".to_string(),
-                ))
+                Err("Audio init failed".to_string())
             }
         }
     }
@@ -212,7 +210,7 @@ impl App {
                                 self.set_error("Audio initialization failed!".to_owned())
                             }
                         }
-                        let nes = unsafe { self.nes_arc.get_mut() };
+                        let nes: &mut NES = unsafe { self.nes_arc.get_mut() };
                         let rom_data = ROM_DATA.lock().unwrap();
                         match Rom::new(&rom_data) {
                             Ok(rom) => {
@@ -235,7 +233,6 @@ impl App {
                     }
                 }
                 State::Running => {
-                    Self::log("[rust] running...");
                     self.handle_input();
                     self.render();
 

@@ -145,7 +145,7 @@ mod test {
 
     #[test]
     fn test_vertical_mirroring() {
-        let mut ppu = init_mock_ppu(Mirroring::Vertical);
+        let ppu = init_mock_ppu(Mirroring::Vertical);
         assert_eq!(ppu.mirror_ram_addr(0x2000), 0x0000); // NT0
         assert_eq!(ppu.mirror_ram_addr(0x2800), 0x0000); // NT2 -> NT0
         assert_eq!(ppu.mirror_ram_addr(0x2400), 0x0400); // NT1
@@ -154,7 +154,7 @@ mod test {
 
     #[test]
     fn test_horizontal_mirroring() {
-        let mut ppu = init_mock_ppu(Mirroring::Horizontal);
+        let ppu = init_mock_ppu(Mirroring::Horizontal);
         assert_eq!(ppu.mirror_ram_addr(0x2000), 0x0000); // NT0
         assert_eq!(ppu.mirror_ram_addr(0x2400), 0x0000); // NT1 -> NT0
         assert_eq!(ppu.mirror_ram_addr(0x2800), 0x0400); // NT2
@@ -163,7 +163,7 @@ mod test {
 
     #[test]
     fn test_four_screen_mirroring() {
-        let mut ppu = init_mock_ppu(Mirroring::FourScreen);
+        let ppu = init_mock_ppu(Mirroring::FourScreen);
         assert_eq!(ppu.mirror_ram_addr(0x2000), 0x0000);
         assert_eq!(ppu.mirror_ram_addr(0x2400), 0x0400);
         assert_eq!(ppu.mirror_ram_addr(0x2800), 0x0800 % 0x800); // Wraps around
@@ -172,7 +172,7 @@ mod test {
 
     #[test]
     fn test_single_screen_0() {
-        let mut ppu = init_mock_ppu(Mirroring::Single0);
+        let ppu = init_mock_ppu(Mirroring::Single0);
         assert_eq!(ppu.mirror_ram_addr(0x2000), 0x0000);
         assert_eq!(ppu.mirror_ram_addr(0x2400), 0x0400 % 0x400);
         assert_eq!(ppu.mirror_ram_addr(0x2800), 0x0800 % 0x400);
@@ -181,7 +181,7 @@ mod test {
 
     #[test]
     fn test_single_screen_1() {
-        let mut ppu = init_mock_ppu(Mirroring::Single1);
+        let ppu = init_mock_ppu(Mirroring::Single1);
         assert_eq!(ppu.mirror_ram_addr(0x2000), 0x0400);
         assert_eq!(ppu.mirror_ram_addr(0x2400), 0x0400);
         assert_eq!(ppu.mirror_ram_addr(0x2800), 0x0400);
