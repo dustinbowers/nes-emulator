@@ -3,10 +3,9 @@
 #![allow(unused_imports, dead_code, unused_variables)] // TODO: Remove this later
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod app;
 mod display;
 mod nes;
-mod app;
-
 
 use crate::app::App;
 use crate::app::set_rom_data;

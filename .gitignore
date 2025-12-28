@@ -4,6 +4,7 @@ target/
 nes6502-tests/
 nes-test-roms/
 mapper_docs/
+misc_docs/
 roms/
 logs/
 *.log

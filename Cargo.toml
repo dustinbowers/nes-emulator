@@ -13,23 +13,22 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0"
 
 [features]
-#default = ["tracing"]
 default = ["logging"]
 tracing = []
 logging = []
 test-runner = []
 
-
-# native:
+# Native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 env_logger = "0.11.8"
 
+# CPU test runner
 [[bin]]
 name = "test-runner"
 path = "src/test_runner.rs"
-features = ["default", "test-runner"]
+required-features = ["test-runner"]
 
-# web:
+# Web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.104"
 wasm-bindgen-futures = "0.4.54"
@@ -44,8 +43,6 @@ web-sys = { version = "0.3", features = [
 ] }
 anyhow = "1.0.100"
 js-sys = "0.3.81"
-
-
 
 [profile.release]
 opt-level = 2 # fast and small wasm

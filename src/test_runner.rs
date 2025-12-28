@@ -4,6 +4,8 @@
 */
 mod nes;
 
+use crate::nes::bus::simple_bus::SimpleBus;
+use crate::nes::cpu::processor::{CpuBusInterface, Flags};
 use nes::NES;
 use serde::Deserialize;
 use std::env;
@@ -11,8 +13,6 @@ use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process;
-use crate::nes::bus::simple_bus::SimpleBus;
-use crate::nes::cpu::processor::{CpuBusInterface, Flags};
 
 #[derive(Debug, Deserialize)]
 struct OpcodeTest {

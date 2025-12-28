@@ -1,9 +1,9 @@
-use thiserror::Error;
 use crate::nes::cartridge::Cartridge;
 use crate::nes::cartridge::mapper000_nrom::NromCart;
 use crate::nes::cartridge::mapper001_mmc1::Mmc1;
 use crate::nes::cartridge::mapper002_ux_rom::Mapper002UxRom;
 use crate::nes::cartridge::mapper003_cn_rom::Mapper003CnRom;
+use thiserror::Error;
 
 const NES_MAGIC_BYTES: &[u8; 4] = b"NES\x1A";
 const PRG_ROM_PAGE_SIZE: usize = 0x4000;
@@ -13,10 +13,10 @@ const CHR_ROM_PAGE_SIZE: usize = 0x2000;
 pub enum RomError {
     #[error("{0}")]
     InvalidFormat(String),
-    
+
     #[error("Unsupported ROM version: v{0}")]
     UnsupportedVersion(u8),
-    
+
     #[error("Unsupported Mapper: {0}")]
     UnsupportedMapper(u8),
 }
@@ -124,9 +124,7 @@ impl Rom {
             }
 
             // TODO
-            id => {
-                Err(RomError::UnsupportedMapper(id))
-            },
+            id => Err(RomError::UnsupportedMapper(id)),
         }
     }
 }

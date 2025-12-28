@@ -7,7 +7,6 @@ use thiserror::Error;
 
 // const DEBUG: bool = true;
 const DEBUG: bool = false;
-const CPU_PC_RESET: u16 = 0x8000;
 const CPU_STACK_RESET: u8 = 0xFF;
 const CPU_STACK_BASE: u16 = 0x0100;
 
@@ -78,7 +77,7 @@ pub enum CpuError {
 
     #[error("Invalid NMI encountered")]
     InvalidNMI,
-    
+
     #[error("Invalid opcode: 0x{0:02X}")]
     InvalidOpcode(u8),
 }
@@ -106,7 +105,6 @@ pub struct CPU {
 
     pub last_opcode_desc: String,
     // pub tracer: Tracer,
-
     pub error: Option<CpuError>,
 }
 
@@ -123,15 +121,14 @@ impl CPU {
             register_y: 0,
             stack_pointer: CPU_STACK_RESET,
             status: Flags::from_bits_truncate(0b0010_0010),
-            program_counter: CPU_PC_RESET,
+            program_counter: 0,
             skip_cycles: 0,
             extra_cycles: 0,
             skip_pc_advance: false,
-            // tracer: Tracer::new(128),
             nmi_pending: false,
             interrupt_stack: vec![],
             last_opcode_desc: "".to_string(),
-            error: None
+            error: None,
         };
         cpu
     }
@@ -145,7 +142,7 @@ impl CPU {
         self.register_y = 0;
         self.stack_pointer = CPU_STACK_RESET;
         self.status = Flags::from_bits_truncate(0b0010_0010);
-        self.program_counter = CPU_PC_RESET;
+        self.program_counter = self.bus_read_u16(0xFFFC);
         self.skip_cycles = 0;
         self.extra_cycles = 0;
         self.skip_pc_advance = false;
@@ -178,8 +175,6 @@ impl CPU {
             (*self.bus.unwrap()).cpu_bus_write(addr, data);
         }
     }
-
-
 
     #[allow(dead_code)]
     pub fn run(&mut self) {
@@ -493,7 +488,7 @@ impl CPU {
             | 0xD4 | 0xF4 | 0x0C | 0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => {
                 // Various single and multiple-byte NOPs
             }
-            _ => unreachable!()
+            _ => unreachable!(),
         }
 
         // Tick the bus for opcode cycles. Add any extra cycles from boundary_crosses and other special cases

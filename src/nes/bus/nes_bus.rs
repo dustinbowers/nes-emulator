@@ -4,6 +4,7 @@ use crate::nes::cartridge::rom::Mirroring;
 use crate::nes::controller::NesController;
 use crate::nes::controller::joypad::Joypad;
 use crate::nes::cpu::processor::{CPU, CpuBusInterface};
+use crate::nes::ppu::registers::status_register::StatusRegister;
 use crate::nes::ppu::{PPU, PpuBusInterface};
 use crate::nes::tracer::traceable::Traceable;
 use crate::trace;
@@ -66,8 +67,7 @@ impl NesBus {
         Box::leak(bus)
     }
 
-    pub fn reset(&mut self) {
-        self.cart = None;
+    pub fn reset_components(&mut self) {
         self.cpu_ram = [0; CPU_RAM_SIZE];
         self.nmi_scheduled = None;
         self.oam_dma_addr = 0;
@@ -88,8 +88,8 @@ impl NesBus {
 
     pub fn insert_cartridge(&mut self, cart: Box<dyn Cartridge>) {
         println!("NesBus::insert_cartridge()");
-        self.reset();
         self.cart = Some(cart);
+        self.reset_components();
     }
 
     pub fn tick(&mut self) {

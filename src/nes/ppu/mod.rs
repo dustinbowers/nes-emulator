@@ -145,11 +145,11 @@ impl PPU {
         self.rendering_enabled_at_prerender = true;
         self.global_ppu_ticks = 100;
         self.vblank_ticks = 0;
-        
+
         self.internal_data = 0;
         self.frame_is_odd = false;
         self.last_byte_read = DecayRegister::new(5_369_318);
-        
+
         self.ctrl_register = ControlRegister::new();
         self.mask_register = MaskRegister::new();
         self.status_register = StatusRegister::new();
@@ -163,7 +163,7 @@ impl PPU {
             0x04, 0x2C, 0x09, 0x01, 0x34, 0x03, 0x00, 0x04, 0x00, 0x14, 0x08, 0x3A, 0x00, 0x02,
             0x00, 0x20, 0x2C, 0x08,
         ];
-        
+
         self.oam_addr = 0;
         self.oam_data = [0; PRIMARY_OAM_SIZE];
 
@@ -680,9 +680,7 @@ impl PPU {
                 self.palette_table[mirrored_addr]
             }
 
-            _ => {
-                self.last_byte_read.output()
-            }, 
+            _ => self.last_byte_read.output(),
         }
     }
 

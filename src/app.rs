@@ -65,7 +65,6 @@ pub fn set_rom_data(rom_bytes: Vec<u8>) {
     TRIGGER_RESET.store(false, Ordering::SeqCst);
 }
 
-
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn trigger_load() {
@@ -146,10 +145,12 @@ impl App {
 
                 // if paused, send silence and don't tick NES
                 if PAUSE_EMULATION.load(Ordering::SeqCst) {
-                    for s in data.iter_mut() { *s = 0.0; }
+                    for s in data.iter_mut() {
+                        *s = 0.0;
+                    }
                     return;
                 }
-                
+
                 nes.bus
                     .controller1
                     .set_buttons(CONTROLLER1.buttons.load(Ordering::SeqCst));
@@ -195,7 +196,7 @@ impl App {
                 }
                 State::Waiting => {
                     Self::log("[rust] waiting...");
-                   
+
                     let alpha = ((get_time() % 2.0) / 2.0) as f32;
                     let size = 48.0;
                     let str = "Insert a Cartridge";
@@ -213,19 +214,17 @@ impl App {
                         let nes: &mut NES = unsafe { self.nes_arc.get_mut() };
                         let rom_data = ROM_DATA.lock().unwrap();
                         match Rom::new(&rom_data) {
-                            Ok(rom) => {
-                                match rom.into_cartridge() {
-                                    Ok(cart) => {
-                                        nes.insert_cartridge(cart);
-                                        self.state = State::Running;
-                                        TRIGGER_RESET.store(false, Ordering::SeqCst);
-                                        PAUSE_EMULATION.store(false, Ordering::SeqCst);
-                                    }
-                                    Err(err) => {
-                                        self.set_error(err.to_string());
-                                    }
+                            Ok(rom) => match rom.into_cartridge() {
+                                Ok(cart) => {
+                                    nes.insert_cartridge(cart);
+                                    self.state = State::Running;
+                                    TRIGGER_RESET.store(false, Ordering::SeqCst);
+                                    PAUSE_EMULATION.store(false, Ordering::SeqCst);
                                 }
-                            }
+                                Err(err) => {
+                                    self.set_error(err.to_string());
+                                }
+                            },
                             Err(err) => {
                                 self.set_error(err.to_string());
                             }
@@ -241,7 +240,7 @@ impl App {
                         self.state = State::Waiting;
                         continue;
                     }
-                    
+
                     // Error checking
                     let nes: &NES = unsafe { self.nes_arc.get_ref() };
                     if let Some(err) = &nes.bus.cpu.error {
@@ -250,7 +249,8 @@ impl App {
                     }
                 }
                 State::Error => {
-                    let msg = self.error
+                    let msg = self
+                        .error
                         .as_ref()
                         .map(|e| e.to_string())
                         .unwrap_or_else(|| "Unknown emulator error".to_string());
@@ -258,13 +258,12 @@ impl App {
                     self.draw_error_screen(&msg);
 
                     // wait for user to press R
-                    if is_key_pressed(KeyCode::R) 
-                        || TRIGGER_RESET.swap(false, Ordering::SeqCst) {
+                    if is_key_pressed(KeyCode::R) || TRIGGER_RESET.swap(false, Ordering::SeqCst) {
                         self.reset();
                     }
                 }
             }
-            
+
             let nes: &mut NES = unsafe { self.nes_arc.get_mut() };
             if is_key_pressed(KeyCode::Key1) {
                 nes.bus.apu.mute_pulse1 = !nes.bus.apu.mute_pulse1;
@@ -281,8 +280,7 @@ impl App {
             if is_key_pressed(KeyCode::Key5) {
                 nes.bus.apu.mute_dmc = !nes.bus.apu.mute_dmc;
             }
-            
-            
+
             next_frame().await;
         }
     }
@@ -310,9 +308,9 @@ impl App {
         TRIGGER_RESET.store(false, Ordering::SeqCst);
         self.error = None;
         self.state = State::Waiting;
-        
+
         let nes: &mut NES = unsafe { self.nes_arc.get_mut() };
-        nes.bus.reset();
+        nes.bus.reset_components();
     }
 
     pub fn render(&mut self) {
@@ -353,7 +351,7 @@ impl App {
             },
         );
     }
-    
+
     fn set_error(&mut self, err: String) {
         PAUSE_EMULATION.store(true, Ordering::SeqCst);
         TRIGGER_RESET.store(false, Ordering::SeqCst);
@@ -379,32 +377,14 @@ impl App {
 
         let title = "EMULATOR ERROR";
         let title_dim = measure_text(title, None, 40, 1.0);
-        draw_text(
-            title,
-            w * 0.5 - title_dim.width * 0.5,
-            h * 0.3,
-            40.0,
-            RED,
-        );
+        draw_text(title, w * 0.5 - title_dim.width * 0.5, h * 0.3, 40.0, RED);
 
         // message
         let msg_dim = measure_text(msg, None, 28, 1.0);
-        draw_text(
-            msg,
-            w * 0.5 - msg_dim.width * 0.5,
-            h * 0.45,
-            28.0,
-            WHITE,
-        );
+        draw_text(msg, w * 0.5 - msg_dim.width * 0.5, h * 0.45, 28.0, WHITE);
 
         let hint = "Press R to reset";
         let hint_dim = measure_text(hint, None, 24, 1.0);
-        draw_text(
-            hint,
-            w * 0.5 - hint_dim.width * 0.5,
-            h * 0.6,
-            24.0,
-            GRAY,
-        );
+        draw_text(hint, w * 0.5 - hint_dim.width * 0.5, h * 0.6, 24.0, GRAY);
     }
 }

@@ -305,31 +305,55 @@ mod tests {
         channel.write_4003(0b0000_1000);
         channel.write_4000(0b0000_0000); // Enable sound
 
-        assert_eq!(channel.length_counter.output(), 16, "Initial length counter value should be 16");
+        assert_eq!(
+            channel.length_counter.output(),
+            16,
+            "Initial length counter value should be 16"
+        );
 
         // Clock half frame (length counter clocks)
         channel.clock(false, true);
-        assert_eq!(channel.length_counter.output(), 15, "Length counter should decrement to 15");
+        assert_eq!(
+            channel.length_counter.output(),
+            15,
+            "Length counter should decrement to 15"
+        );
 
         // Continue clocking until it reaches 0
         for _ in 0..14 {
             channel.clock(false, true);
         }
-        assert_eq!(channel.length_counter.output(), 0, "Length counter should be 0 after 16 clocks");
+        assert_eq!(
+            channel.length_counter.output(),
+            0,
+            "Length counter should be 0 after 16 clocks"
+        );
 
         // Once at 0, it stays at 0
         channel.clock(false, true);
-        assert_eq!(channel.length_counter.output(), 0, "Length counter should remain at 0");
+        assert_eq!(
+            channel.length_counter.output(),
+            0,
+            "Length counter should remain at 0"
+        );
 
         // Test with loop flag (L bit in 0x4000)
         channel.write_4000(0b0100_0000); // Duty 1, L=1
         channel.write_4003(0b0000_1000); // Reset length counter
-        assert_eq!(channel.length_counter.output(), 16, "Length counter should reset to 16");
+        assert_eq!(
+            channel.length_counter.output(),
+            16,
+            "Length counter should reset to 16"
+        );
 
         for _ in 0..100 {
             channel.clock(false, true);
         }
-        assert_eq!(channel.length_counter.output(), 16, "Length counter should not decrement when loop flag is set");
+        assert_eq!(
+            channel.length_counter.output(),
+            16,
+            "Length counter should not decrement when loop flag is set"
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
-use thiserror::Error;
 use crate::nes::apu::dmc_channel::DmcChannel;
 use noise_channel::NoiseChannel;
 use pulse_channel::PulseChannel;
+use thiserror::Error;
 use triangle_channel::TriangleChannel;
 
 mod dmc_channel;
@@ -39,7 +39,7 @@ pub struct APU {
     pub triangle: TriangleChannel,
     pub noise: NoiseChannel,
     pub dmc: DmcChannel,
-    
+
     pub mute_pulse1: bool,
     pub mute_pulse2: bool,
     pub mute_triangle: bool,
@@ -59,7 +59,7 @@ pub struct APU {
     pub irq_disable: bool,
     pub dmc_interrupt: bool,
     pub frame_interrupt: bool,
-    
+
     pub error: Option<ApuError>,
 }
 
@@ -72,7 +72,7 @@ impl APU {
             triangle: TriangleChannel::new(),
             noise: NoiseChannel::new(),
             dmc: DmcChannel::new(),
-            
+
             mute_pulse1: false,
             mute_pulse2: false,
             mute_triangle: false,
@@ -92,7 +92,7 @@ impl APU {
             irq_disable: false,
             dmc_interrupt: false,
             frame_interrupt: false,
-            
+
             error: None,
         }
     }
@@ -103,27 +103,27 @@ impl APU {
         self.triangle = TriangleChannel::new();
         self.noise = NoiseChannel::new();
         self.dmc = DmcChannel::new();
-        
+
         self.mute_pulse1 = false;
         self.mute_pulse2 = false;
         self.mute_triangle = false;
         self.mute_noise = false;
         self.mute_dmc = false;
-        
+
         self.enable_dmc = false;
         self.enable_noise = false;
         self.enable_triangle = false;
         self.enable_pulse2 = false;
         self.enable_pulse1 = false;
-        
+
         self.master_sequence_mode = false;
         self.frame_clock_counter = 0;
         self.clock_counter = 0;
-        
+
         self.irq_disable = false;
         self.dmc_interrupt = false;
         self.frame_interrupt = false;
-        
+
         self.error = None;
     }
 
@@ -308,10 +308,26 @@ impl APU {
     }
 
     pub fn sample(&self) -> f32 {
-        let pulse1 = if self.mute_pulse1 { 0.0 } else { self.pulse1.sample() as f32 };
-        let pulse2 = if self.mute_pulse2 { 0.0 } else { self.pulse2.sample() as f32 };
-        let triangle = if self.mute_triangle { 0.0 } else { self.triangle.sample() as f32 };
-        let noise = if self.mute_noise { 0.0 } else { self.noise.sample() as f32 };
+        let pulse1 = if self.mute_pulse1 {
+            0.0
+        } else {
+            self.pulse1.sample() as f32
+        };
+        let pulse2 = if self.mute_pulse2 {
+            0.0
+        } else {
+            self.pulse2.sample() as f32
+        };
+        let triangle = if self.mute_triangle {
+            0.0
+        } else {
+            self.triangle.sample() as f32
+        };
+        let noise = if self.mute_noise {
+            0.0
+        } else {
+            self.noise.sample() as f32
+        };
         let dmc = if self.mute_dmc { 0.0 } else { 0.0 }; // TODO
 
         // pulse_out = 95.88 / (8128.0 / (pulse1 + pulse2) + 100.0);

@@ -2,7 +2,7 @@
 mod test {
     use crate::nes::bus::nes_bus::NesBus;
     use crate::nes::cartridge::rom::{Mirroring, Rom};
-    
+
     #[test]
     fn test_cpu_write_to_nametables_via_2006_2007() {
         let prg_rom = vec![0; 0x4000];
