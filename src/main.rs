@@ -7,8 +7,8 @@ mod app;
 mod display;
 mod nes;
 
-use crate::app::App;
 use crate::app::set_rom_data;
+use crate::app::App;
 use crate::display::consts::*;
 use macroquad::prelude::*;
 

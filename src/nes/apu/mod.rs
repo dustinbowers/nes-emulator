@@ -63,6 +63,12 @@ pub struct APU {
     pub error: Option<ApuError>,
 }
 
+impl Default for APU {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl APU {
     pub fn new() -> APU {
         APU {

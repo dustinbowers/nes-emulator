@@ -34,7 +34,6 @@ pub struct PPU {
     pub cycles: usize,
     pub scanline: usize,
     pub suppress_vblank: bool,
-    pub rendering_enabled_at_prerender: bool,
     pub global_ppu_ticks: usize,
     pub vblank_ticks: usize, // TODO: remove this
 
@@ -84,11 +83,10 @@ impl PPU {
         PPU {
             bus: None,
             v_ram: [0; RAM_SIZE],
-            cycles: 100,
-            scanline: 100,
+            cycles: 0,
+            scanline: 261,
             suppress_vblank: false,
-            rendering_enabled_at_prerender: true,
-            global_ppu_ticks: 100,
+            global_ppu_ticks: 0,
             vblank_ticks: 0, // TODO: Remove this
 
             internal_data: 0,
@@ -139,11 +137,10 @@ impl PPU {
 
     pub fn reset(&mut self) {
         self.v_ram = [0; RAM_SIZE];
-        self.cycles = 100;
-        self.scanline = 100;
+        self.cycles = 0;
+        self.scanline = 261;
         self.suppress_vblank = false;
-        self.rendering_enabled_at_prerender = true;
-        self.global_ppu_ticks = 100;
+        self.global_ppu_ticks = 0;
         self.vblank_ticks = 0;
 
         self.internal_data = 0;
@@ -225,7 +222,7 @@ impl PPU {
 
                 // Quirk: Skip VBL and NMI if READ PPUSTATUS on SL240 dot0
                 // println!("READ $2002 - SL={} dot={}", self.scanline, self.cycles);
-                if self.scanline == 241 && self.cycles == 0 {
+                if self.scanline == 241 && self.cycles <= 2 {
                     println!("supressing vblank...");
                     self.suppress_vblank = true;
                 }
@@ -275,8 +272,7 @@ impl PPU {
         let scanline = self.scanline;
         let prerender_scanline = scanline == 261;
         let visible_scanline = scanline < 240;
-        // let rendering_enabled = self.mask_register.rendering_enabled();
-        let rendering_enabled = self.rendering_enabled_at_prerender;
+        let rendering_enabled = self.mask_register.rendering_enabled();
 
         // debug logs
         // if scanline == 0 && dot == 0 {
@@ -284,10 +280,10 @@ impl PPU {
         //     trace!("[FRAME START] scanline={} cycles={} global_ppu_ticks={} fame_is_odd={}", scanline, dot, self.global_ppu_ticks, self.frame_is_odd);
         // }
         // if prerender_scanline && dot == 0 {
-        //     println!("[PPU DEBUG] Latch rendering_enabled_at_prerender: {} (mask={})", self.mask_register.rendering_enabled(), self.mask_register.bits());
+        //     println!("[PPU DEBUG] Rendering enabled at prerender start? {}", rendering_enabled);
         // }
         // if prerender_scanline && dot == 339 {
-        //     println!("[PPU DEBUG] Odd-frame skip check: frame_is_odd={}, rendering_enabled_at_prerender={}", self.frame_is_odd, rendering_enabled);
+        //     println!("[PPU DEBUG] Odd-frame skip check: frame_is_odd={} rendering_enabled={}", self.frame_is_odd, rendering_enabled);
         // }
 
         // VBLANK clear at start of prerender scanline (dot 1)
@@ -404,11 +400,6 @@ impl PPU {
             }
         }
 
-        if self.scanline == 261 && self.cycles == 0 {
-            // Latch rendering enabled
-            self.rendering_enabled_at_prerender = self.mask_register.rendering_enabled();
-        }
-
         // VBLANK set at start of scanline 241 (dot 1)
         if self.scanline == 241 && self.cycles == 1 {
             self.vblank_ticks = 0;
@@ -435,11 +426,7 @@ impl PPU {
         }
 
         // Odd-frame skip
-        if prerender_scanline
-            && self.cycles == 340
-            && self.frame_is_odd
-            && self.rendering_enabled_at_prerender
-        {
+        if prerender_scanline && dot == 339 && self.frame_is_odd && rendering_enabled {
             // NES skips dot 339 on odd frames with rendering enabled at prerender start
             self.global_ppu_ticks += 1;
             self.cycles = 0;

@@ -16,17 +16,22 @@ serde_json = "1.0"
 default = ["logging"]
 tracing = []
 logging = []
-test-runner = []
+single-step-runner = []
 
 # Native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 env_logger = "0.11.8"
 
-# CPU test runner
+# CPU single-step test runner
 [[bin]]
-name = "test-runner"
-path = "src/test_runner.rs"
-required-features = ["test-runner"]
+name = "single_step_runner"
+path = "src/bin/single_step_runner.rs"
+required-features = ["single-step-runner"]
+
+# Headless ROM test runner
+[[bin]]
+name = "rom_test_runner"
+path = "src/bin/rom_test_runner.rs"
 
 # Web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]

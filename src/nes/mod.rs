@@ -64,7 +64,13 @@ impl NES {
         Ok(cart)
     }
 
-    // Tick once at PPU frequency
+    /// Ticks emulator once
+    ///
+    /// Ticks the NES emulator forward by 1 PPU cycle
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if a new frame is ready to be rendered, and `false` otherwise.
     pub fn tick(&mut self) -> bool {
         // Tick PPU
         let frame_ready = self.bus.ppu.tick();

@@ -54,7 +54,7 @@
 - Native usage: `./nes-emulator <iNES 1.0 ROM path>`
 - For wasm usage: serve `dist/` locally with `python -m http.server 8080` or similar
 
-## Testing 6502 Opcodes
+## Testing
 
 | Command                    | Command Description                                                 |
 |----------------------------|---------------------------------------------------------------------|
