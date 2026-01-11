@@ -187,4 +187,84 @@ mod test {
         assert_eq!(ppu.mirror_ram_addr(0x2800), 0x0400);
         assert_eq!(ppu.mirror_ram_addr(0x2C00), 0x0400);
     }
+
+    fn ticks_until_frame_ready(ppu: &mut PPU) -> usize {
+        let mut ticks = 0usize;
+        loop {
+            ticks += 1;
+            if ppu.tick() {
+                return ticks;
+            }
+            assert!(ticks < 100_000, "PPU did not produce a frame in time");
+        }
+    }
+
+    fn frame_ticks_with_prerender_mask(ppu: &mut PPU, enable_bg: bool) -> usize {
+        let mut ticks = 0usize;
+        let mask_value = if enable_bg { 0b0000_1000 } else { 0 };
+        loop {
+            if ppu.scanline == 261 && ppu.cycles == 338 {
+                // Update $2001 late in pre-render, similar to the ROM's timing.
+                ppu.write_register(0x2001, mask_value);
+            }
+            ticks += 1;
+            if ppu.tick() {
+                return ticks;
+            }
+            assert!(ticks < 100_000, "PPU did not produce a frame in time");
+        }
+    }
+
+    #[test]
+    fn test_odd_frame_skip_shortens_frame_by_one_tick() {
+        let mut ppu = init_mock_ppu(Mirroring::Horizontal);
+
+        // Enable rendering so odd-frame skip can occur.
+        ppu.write_register(0x2001, 0b0000_1000);
+
+        // Prime a couple frames; PPU starts at scanline 261 so the first "frame" is a partial pre-render line.
+        ticks_until_frame_ready(&mut ppu); // partial frame
+        ticks_until_frame_ready(&mut ppu); // first odd-frame
+
+        // Check even/odd ticks
+        for _ in 0..6 {
+            let even_frame_ticks = ticks_until_frame_ready(&mut ppu);
+            let odd_frame_ticks = ticks_until_frame_ready(&mut ppu);
+            assert_eq!(even_frame_ticks, 341 * 262);
+            assert_eq!(odd_frame_ticks, (341 * 262) - 1);
+        }
+    }
+
+    #[test]
+    fn test_even_odd_frames_patterns_match_skip_counts() {
+        let mut ppu = init_mock_ppu(Mirroring::Horizontal);
+
+        let patterns = [
+            ("-----", [false, false, false, false, false], 0usize),
+            ("BB---", [true, true, false, false, false], 1usize),
+            ("B--B-", [true, false, false, true, false], 1usize),
+            ("-B--B", [false, true, false, false, true], 1usize),
+            ("BB-BB", [true, true, false, true, true], 2usize),
+        ];
+
+        ticks_until_frame_ready(&mut ppu);
+        ticks_until_frame_ready(&mut ppu);
+
+        for (label, pattern, expected_skips) in patterns {
+            // Prime a couple frames; PPU starts at scanline 261 so the first "frame" is partial.
+
+            let mut skips = 0usize;
+            for enable_bg in pattern {
+                let ticks = frame_ticks_with_prerender_mask(&mut ppu, enable_bg);
+                if ticks == (341 * 262) - 1 {
+                    skips += 1;
+                }
+            }
+
+            assert_eq!(
+                skips, expected_skips,
+                "pattern {label} expected {expected_skips} skips, got {skips}"
+            );
+        }
+    }
 }

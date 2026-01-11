@@ -1,4 +1,4 @@
-.PHONY: all debug release release-tracing clean copy-assets wasm-debug wasm-release singlestep-op logs singlestep-all romtest help
+.PHONY: all debug release release-tracing clean copy-assets wasm-debug wasm-release singlestep-op logs singlestep-all romtest help run
 
 all: release
 
@@ -7,6 +7,7 @@ help:
 	@echo "  debug            Build debug"
 	@echo "  release          Build release"
 	@echo "  release-tracing  Build release with tracing"
+	@echo "  run              Run release with a specified (rom=path/to/rom.nes)"
 	@echo "  wasm-debug       Build wasm debug"
 	@echo "  wasm-release     Build wasm release"
 	@echo "  singlestep-op    Run single-step opcode test (op=XX)"
@@ -72,3 +73,6 @@ romtest: # Usage: make romtest rom=path/to/test.nes frames=120 buffer=30 (or tic
 		RUSTFLAGS="-Awarnings" cargo build --quiet --bin rom_test_runner; \
 	fi
 	./target/debug/rom_test_runner "$(rom)" $(if $(ticks),--ticks "$(ticks)",--frames "$(frames)") --buffer "$(if $(buffer),$(buffer),0)"
+
+run: # Usage: make rom=path/to/rom.nes
+	cargo run --release --bin nes-emulator -- $(rom)

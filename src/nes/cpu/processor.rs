@@ -488,7 +488,7 @@ impl CPU {
             | 0xD4 | 0xF4 | 0x0C | 0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => {
                 // Various single and multiple-byte NOPs
             }
-            _ => unreachable!(),
+            // _ => unreachable!(),
         }
 
         // Tick the bus for opcode cycles. Add any extra cycles from boundary_crosses and other special cases
