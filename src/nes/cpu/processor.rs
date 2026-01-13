@@ -1,111 +1,19 @@
-use super::interrupts::{Interrupt, InterruptType};
-use super::{interrupts, opcodes};
-use crate::trace;
 use bitflags::bitflags;
 use std::collections::HashMap;
 use thiserror::Error;
 
-// const DEBUG: bool = true;
-const DEBUG: bool = false;
-const CPU_STACK_RESET: u8 = 0xFF;
-const CPU_STACK_BASE: u16 = 0x0100;
+use super::super::trace;
+use super::opcodes::Opcode;
+use super::interrupts::{Interrupt, InterruptType};
+use super::{interrupts, opcodes, CpuBusInterface, CpuError, CpuMode, Flags, CPU, CPU_STACK_RESET, DEBUG};
 
-bitflags! {
-    /* https://www.nesdev.org/wiki/Status_flags
-            7  bit  0
-        ---- ----
-        NV1B DIZC
-        |||| ||||
-        |||| |||+- Carry
-        |||| ||+-- Zero
-        |||| |+--- Interrupt Disable
-        |||| +---- Decimal
-        |||+------ (No CPU effect; see: the B flag)
-        ||+------- (No CPU effect; always pushed as 1)
-        |+-------- Overflow
-        +--------- Negative
-     */
-    pub struct Flags: u8 {
-        const CARRY             = 1<<0;
-        const ZERO              = 1<<1;
-        const INTERRUPT_DISABLE = 1<<2;
-        const DECIMAL_MODE      = 1<<3;
-        const BREAK             = 1<<4;
-        const BREAK2            = 1<<5;
-        const OVERFLOW          = 1<<6;
-        const NEGATIVE          = 1<<7;
-    }
-}
-
-#[derive(Debug)]
-pub enum AddressingMode {
-    Immediate,
-    ZeroPage,
-    ZeroPageX,
-    ZeroPageY,
-    Absolute,
-    AbsoluteX,
-    AbsoluteY,
-    IndirectX,
-    IndirectY,
-    Indirect, // Exclusive to JMP opcodes
-    Relative, // Exclusive to Branch opcodes
-    None,
-}
-
-#[derive(Debug)]
-pub enum CpuMode {
-    Read,
-    Write,
-}
-
-pub trait CpuBusInterface {
-    fn cpu_bus_read(&mut self, addr: u16) -> u8;
-    fn cpu_bus_write(&mut self, addr: u16, value: u8);
-}
-
-#[derive(Debug, Error)]
-pub enum CpuError {
-    #[error("JAM opcode encountered: 0x{0:02X}")]
-    JamOpcode(u8),
-
-    #[error("Unknown opcode: 0x{0:02X}")]
-    UnknownOpcode(u8),
-
-    #[error("Unstable opcode: 0x{0:02X}")]
-    UnstableOpcode(u8),
-
-    #[error("Invalid NMI encountered")]
-    InvalidNMI,
-
-    #[error("Invalid opcode: 0x{0:02X}")]
-    InvalidOpcode(u8),
-}
-
-pub struct CPU {
-    pub bus: Option<*mut dyn CpuBusInterface>,
-    pub cycles: usize,
-    pub cpu_mode: CpuMode,
-    pub rdy: bool,
-    pub halt_scheduled: bool,
-
-    pub register_a: u8,
-    pub register_x: u8,
-    pub register_y: u8,
-    pub stack_pointer: u8,
-    pub status: Flags,
-    pub program_counter: u16,
-
-    pub skip_cycles: u8,
-    extra_cycles: u8,
-    skip_pc_advance: bool,
-
-    nmi_pending: bool,
-    interrupt_stack: Vec<InterruptType>,
-
-    pub last_opcode_desc: String,
-    // pub tracer: Tracer,
-    pub error: Option<CpuError>,
+struct CpuCycleState {
+    current_opcode: Option<u8>,
+    current_op: Option<&'static Opcode>,
+    micro_cycle: u8,
+    tmp_addr: u16,
+    tmp_data: u8,
+    page_crossed: bool,
 }
 
 impl CPU {
@@ -197,6 +105,12 @@ impl CPU {
         };
     }
 
+    pub fn tick2(&mut self) -> (u8, u8, bool) {
+
+
+        return (0,0,false);
+    }
+
     // `tick` returns (num_cycles, bytes_consumed, is_breaking)
     pub fn tick(&mut self) -> (u8, u8, bool) {
         // Stall for previous cycles from last instruction
@@ -229,7 +143,7 @@ impl CPU {
         self.toggle_mode();
 
         // If we're not already handling NMI, immediately handle it
-        if !self.interrupt_stack.contains(&InterruptType::NMI) && self.nmi_pending {
+        if !self.interrupt_stack.contains(&InterruptType::Nmi) && self.nmi_pending {
             self.nmi_pending = false;
             self.handle_interrupt(interrupts::NMI);
         }
@@ -392,13 +306,7 @@ impl CPU {
             /////////////////////////
             0xC7 | 0xD7 | 0xCF | 0xDF | 0xDB | 0xD3 | 0xC3 => {
                 // DCP => DEC oper + CMP oper
-                let dec_value = self.dec(opcode);
-
-                // Compare register_a with decremented value
-                let result = self.register_a.wrapping_sub(dec_value);
-                self.status.set(Flags::CARRY, self.register_a >= dec_value);
-                self.update_zero_and_negative_flags(result);
-                self.extra_cycles = 0;
+                self.dcp(opcode);
             }
             0x27 | 0x37 | 0x2F | 0x3F | 0x3B | 0x33 | 0x23 => {
                 // RLA => ROL oper + AND oper
@@ -413,6 +321,7 @@ impl CPU {
                 self.sre(opcode);
             }
             0x67 | 0x77 | 0x6F | 0x7F | 0x7B | 0x63 | 0x73 => {
+                // FIXME: Hand-roll this instead of chaining 2 instructions
                 // RRA => ROR oper + ADC oper
                 self.ror(opcode);
                 self.adc(opcode);
@@ -420,10 +329,10 @@ impl CPU {
             }
             0xE7 | 0xF7 | 0xEF | 0xFF | 0xFB | 0xE3 | 0xF3 => {
                 // ISC (ISB / INS) => INC oper + SBC oper
-                let inc_result = self.inc(opcode);
-                self.sub_from_register_a(inc_result);
+                self.isc(opcode);
             }
             0xA7 | 0xB7 | 0xAF | 0xBF | 0xA3 | 0xB3 => {
+                // FIXME: Hand-roll this instead of chaining 2 instructions
                 // LAX => LDA oper + LDX oper
                 self.lda(opcode);
                 self.ldx(opcode);
@@ -452,6 +361,7 @@ impl CPU {
                 self.anc(opcode);
             }
             0x4B => {
+                // FIXME: Hand-roll this instead of chaining 2 instructions
                 // ALR => AND oper + LSR
                 self.and(opcode);
                 self.lsr(opcode);
@@ -464,8 +374,13 @@ impl CPU {
                 // JAM - This freezes the CPU
                 // NOTE: I'm hijacking this opcode for use in processor_tests
                 //       0x02 now breaks the normal run() loop{}
-                self.cycles += 1;
-                return (11, 1, true);
+                return if cfg!(test) {
+                    self.cycles += 1;
+                    (11, 1, true)
+                } else {
+                    self.error = Some(CpuError::JamOpcode(opcode.value));
+                    (0, 0, true)
+                }
             }
             0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2 | 0xF2 => {
                 // JAM - These instructions freeze the CPU
@@ -504,723 +419,5 @@ impl CPU {
         self.cycles += 1;
         (cycle_count, opcode.size, false)
     }
-
-    // Utility functions
-    /////////////////////
-    fn get_parameter_address(&mut self, mode: &AddressingMode) -> (u16, bool) {
-        match mode {
-            AddressingMode::Absolute => (self.bus_read_u16(self.program_counter), false),
-            AddressingMode::Immediate => (self.program_counter, false),
-            AddressingMode::ZeroPage => (self.bus_read(self.program_counter) as u16, false),
-            AddressingMode::ZeroPageX => {
-                let base = self.bus_read(self.program_counter);
-                let addr = base.wrapping_add(self.register_x) as u16;
-                (addr, false)
-            }
-            AddressingMode::ZeroPageY => {
-                let base = self.bus_read(self.program_counter);
-                let addr = base.wrapping_add(self.register_y) as u16;
-                (addr, false)
-            }
-            AddressingMode::AbsoluteX => {
-                let base = self.bus_read_u16(self.program_counter);
-                let addr = base.wrapping_add(self.register_x as u16);
-
-                // Only read from base page (not the final address)
-                let dummy_addr =
-                    (base & 0xFF00) | ((base.wrapping_add(self.register_y as u16)) & 0x00FF);
-                let _ = self.bus_read(dummy_addr);
-
-                (addr, is_boundary_crossed(base, addr))
-            }
-            AddressingMode::AbsoluteY => {
-                let base = self.bus_read_u16(self.program_counter);
-                let addr = base.wrapping_add(self.register_y as u16);
-
-                // Only read from base page (not the final address)
-                let dummy_addr =
-                    (base & 0xFF00) | ((base.wrapping_add(self.register_y as u16)) & 0x00FF);
-                let _ = self.bus_read(dummy_addr);
-
-                (addr, is_boundary_crossed(base, addr))
-            }
-            AddressingMode::IndirectX => {
-                let base = self.bus_read(self.program_counter);
-                let addr = base.wrapping_add(self.register_x); // Zero-page wrapping
-                let lo = self.bus_read(addr as u16) as u16;
-                let hi = self.bus_read(addr.wrapping_add(1) as u16) as u16; // Zero-page wrap +1 as well
-                (hi << 8 | lo, false)
-            }
-            AddressingMode::IndirectY => {
-                let base = self.bus_read(self.program_counter) as u16;
-                let lo = self.bus_read(base) as u16;
-                let hi = self.bus_read((base as u8).wrapping_add(1) as u16) as u16;
-                let dynamic_base = hi << 8 | lo;
-                let addr = dynamic_base.wrapping_add(self.register_y as u16);
-                (addr, is_boundary_crossed(dynamic_base, addr))
-            }
-            AddressingMode::Indirect => {
-                // Note: JMP is the only opcode to use this AddressingMode
-                /* NOTE:
-                  An original 6502 has does not correctly fetch the target address if the indirect vector falls
-                  on a page boundary (e.g. $xxFF where xx is any value from $00 to $FF). In this case fetches
-                  the LSB from $xxFF as expected but takes the MSB from $xx00.
-                */
-                let indirect_vec = self.bus_read_u16(self.program_counter);
-                let address = if indirect_vec & 0x00FF == 0x00FF {
-                    let lo = self.bus_read(indirect_vec) as u16;
-                    let hi = self.bus_read(indirect_vec & 0xFF00) as u16;
-                    (hi << 8) | lo
-                } else {
-                    self.bus_read_u16(indirect_vec)
-                };
-                (address, false)
-            }
-            AddressingMode::Relative => {
-                // Note: Branch opcodes exclusively use this address mode
-                let offset = self.bus_read(self.program_counter) as i8; // sign-extend u8 to i8
-                let base_pc = self.program_counter.wrapping_add(1); // the relative address is based on a PC /after/ the current opcode
-                let target_address = base_pc.wrapping_add_signed(offset as i16);
-                let boundary_crossed = is_boundary_crossed(base_pc, target_address);
-                (target_address, boundary_crossed)
-            }
-            _ => unimplemented!(),
-        }
-    }
-
-    fn set_register_a(&mut self, value: u8) {
-        self.register_a = value;
-        self.update_zero_and_negative_flags(value);
-    }
-
-    pub(crate) fn set_register_x(&mut self, value: u8) {
-        self.register_x = value;
-        self.update_zero_and_negative_flags(value);
-    }
-
-    pub(crate) fn set_register_y(&mut self, value: u8) {
-        self.register_y = value;
-        self.update_zero_and_negative_flags(value);
-    }
-
-    fn set_program_counter(&mut self, address: u16) {
-        self.program_counter = address;
-        self.skip_pc_advance = true;
-    }
-
-    fn stack_push(&mut self, value: u8) {
-        let address = CPU_STACK_BASE.wrapping_add(self.stack_pointer as u16);
-        self.bus_write(address, value);
-        self.stack_pointer = self.stack_pointer.wrapping_sub(1);
-    }
-
-    fn stack_push_u16(&mut self, value: u16) {
-        let hi = (value >> 8) as u8;
-        let lo = value as u8;
-        self.stack_push(hi);
-        self.stack_push(lo);
-    }
-
-    fn stack_pop(&mut self) -> u8 {
-        self.stack_pointer = self.stack_pointer.wrapping_add(1);
-        self.bus_read(CPU_STACK_BASE.wrapping_add(self.stack_pointer as u16))
-    }
-
-    fn stack_pop_u16(&mut self) -> u16 {
-        let lo = self.stack_pop() as u16;
-        let hi = self.stack_pop() as u16;
-        hi << 8 | lo
-    }
-
-    fn update_zero_and_negative_flags(&mut self, result: u8) {
-        self.status.set(Flags::ZERO, result == 0);
-        self.status.set(Flags::NEGATIVE, result & 0b1000_0000 != 0);
-    }
-
-    fn add_to_register_a(&mut self, value: u8) {
-        let curr_carry = self.status.contains(Flags::CARRY) as u8;
-        let sum = self.register_a as u16 + value as u16 + curr_carry as u16;
-        let result = sum as u8;
-
-        // Method: OVERFLOW if the sign of the inputs are the same,
-        //         and do not match the sign of the result
-        // Reasoning: A signed overflow MUST have occurred in these cases:
-        //              * Positive + Positive = Negative OR
-        //              * Negative + Negative = Positive
-        // Boolean logic: (!((register_a ^ value) & 0x80) && ((register_a ^ result) & 0x80))
-        // See: https://forums.nesdev.org/viewtopic.php?t=6331
-        let signed_overflow =
-            ((self.register_a ^ result) & 0x80 != 0) && ((self.register_a ^ value) & 0x80 == 0);
-
-        self.status.set(Flags::OVERFLOW, signed_overflow);
-        self.status.set(Flags::NEGATIVE, result & 0x80 != 0);
-        self.status.set(Flags::ZERO, result == 0);
-        self.status.set(Flags::CARRY, sum > 0xFF);
-        self.register_a = result;
-    }
-
-    fn sub_from_register_a(&mut self, data: u8) {
-        self.add_to_register_a(!data);
-    }
-
-    fn compare(&mut self, opcode: &opcodes::Opcode, compare_value: u8) {
-        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let value = self.bus_read(address);
-        self.status.set(Flags::CARRY, compare_value >= value);
-        self.update_zero_and_negative_flags(compare_value.wrapping_sub(value));
-        self.extra_cycles += boundary_crossed as u8;
-    }
-
-    fn branch(&mut self, opcode: &opcodes::Opcode, condition: bool) {
-        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let cycles = boundary_crossed as u8;
-        if condition {
-            self.set_program_counter(address);
-            self.extra_cycles = self.extra_cycles + cycles + 1;
-        }
-    }
-
-    fn handle_interrupt(&mut self, interrupt: Interrupt) {
-        // TODO: remove this sanity check
-        if interrupt.interrupt_type == InterruptType::NMI
-            && self.interrupt_stack.contains(&InterruptType::NMI)
-        {
-            self.error = Some(CpuError::InvalidNMI);
-            return;
-        }
-
-        self.interrupt_stack.push(interrupt.interrupt_type);
-
-        self.stack_push_u16(self.program_counter);
-
-        let mut status_flags = Flags::from_bits_truncate(self.status.bits());
-        status_flags.set(Flags::BREAK, interrupt.b_flag_mask & 0b0001_0000 != 0);
-        status_flags.set(Flags::BREAK2, interrupt.b_flag_mask & 0b0010_0000 != 0);
-        self.stack_push(status_flags.bits());
-
-        // TODO: What does this affect?
-        self.status.set(Flags::INTERRUPT_DISABLE, true); // Disable interrupts while handling one
-
-        self.extra_cycles += interrupt.cpu_cycles;
-        let jmp_address = self.bus_read_u16(interrupt.vector_addr);
-        self.set_program_counter(jmp_address);
-    }
-
-    // Opcodes
-    ////////////j/
-    fn lda(&mut self, opcode: &opcodes::Opcode) {
-        let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
-        self.extra_cycles += boundary_cross as u8; // boundary_cross adds 1 extra cycle
-
-        let param = self.bus_read(address);
-        self.set_register_a(param);
-    }
-
-    fn ldx(&mut self, opcode: &opcodes::Opcode) {
-        let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
-        self.extra_cycles += boundary_cross as u8; // boundary_cross adds 1 extra cycle
-
-        let param = self.bus_read(address);
-        self.set_register_x(param);
-    }
-
-    fn ldy(&mut self, opcode: &opcodes::Opcode) {
-        let (address, boundary_cross) = self.get_parameter_address(&opcode.mode);
-        self.extra_cycles += boundary_cross as u8; // boundary_cross adds 1 extra cycle
-
-        let param = self.bus_read(address);
-        self.set_register_y(param);
-    }
-
-    fn sta(&mut self, opcode: &opcodes::Opcode) {
-        let (address, _) = self.get_parameter_address(&opcode.mode);
-        // self.bus_read(address);
-        self.bus_write(address, self.register_a);
-    }
-
-    fn stx(&mut self, opcode: &opcodes::Opcode) {
-        let (address, _) = self.get_parameter_address(&opcode.mode);
-        self.bus_write(address, self.register_x);
-    }
-
-    fn sty(&mut self, opcode: &opcodes::Opcode) {
-        let (address, _) = self.get_parameter_address(&opcode.mode);
-        self.bus_write(address, self.register_y);
-    }
-
-    fn tax(&mut self) {
-        self.set_register_x(self.register_a);
-    }
-
-    fn tay(&mut self) {
-        self.set_register_y(self.register_a);
-    }
-
-    fn tsx(&mut self) {
-        self.set_register_x(self.stack_pointer);
-    }
-
-    fn txa(&mut self) {
-        self.set_register_a(self.register_x);
-    }
-
-    fn txs(&mut self) {
-        self.stack_pointer = self.register_x;
-    }
-
-    fn tya(&mut self) {
-        self.set_register_a(self.register_y);
-    }
-
-    fn cld(&mut self) {
-        self.status.remove(Flags::DECIMAL_MODE);
-    }
-
-    fn cli(&mut self) {
-        self.status.remove(Flags::INTERRUPT_DISABLE);
-    }
-
-    fn clv(&mut self) {
-        self.status.remove(Flags::OVERFLOW);
-    }
-
-    fn clc(&mut self) {
-        self.status.remove(Flags::CARRY);
-    }
-
-    fn sec(&mut self) {
-        self.status.insert(Flags::CARRY);
-    }
-
-    fn sei(&mut self) {
-        self.status.insert(Flags::INTERRUPT_DISABLE);
-    }
-
-    fn sed(&mut self) {
-        self.status.insert(Flags::DECIMAL_MODE);
-    }
-
-    fn inx(&mut self) {
-        self.register_x = self.register_x.wrapping_add(1);
-        self.update_zero_and_negative_flags(self.register_x);
-    }
-
-    fn iny(&mut self) {
-        self.register_y = self.register_y.wrapping_add(1);
-        self.update_zero_and_negative_flags(self.register_y);
-    }
-
-    fn dex(&mut self) {
-        self.register_x = self.register_x.wrapping_sub(1);
-        self.update_zero_and_negative_flags(self.register_x);
-    }
-
-    fn dey(&mut self) {
-        self.register_y = self.register_y.wrapping_sub(1);
-        self.update_zero_and_negative_flags(self.register_y);
-    }
-
-    fn pha(&mut self) {
-        // Push register_a onto the stack
-        self.stack_push(self.register_a)
-    }
-
-    fn pla(&mut self) {
-        // Pop stack into register_a
-        let value = self.stack_pop();
-        self.set_register_a(value);
-    }
-
-    fn php(&mut self) {
-        // Push processor_status onto the stack
-        // https://www.nesdev.org/wiki/Status_flags
-        // says that B flag is pushed as 1, but not affected on the CPU
-        let mut status_copy = Flags::from_bits_truncate(self.status.bits());
-        status_copy.insert(Flags::BREAK);
-        self.stack_push(status_copy.bits())
-    }
-
-    fn plp(&mut self) {
-        // Pop stack into processor_status
-        self.status = Flags::from_bits_truncate(self.stack_pop());
-        self.status.remove(Flags::BREAK); // This flag is disabled when fetching
-        self.status.insert(Flags::BREAK2); // This flag is supposed to always be 1 on CPU
-    }
-
-    fn asl(&mut self, opcode: &opcodes::Opcode) -> u8 {
-        // Arithmetic Shift Left into carry
-        match opcode.mode {
-            AddressingMode::Immediate => {
-                let carry = self.register_a & 0x80 != 0;
-                let value = self.register_a << 1;
-                self.set_register_a(value);
-                self.status.set(Flags::CARRY, carry);
-                value
-            }
-            _ => {
-                let (address, _) = self.get_parameter_address(&opcode.mode);
-                let mut value = self.bus_read(address);
-                let carry = value & 0x80 != 0;
-                value <<= 1;
-                self.bus_write(address, value);
-                self.update_zero_and_negative_flags(value);
-                self.status.set(Flags::CARRY, carry);
-                value
-            }
-        }
-    }
-
-    fn lsr(&mut self, opcode: &opcodes::Opcode) -> u8 {
-        // Logical Shift Right into carry
-        match opcode.mode {
-            AddressingMode::Immediate => {
-                let carry = self.register_a & 1 != 0;
-                let value = self.register_a >> 1;
-                self.set_register_a(value);
-                self.status.set(Flags::CARRY, carry);
-                value
-            }
-            _ => {
-                let (address, _) = self.get_parameter_address(&opcode.mode);
-                let mut value = self.bus_read(address);
-                let carry = value & 1 != 0;
-                value >>= 1;
-                self.bus_write(address, value);
-                self.update_zero_and_negative_flags(value);
-                self.status.set(Flags::CARRY, carry);
-                value
-            }
-        }
-    }
-
-    fn rol(&mut self, opcode: &opcodes::Opcode) -> u8 {
-        // Rotate Left through carry flag
-        let curr_carry = self.status.contains(Flags::CARRY);
-        match opcode.mode {
-            AddressingMode::Immediate => {
-                let (value, new_carry) = rotate_value_left(self.register_a, curr_carry);
-                self.set_register_a(value);
-                self.status.set(Flags::CARRY, new_carry);
-                value
-            }
-            _ => {
-                let (address, _) = self.get_parameter_address(&opcode.mode);
-                let value = self.bus_read(address);
-                let (result, new_carry) = rotate_value_left(value, curr_carry);
-                self.bus_write(address, result);
-                self.update_zero_and_negative_flags(result);
-                self.status.set(Flags::CARRY, new_carry);
-                result
-            }
-        }
-    }
-
-    fn ror(&mut self, opcode: &opcodes::Opcode) {
-        // Rotate Right through carry flag
-        let curr_carry = self.status.contains(Flags::CARRY);
-        match opcode.mode {
-            AddressingMode::Immediate => {
-                let (value, new_carry) = rotate_value_right(self.register_a, curr_carry);
-                self.set_register_a(value);
-                self.status.set(Flags::CARRY, new_carry);
-            }
-            _ => {
-                let (address, _) = self.get_parameter_address(&opcode.mode);
-                let value = self.bus_read(address);
-                let (result, new_carry) = rotate_value_right(value, curr_carry);
-                self.bus_write(address, result);
-                self.update_zero_and_negative_flags(result);
-                self.status.set(Flags::CARRY, new_carry);
-            }
-        }
-    }
-
-    fn inc(&mut self, opcode: &opcodes::Opcode) -> u8 {
-        // Increment value at Memory
-        let (address, _) = self.get_parameter_address(&opcode.mode);
-        let mut value = self.bus_read(address);
-        value = value.wrapping_add(1);
-        self.bus_write(address, value);
-        self.update_zero_and_negative_flags(value);
-        value
-    }
-
-    fn dec(&mut self, opcode: &opcodes::Opcode) -> u8 {
-        // Decrement value at Memory
-        let (address, _) = self.get_parameter_address(&opcode.mode);
-        let mut value = self.bus_read(address);
-        value = value.wrapping_sub(1);
-        self.bus_write(address, value);
-        self.update_zero_and_negative_flags(value);
-        value
-    }
-
-    fn cmp(&mut self, opcode: &opcodes::Opcode) {
-        // Compare A register
-        self.compare(opcode, self.register_a);
-    }
-
-    fn cpx(&mut self, opcode: &opcodes::Opcode) {
-        // Compare X Register
-        self.compare(opcode, self.register_x);
-    }
-
-    fn cpy(&mut self, opcode: &opcodes::Opcode) {
-        // Compare Y Register
-        self.compare(opcode, self.register_y);
-    }
-
-    fn adc(&mut self, opcode: &opcodes::Opcode) {
-        // Add with Carry
-        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let value = self.bus_read(address);
-        self.add_to_register_a(value);
-        self.extra_cycles += boundary_crossed as u8;
-    }
-
-    fn sbc(&mut self, opcode: &opcodes::Opcode) {
-        // Subtract with Carry
-        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let value = self.bus_read(address);
-        self.sub_from_register_a(value);
-        self.extra_cycles += boundary_crossed as u8;
-    }
-
-    fn and(&mut self, opcode: &opcodes::Opcode) {
-        // Logical AND on accumulator
-        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let value = self.bus_read(address);
-        self.set_register_a(self.register_a & value);
-        self.extra_cycles += boundary_crossed as u8;
-    }
-
-    fn eor(&mut self, opcode: &opcodes::Opcode) {
-        // Logical Exclusive OR on accumulator
-        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let value = self.bus_read(address);
-        self.set_register_a(self.register_a ^ value);
-        self.extra_cycles += boundary_crossed as u8;
-    }
-
-    fn ora(&mut self, opcode: &opcodes::Opcode) {
-        // Logical OR on accumulator
-        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let value = self.bus_read(address);
-        self.set_register_a(self.register_a | value);
-        self.extra_cycles += boundary_crossed as u8;
-    }
-
-    fn jmp(&mut self, opcode: &opcodes::Opcode) {
-        let (address, _) = self.get_parameter_address(&opcode.mode);
-        self.set_program_counter(address);
-    }
-
-    fn jsr(&mut self, opcode: &opcodes::Opcode) {
-        // Jump to Subroutine
-        let (jump_address, _) = self.get_parameter_address(&opcode.mode);
-        let return_address = self.program_counter.wrapping_add(1);
-        self.stack_push_u16(return_address);
-        self.set_program_counter(jump_address);
-    }
-
-    fn rts(&mut self) {
-        // Return from Subroutine
-        let return_address_minus_one = self.stack_pop_u16();
-        let address = return_address_minus_one.wrapping_add(1);
-
-        let _ = self.bus_read(self.program_counter); // dummy read
-        self.set_program_counter(address);
-    }
-
-    fn rti(&mut self) {
-        // Return from Interrupt
-        // NOTE: Note that unlike RTS, the return address on the stack is the actual address rather than the address-1
-        let return_status = self.stack_pop(); // Restore status flags first
-        let return_address = self.stack_pop_u16(); // Restore PC
-
-        let _ = self.bus_read(self.program_counter); // dummy read
-        self.set_program_counter(return_address);
-
-        let mut restored_flags = Flags::from_bits_truncate(return_status);
-        restored_flags.set(Flags::BREAK, false); // BRK flag is always cleared after RTI
-        restored_flags.set(Flags::BREAK2, true); // BRK2 flag is always cleared after RTI
-        self.status = restored_flags;
-
-        // Pop the most recent interrupt type
-        self.interrupt_stack.pop();
-    }
-
-    fn bne(&mut self, opcode: &opcodes::Opcode) {
-        // Branch if ZERO is clear
-        self.branch(opcode, self.status.contains(Flags::ZERO) == false)
-    }
-
-    fn bvs(&mut self, opcode: &opcodes::Opcode) {
-        // Branch if OVERFLOW is set
-        self.branch(opcode, self.status.contains(Flags::OVERFLOW))
-    }
-    fn bvc(&mut self, opcode: &opcodes::Opcode) {
-        // Branch if OVERFLOW is clear
-        self.branch(opcode, self.status.contains(Flags::OVERFLOW) == false)
-    }
-
-    fn bmi(&mut self, opcode: &opcodes::Opcode) {
-        // Branch if NEGATIVE is set
-        self.branch(opcode, self.status.contains(Flags::NEGATIVE))
-    }
-
-    fn beq(&mut self, opcode: &opcodes::Opcode) {
-        // Branch if ZERO is set
-        self.branch(opcode, self.status.contains(Flags::ZERO))
-    }
-
-    fn bcs(&mut self, opcode: &opcodes::Opcode) {
-        // Branch if CARRY is set
-        self.branch(opcode, self.status.contains(Flags::CARRY))
-    }
-
-    fn bcc(&mut self, opcode: &opcodes::Opcode) {
-        // Branch if CARRY is clear
-        self.branch(opcode, self.status.contains(Flags::CARRY) == false)
-    }
-
-    fn bpl(&mut self, opcode: &opcodes::Opcode) {
-        // Branch if NEGATIVE is clear
-        self.branch(opcode, self.status.contains(Flags::NEGATIVE) == false)
-    }
-
-    fn bit(&mut self, opcode: &opcodes::Opcode) {
-        // Bit Test
-        let (address, _) = self.get_parameter_address(&opcode.mode);
-        let value = self.bus_read(address);
-        let result = value & self.register_a;
-        self.status.set(Flags::ZERO, result == 0);
-
-        // These flags are set based on bits from the original fetched data
-        self.status.set(Flags::NEGATIVE, value & (1 << 7) != 0);
-        self.status.set(Flags::OVERFLOW, value & (1 << 6) != 0);
-    }
-
-    fn slo(&mut self, opcode: &opcodes::Opcode) {
-        let shifted_result = self.asl(opcode);
-        let ora_result = self.register_a | shifted_result;
-        self.set_register_a(ora_result);
-        self.update_zero_and_negative_flags(ora_result);
-    }
-
-    fn nop_page_cross(&mut self, opcode: &opcodes::Opcode) {
-        let (_address, boundary_cross) = self.get_parameter_address(&opcode.mode);
-        self.extra_cycles += boundary_cross as u8;
-    }
-
-    /////////////////////////
-    /// Illegal Opcodes
-    /////////////////////////
-
-    fn sax(&mut self, opcode: &opcodes::Opcode) {
-        // SAX => A AND X -> M
-        /* A and X are put on the bus at the same time (resulting effectively
-          in an AND operation) and stored in M
-        */
-        let (address, _) = self.get_parameter_address(&opcode.mode);
-        let result = self.register_a & self.register_x;
-        self.bus_write(address, result);
-    }
-
-    fn sbx(&mut self, opcode: &opcodes::Opcode) {
-        let (address, _) = self.get_parameter_address(&opcode.mode);
-        let value = self.bus_read(address);
-
-        let and_result = self.register_a & self.register_x;
-        let result = and_result.wrapping_sub(value);
-
-        self.register_x = result;
-        self.status.set(Flags::CARRY, and_result >= value);
-        self.update_zero_and_negative_flags(result);
-    }
-
-    fn anc(&mut self, opcode: &opcodes::Opcode) {
-        let (address, _) = self.get_parameter_address(&opcode.mode);
-        let value = self.bus_read(address);
-        self.set_register_a(self.register_a & value);
-        self.status
-            .set(Flags::CARRY, self.register_a & 0b1000_0000 != 0);
-    }
-
-    fn arr(&mut self, opcode: &opcodes::Opcode) {
-        // ARR => AND + ROR with special flag behavior
-        let (address, _) = self.get_parameter_address(&opcode.mode);
-        let value = self.bus_read(address);
-        self.register_a &= value;
-
-        // Perform ROR (Rotate Right) with Carry
-        let carry = self.status.contains(Flags::CARRY) as u8;
-        let result = (self.register_a >> 1) | (carry << 7);
-        self.register_a = result;
-        self.update_zero_and_negative_flags(result);
-
-        // Set Carry flag based on bit 6
-        self.status.set(Flags::CARRY, result & 0b0100_0000 != 0);
-
-        // Set Overflow flag based on bits 6 and 5
-        let bit6 = result & 0b0100_0000 != 0;
-        let bit5 = result & 0b0010_0000 != 0;
-        self.status.set(Flags::OVERFLOW, bit6 ^ bit5);
-    }
-
-    fn brk(&mut self) {
-        let _ = self.bus_read(self.program_counter); // dummy read
-
-        // BRK - Software-defined Interrupt
-        self.program_counter = self.program_counter.wrapping_add(1); // BRK has an implied operand, so increment PC before pushing
-        self.handle_interrupt(interrupts::BRK);
-    }
-
-    fn sre(&mut self, opcode: &opcodes::Opcode) {
-        // SRE => LSR oper + EOR oper
-        let result = self.lsr(opcode); // LSR
-        self.set_register_a(self.register_a ^ result); // A ^ M -> A
-        self.extra_cycles = 0;
-    }
-
-    fn rla(&mut self, opcode: &opcodes::Opcode) {
-        // RLA => ROL oper + AND oper
-        let result = self.rol(opcode); // ROL
-        self.set_register_a(self.register_a & result); // M & A -> A
-        self.extra_cycles = 0;
-    }
-
-    fn las(&mut self, opcode: &opcodes::Opcode) {
-        // LAS (LAR) => AND with SP, store in A, X, SP
-        let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-        let value = self.bus_read(address);
-        self.set_register_a(value);
-
-        // Perform AND operation with the stack pointer
-        let result = value & self.stack_pointer;
-        self.register_a = result;
-        self.register_x = result;
-        self.stack_pointer = result;
-
-        self.update_zero_and_negative_flags(result);
-        self.extra_cycles += boundary_crossed as u8;
-    }
 }
 
-fn is_boundary_crossed(addr1: u16, addr2: u16) -> bool {
-    addr1 & 0xFF00 != addr2 & 0xFF00
-}
-
-pub fn rotate_value_left(value: u8, current_carry: bool) -> (u8, bool) {
-    let new_carry = value & 0b1000_0000 != 0;
-    let mut shifted = value << 1;
-    shifted |= current_carry as u8;
-    (shifted, new_carry)
-}
-
-pub fn rotate_value_right(value: u8, current_carry: bool) -> (u8, bool) {
-    let new_carry = value & 0b0000_0001 != 0;
-    let mut shifted = value >> 1;
-    shifted |= (current_carry as u8) << 7;
-    (shifted, new_carry)
-}

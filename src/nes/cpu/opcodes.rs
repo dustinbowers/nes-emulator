@@ -1,6 +1,6 @@
-use super::processor::AddressingMode;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
+use super::AddressingMode;
 
 pub struct Opcode {
     pub value: u8,

@@ -1,4 +1,4 @@
-use crate::nes::cpu::processor::{CPU, CpuBusInterface};
+use crate::nes::cpu::{CPU, CpuBusInterface};
 
 #[cfg(any(test, feature = "single-step-runner"))]
 pub struct SimpleBus {

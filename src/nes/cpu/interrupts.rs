@@ -2,9 +2,9 @@
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum InterruptType {
-    NMI, // Non-maskable interrupt (triggered from PPU at VBLANK)
-    IRQ,
-    BRK, // Software-defined interrupt
+    Nmi, // Non-maskable interrupt (triggered from PPU at VBLANK)
+    Irq,
+    Brk, // Software-defined interrupt
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -16,21 +16,21 @@ pub struct Interrupt {
 }
 
 pub const NMI: Interrupt = Interrupt {
-    interrupt_type: InterruptType::NMI,
+    interrupt_type: InterruptType::Nmi,
     vector_addr: 0xFFFA, // NMI address vector lives at $FFFA
     b_flag_mask: 0b0010_0000,
     cpu_cycles: 7,
 };
 
 pub const BRK: Interrupt = Interrupt {
-    interrupt_type: InterruptType::BRK,
+    interrupt_type: InterruptType::Brk,
     vector_addr: 0xFFFE,      // brk address vector lives at $FFFE
     b_flag_mask: 0b0011_0000, // TODO: I think this is supposed to be 0b0010_0000
     cpu_cycles: 7,
 };
 
 pub const IRQ: Interrupt = Interrupt {
-    interrupt_type: InterruptType::IRQ,
+    interrupt_type: InterruptType::Irq,
     vector_addr: 0xFFFE, // IRQ address vector lives at $FFFE
     b_flag_mask: 0b0000_0000,
     cpu_cycles: 7,

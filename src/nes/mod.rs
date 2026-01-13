@@ -1,3 +1,4 @@
+use cpu::CpuBusInterface;
 pub mod apu;
 pub mod bus;
 pub mod cartridge;
@@ -7,11 +8,10 @@ pub mod tracer;
 
 pub mod controller;
 
-use crate::nes::cartridge::rom::{Rom, RomError};
-use crate::{trace, trace_obj};
+use cartridge::rom::{Rom, RomError};
+use super::{trace, trace_obj};
 use bus::nes_bus::NesBus;
 use cartridge::Cartridge;
-use cpu::processor::CpuBusInterface;
 
 const OAM_DMA_START_CYCLES: usize = 0;
 const OAM_DMA_DONE_CYCLES: usize = 512;

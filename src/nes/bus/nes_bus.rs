@@ -1,11 +1,12 @@
+use crate::nes::cpu::{CPU, CpuBusInterface};
 use crate::nes::apu::{APU, ApuBusInterface};
+use crate::nes::ppu::{PPU, PpuBusInterface};
+
 use crate::nes::cartridge::Cartridge;
 use crate::nes::cartridge::rom::Mirroring;
 use crate::nes::controller::NesController;
 use crate::nes::controller::joypad::Joypad;
-use crate::nes::cpu::processor::{CPU, CpuBusInterface};
 use crate::nes::ppu::registers::status_register::StatusRegister;
-use crate::nes::ppu::{PPU, PpuBusInterface};
 use crate::nes::tracer::traceable::Traceable;
 use crate::trace;
 use std::pin::Pin;
