@@ -200,7 +200,7 @@ mod test {
     }
 
     fn frame_ticks_with_prerender_mask(ppu: &mut PPU, enable_bg: bool) -> usize {
-        let mut ticks = 0usize;
+ s       let mut ticks = 0usize;
         let mask_value = if enable_bg { 0b0000_1000 } else { 0 };
         loop {
             if ppu.scanline == 261 && ppu.cycles == 338 {

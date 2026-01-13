@@ -74,5 +74,6 @@ romtest: # Usage: make romtest rom=path/to/test.nes frames=120 buffer=30 (or tic
 	fi
 	./target/debug/rom_test_runner "$(rom)" $(if $(ticks),--ticks "$(ticks)",--frames "$(frames)") --buffer "$(if $(buffer),$(buffer),0)"
 
+# Run the emulator with a specified ROM
 run: # Usage: make rom=path/to/rom.nes
 	cargo run --release --bin nes-emulator -- $(rom)

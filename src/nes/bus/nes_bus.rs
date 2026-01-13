@@ -117,20 +117,18 @@ impl CpuBusInterface for NesBus {
             }
             PPU_REGISTERS_START..=PPU_REGISTERS_END => {
                 // PPU Registers mirrored every 8 bytes
-                // let reg = 0x2000 + (addr & 0x0007);
-                if addr == 0x2002 {
-                    trace!(
-                        "{}",
-                        format!(
-                            "[CPU READ $2002] CPU_PC=${:04X} PPU global_cycles={} SL={} DOT={}, (cpu_view_vblank={:?})",
-                            self.cpu.program_counter,
-                            self.ppu.global_ppu_ticks,
-                            self.ppu.scanline,
-                            self.ppu.cycles,
-                            self.ppu
-                                .status_register
-                                .contains(StatusRegister::VBLANK_STARTED)
-                        )
+                let reg = 0x2000 + (addr & 0x0007);
+                if reg == 0x2002 && std::env::var("NES_STATUS_READ_LOG").is_ok() {
+                    eprintln!(
+                        "[CPU READ $2002] PC=${:04X} SL={} DOT={} global_ppu_ticks={} vblank={} last_opcode={}",
+                        self.cpu.program_counter,
+                        self.ppu.scanline,
+                        self.ppu.cycles,
+                        self.ppu.global_ppu_ticks,
+                        self.ppu
+                            .status_register
+                            .contains(StatusRegister::VBLANK_STARTED),
+                        self.cpu.last_opcode_desc
                     );
                 }
                 let result = self.ppu.read_register(addr);
@@ -179,6 +177,17 @@ impl CpuBusInterface for NesBus {
                 self.cpu_ram[mirrored as usize] = value;
             }
             PPU_REGISTERS_START..=PPU_REGISTERS_END => {
+                let reg = 0x2000 + (addr & 0x0007);
+                if reg == 0x2001 && std::env::var("NES_MASK_LOG").is_ok() {
+                    eprintln!(
+                        "[CPU WRITE $2001] PC=${:04X} value={:02X} SL={} DOT={} last_opcode={}",
+                        self.cpu.program_counter,
+                        value,
+                        self.ppu.scanline,
+                        self.ppu.cycles,
+                        self.cpu.last_opcode_desc
+                    );
+                }
                 self.ppu.write_register(addr, value);
             }
             0x4014 => {
