@@ -15,7 +15,7 @@ fn run_test_program(bus: &mut SimpleBus) -> usize {
     println!("running program...");
     let mut total_cycles = 0;
     loop {
-        let (cycles, _, is_breaking) = bus.cpu.tick();
+        let (cycles, _, is_breaking) = bus.cpu.tick2();
         println!("tick cycles: {cycles}");
         total_cycles += cycles as usize;
         if is_breaking {

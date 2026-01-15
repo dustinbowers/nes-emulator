@@ -2,17 +2,17 @@
    Test runner is meant to run nes6502 single-step opcode tests from
    https://github.com/SingleStepTests/65x02/tree/main/nes6502
 */
+#[path = "../nes/mod.rs"]
 mod nes;
 
-use crate::nes::bus::simple_bus::SimpleBus;
-use crate::nes::cpu::processor::{CpuBusInterface, Flags};
-use nes::NES;
 use serde::Deserialize;
 use std::env;
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process;
+use crate::nes::bus::simple_bus::SimpleBus;
+use crate::nes::cpu::{CpuBusInterface, Flags};
 
 #[derive(Debug, Deserialize)]
 struct OpcodeTest {
@@ -125,6 +125,7 @@ fn read_opcode_tests(
 }
 
 fn run_opcode_test(bus: &mut SimpleBus, test: &OpcodeTest) {
+    println!("+++++++++++++++ RUN OPCODE TEST +++++++++++++++++");
     bus.reset();
 
     // Set initial state of CPU and memory
@@ -143,7 +144,12 @@ fn run_opcode_test(bus: &mut SimpleBus, test: &OpcodeTest) {
     }
 
     // Single-step
-    bus.tick();
+    println!("pre-state: {:?}", start);
+    let num_cycles = test.cycles.len();
+    dbg!(num_cycles);
+    while bus.tick().0 == false {}
+
+    println!("post-state:{:?}", start);
 
     // Confirm final state is correct
     let end = &test.final_state;

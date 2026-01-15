@@ -1,6 +1,7 @@
 use bitflags::bitflags;
 use thiserror::Error;
 use interrupts::InterruptType;
+use opcodes::{Opcode};
 use super::tracer::Traceable;
 
 mod interrupts;
@@ -44,7 +45,7 @@ bitflags! {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum AddressingMode {
     Immediate,
     ZeroPage,
@@ -60,13 +61,21 @@ pub enum AddressingMode {
     None,
 }
 
+#[derive(Default, Debug, PartialEq, Clone, Copy)]
+pub enum AccessType {
+    None,
+    #[default]
+    Read,
+    Write,
+    ReadModifyWrite,
+    Register,
+}
+
 #[derive(Debug)]
 pub enum CpuMode {
     Read,
     Write,
 }
-
-
 
 #[derive(Debug, Error)]
 pub enum CpuError {
@@ -86,6 +95,37 @@ pub enum CpuError {
     InvalidOpcode(u8),
 }
 
+#[derive(Default, Debug)]
+struct CpuCycleState {
+    opcode: Option<&'static Opcode>,
+    micro_cycle: u8,
+    tmp_addr: u16,
+    tmp_data: u8,
+    page_crossed: bool,
+    access_type: AccessType,
+    // addr_result: AddrResult,
+    exec_phase: ExecPhase,
+}
+
+#[derive(Default)]
+#[derive(Debug)]
+enum AddrResult {
+    #[default]
+    InProgress,
+    Ready(u16),
+    ReadyImmediate(u8),
+}
+
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
+enum ExecPhase {
+    #[default]
+    Idle,     // instruction waiting for address resolution
+    Read,
+    Internal, // cpu work (ALU / registers / etc.)
+    Write,
+    Done,
+}
+
 pub struct CPU {
     pub bus: Option<*mut dyn CpuBusInterface>,
     pub cycles: usize,
@@ -100,9 +140,10 @@ pub struct CPU {
     pub status: Flags,
     pub program_counter: u16,
 
-    pub skip_cycles: u8,
-    pub extra_cycles: u8,
-    skip_pc_advance: bool,
+    // pub skip_cycles: u8,
+    // pub extra_cycles: u8,
+    // skip_pc_advance: bool,
+    current_op: CpuCycleState,
 
     nmi_pending: bool,
     interrupt_stack: Vec<InterruptType>,
@@ -110,6 +151,7 @@ pub struct CPU {
     pub last_opcode_desc: String,
     // pub tracer: Tracer,
     pub error: Option<CpuError>,
+    pub stop: bool,
 }
 
 
@@ -123,10 +165,10 @@ impl Traceable for CPU {
         "CPU"
     }
     fn trace_state(&self) -> Option<String> {
-        if self.skip_cycles == 0 {
+        if self.current_op.micro_cycle == 0 {
             Some(format!(
-                "(skip: {}) PC={:04X} A={:02X} X={:02X} Y={:02X} P={:02X} SP={:02X} [{:?}]",
-                self.skip_cycles,
+                "(micro_cycle: {}) PC={:04X} A={:02X} X={:02X} Y={:02X} P={:02X} SP={:02X} [{:?}]",
+                self.current_op.micro_cycle,
                 self.program_counter,
                 self.register_a,
                 self.register_x,
