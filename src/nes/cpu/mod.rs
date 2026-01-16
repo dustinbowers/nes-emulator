@@ -2,6 +2,7 @@ use bitflags::bitflags;
 use thiserror::Error;
 use interrupts::InterruptType;
 use opcodes::{Opcode};
+use crate::nes::cpu::interrupts::Interrupt;
 use super::tracer::Traceable;
 
 mod interrupts;
@@ -95,17 +96,7 @@ pub enum CpuError {
     InvalidOpcode(u8),
 }
 
-#[derive(Default, Debug)]
-struct CpuCycleState {
-    opcode: Option<&'static Opcode>,
-    micro_cycle: u8,
-    tmp_addr: u16,
-    tmp_data: u8,
-    page_crossed: bool,
-    access_type: AccessType,
-    // addr_result: AddrResult,
-    exec_phase: ExecPhase,
-}
+
 
 #[derive(Default)]
 #[derive(Debug)]
@@ -124,6 +115,18 @@ enum ExecPhase {
     Internal, // cpu work (ALU / registers / etc.)
     Write,
     Done,
+}
+
+#[derive(Default, Debug)]
+struct CpuCycleState {
+    opcode: Option<&'static Opcode>,
+    interrupt: Option<Interrupt>,
+    micro_cycle: u8,
+    tmp_addr: u16,
+    tmp_data: u8,
+    page_crossed: bool,
+    access_type: AccessType,
+    exec_phase: ExecPhase,
 }
 
 pub struct CPU {
@@ -146,7 +149,9 @@ pub struct CPU {
     current_op: CpuCycleState,
 
     nmi_pending: bool,
-    interrupt_stack: Vec<InterruptType>,
+    irq_pending: bool,
+    active_interrupt: Option<Interrupt>,
+    // interrupt_stack: Vec<InterruptType>,
 
     pub last_opcode_desc: String,
     // pub tracer: Tracer,

@@ -1,13 +1,13 @@
 // See: https://www.nesdev.org/wiki/CPU_interrupts#IRQ_and_NMI_tick-by-tick_execution
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum InterruptType {
     Nmi, // Non-maskable interrupt (triggered from PPU at VBLANK)
     Irq,
     Brk, // Software-defined interrupt
 }
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Interrupt {
     pub interrupt_type: InterruptType,
     pub vector_addr: u16,
@@ -25,7 +25,7 @@ pub const NMI: Interrupt = Interrupt {
 pub const BRK: Interrupt = Interrupt {
     interrupt_type: InterruptType::Brk,
     vector_addr: 0xFFFE,      // brk address vector lives at $FFFE
-    b_flag_mask: 0b0011_0000, // TODO: I think this is supposed to be 0b0010_0000
+    b_flag_mask: 0b0011_0000,
     cpu_cycles: 7,
 };
 

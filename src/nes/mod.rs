@@ -83,16 +83,15 @@ impl NES {
         if self.bus.ppu.global_ppu_ticks.is_multiple_of(3) {
             match self.dma_mode {
                 DmaMode::None => {
-                    if !self.bus.cpu.rdy {
+                    if self.bus.cpu.rdy {
+                        self.bus.cpu.tick();
+                        trace_obj!(self.bus.cpu);
+                    } else {
                         // Start OAM DMA
                         // println!("DMA START");
                         trace!("PPU DMA START");
                         self.dma_mode = DmaMode::Oam;
                         self.oam_transfer_cycles = OAM_DMA_START_CYCLES; // counts 0..511 for 256 bytes
-                        self.bus.cpu.rdy = false;
-                    } else {
-                        self.bus.cpu.tick();
-                        trace_obj!(self.bus.cpu);
                     }
                 }
                 DmaMode::Oam => {
@@ -113,7 +112,7 @@ impl NES {
                         // DMA complete
                         trace!("PPU DMA COMPLETE");
                         self.dma_mode = DmaMode::None;
-                        self.bus.cpu.rdy = true;
+                        self.bus.cpu.rdy = true; // Carry on with regular CPU cycles
                     }
                 }
             }

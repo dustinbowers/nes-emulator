@@ -217,8 +217,8 @@ fn run_opcode_test(bus: &mut SimpleBus, test: &OpcodeTest) {
             want,
             "{}",
             format!(
-                "ram mismatch at ${:04X}.\n\tGot:  {:08b} ${:02X}\n\tWant: {:08b} ${:02X}",
-                address, got, got, want, want
+                "ram mismatch at ${:04X} ({}).\n\tGot:  {:08b} ${:02X} (dec: {})\n\tWant: {:08b} ${:02X} (dec: {})",
+                address, address, got, got, got, want, want, want
             )
         );
     }

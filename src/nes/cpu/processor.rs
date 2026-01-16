@@ -3,13 +3,16 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 use super::super::trace;
-use super::opcodes::Opcode;
 use super::interrupts::{Interrupt, InterruptType};
-use super::{interrupts, opcodes, CpuBusInterface, CpuCycleState, CpuError, CpuMode, Flags, CPU, CPU_STACK_RESET, DEBUG};
+use super::opcodes::Opcode;
+use super::{
+    CPU, CPU_STACK_RESET, CpuBusInterface, CpuCycleState, CpuError, CpuMode, DEBUG, Flags,
+    interrupts, opcodes,
+};
 
 impl CPU {
     pub fn new() -> CPU {
-        let cpu = CPU {
+        CPU {
             bus: None,
             cycles: 0,
             cpu_mode: CpuMode::Read,
@@ -22,13 +25,14 @@ impl CPU {
             status: Flags::from_bits_truncate(0b0010_0010),
             program_counter: 0,
             current_op: CpuCycleState::default(),
+            active_interrupt: None,
             nmi_pending: false,
-            interrupt_stack: vec![],
+            irq_pending: false,
+            // interrupt_stack: vec![],
             last_opcode_desc: "".to_string(),
             error: None,
             stop: false,
-        };
-        cpu
+        }
     }
 
     pub fn reset(&mut self) {
@@ -40,10 +44,15 @@ impl CPU {
         self.register_y = 0;
         self.stack_pointer = CPU_STACK_RESET;
         self.status = Flags::from_bits_truncate(0b0010_0010);
-        self.program_counter = self.bus_read_u16(0xFFFC);
+
+        let pcl = self.bus_read(0xFFFC) as u16;
+        let pch = self.bus_read(0xFFFD) as u16;
+        self.program_counter = (pch << 8) | pcl;
         self.current_op = CpuCycleState::default();
+        self.active_interrupt = None;
         self.nmi_pending = false; // PPU will notify CPU when NMI needs handling
-        self.interrupt_stack = vec![]; // This prevents nested NMI (while allowing nested BRKs)
+        self.irq_pending = false;
+        // self.interrupt_stack = vec![]; // This prevents nested NMI (while allowing nested BRKs)
         self.last_opcode_desc = "".to_string();
         self.error = None;
     }
@@ -51,18 +60,14 @@ impl CPU {
     /// `connect_bus` MUST be called after constructing CPU
     pub fn connect_bus(&mut self, bus: *mut dyn CpuBusInterface) {
         self.bus = Some(bus);
-        self.program_counter = self.bus_read_u16(0xFFFC);
+        let pcl = self.bus_read(0xFFFC) as u16;
+        let pch = self.bus_read(0xFFFD) as u16;
+        self.program_counter = (pch << 8) | pcl;
     }
 
     /// `bus_read` is safe because Bus owns CPU
     pub fn bus_read(&self, addr: u16) -> u8 {
         unsafe { (*self.bus.unwrap()).cpu_bus_read(addr) }
-    }
-
-    pub fn bus_read_u16(&self, addr: u16) -> u16 {
-        let lo = self.bus_read(addr) as u16;
-        let hi = self.bus_read(addr.wrapping_add(1)) as u16;
-        (hi << 8) | lo
     }
 
     /// `bus_write` is safe because Bus owns CPU
@@ -72,15 +77,15 @@ impl CPU {
         }
     }
 
-    // #[allow(dead_code)]
-    // pub fn run(&mut self) {
-    //     loop {
-    //         let (_, _, should_break) = self.tick();
-    //         if should_break {
-    //             break;
-    //         }
-    //     }
-    // }
+    #[allow(dead_code)]
+    pub fn run(&mut self) {
+        loop {
+            let (_, should_break) = self.tick();
+            if should_break {
+                break;
+            }
+        }
+    }
 
     pub fn trigger_nmi(&mut self) {
         self.nmi_pending = true;
@@ -97,7 +102,7 @@ impl CPU {
         self.program_counter = self.program_counter.wrapping_add(1);
     }
 
-    pub(super) fn read_program_counter(&self) -> u8{
+    pub(super) fn read_program_counter(&self) -> u8 {
         self.bus_read(self.program_counter)
     }
 
@@ -107,16 +112,48 @@ impl CPU {
         byte
     }
 
-    // FIXME: This is just an empty stub for refactoring
-
-
     pub fn tick(&mut self) -> (bool, bool) {
-        // TODO: Handle DMA
-        // TODO: Handle Interrupts
+
+        if self.nmi_pending {
+            self.nmi_pending = false;
+            self.active_interrupt = Some(interrupts::NMI);
+        } else if self.irq_pending && !self.status.contains(Flags::INTERRUPT_DISABLE) {
+            self.irq_pending = false;
+            self.active_interrupt = Some(interrupts::IRQ);
+        }
 
         // Load next opcode if empty
         if self.current_op.opcode.is_none() {
-            println!("===========================================\n=== loading next opcode... \n===========================================");
+            // DMAs schedule halts, which triggers a set of events:
+            // - CPU waits for "Read" state
+            // - CPU halts for 1 cycle to enter DMA mode
+            if self.halt_scheduled {
+                match self.cpu_mode {
+                    CpuMode::Read => {
+                        self.rdy = false; // This pauses CPU execution while DMA runs
+                        self.halt_scheduled = false;
+                    }
+                    CpuMode::Write => {
+                        trace!("OAM DMA DUMMY READ");
+                        self.toggle_mode();
+                    }
+                }
+                return (false, false);
+            }
+
+            // Handle Interrupt if one is waiting
+            if let Some(interrupt) = self.active_interrupt {
+                let done = self.exec_interrupt_cycle(interrupt);
+                if done {
+                    self.active_interrupt = None;
+                }
+                return (done, false)
+            }
+
+            // println!(
+            //     "===========================================\n=== loading next opcode... \n==========================================="
+            // );
+            // Load next opcode
             let opcodes: &HashMap<u8, &'static Opcode> = &opcodes::OPCODES_MAP;
             let code = self.consume_program_counter();
 
@@ -130,27 +167,59 @@ impl CPU {
             self.current_op = CpuCycleState::default();
             self.current_op.opcode = Some(opcode);
             self.current_op.access_type = opcode.access_type;
-            dbg!(&self.current_op);
-            return (false, false)
+            // dbg!(&self.current_op);
+            return (false, false);
         }
 
         // Execute current instruction
         let opcode = self.current_op.opcode.unwrap();
-        println!("START executing opcode (PC = {:04X})", self.program_counter);
+        // println!("START executing opcode (PC = {:04X})", self.program_counter);
         let done = (opcode.exec)(self);
-        println!("DONE executing opcode (PC = {:04X}), done = {}", self.program_counter, done);
-        dbg!(&self.current_op);
+        // println!(
+        //     "DONE executing opcode (PC = {:04X}), done = {}",
+        //     self.program_counter, done
+        // );
+        // dbg!(&self.current_op);
 
         // Prepare for next opcode
         if done {
-            dbg!("opcode DONE");
+            // println!("opcode DONE");
             self.current_op = CpuCycleState::default();
         }
 
-        println!("cycles:{}, current_op:{:?}", self.cycles, self.current_op);
+        // println!("cycles:{}, current_op:{:?}", self.cycles, self.current_op);
 
         (done, false)
     }
+
+    fn start_interrupt(&mut self, interrupt: Interrupt) {
+        // match interrupt {
+        //     interrupts::NMI => self.nmi_pending = false,
+        //     _ => self.irq_pending = false
+        // }
+        // self.current_op.tmp_addr = interrupt.vector_addr;
+        self.current_op.interrupt = Some(interrupt);
+    }
+
+    // pub(super) fn handle_interrupt_old(&mut self, interrupt: Interrupt) {
+    //     // TODO: remove this sanity check
+    //     if interrupt.interrupt_type == InterruptType::Nmi
+    //         && self.interrupt_stack.contains(&InterruptType::Nmi)
+    //     {
+    //         // self.error = Some(CpuError::InvalidNMI);
+    //         return;
+    //     }
+    //     self.interrupt_stack.push(interrupt.interrupt_type);
+    //     self.stack_push_u16(self.program_counter);
+    //     let mut status_flags = Flags::from_bits_truncate(self.status.bits());
+    //     status_flags.set(Flags::BREAK, interrupt.b_flag_mask & 0b0001_0000 != 0);
+    //     status_flags.set(Flags::BREAK2, interrupt.b_flag_mask & 0b0010_0000 != 0);
+    //     self.stack_push(status_flags.bits());
+    //     self.status.set(Flags::INTERRUPT_DISABLE, true); // Disable interrupts while handling one
+    //     self.extra_cycles += interrupt.cpu_cycles;
+    //     let jmp_address = self.bus_read_u16(interrupt.vector_addr);
+    //     self.set_program_counter(jmp_address);
+    // }
 
     // // `tick` returns (num_cycles, bytes_consumed, is_breaking)
     // pub fn tick(&mut self) -> (u8, u8, bool) {
@@ -461,4 +530,3 @@ impl CPU {
     //     (cycle_count, opcode.size, false)
     // }
 }
-

@@ -4,7 +4,7 @@ use super::{AccessType, AddressingMode, CPU};
 
 #[derive(Debug)]
 pub struct Opcode {
-    pub value: u8,
+    pub code: u8,
     pub name: &'static str,
     pub cycles: u8,
     pub size: u8,
@@ -24,7 +24,7 @@ impl Opcode {
         exec: fn(&mut CPU) -> bool,
     ) -> Self {
         Self {
-            value,
+            code: value,
             name,
             cycles,
             size,
@@ -40,7 +40,7 @@ impl Opcode {
 #[rustfmt::skip]
 const OPCODES: &[Opcode] = &[
     // Software-defined interrupt
-    // Opcode::new(0x00, "BRK", 1, 7, AddressingMode::None, AccessType::Read, CPU::nop),
+    Opcode::new(0x00, "BRK", 2, 7, AddressingMode::None, AccessType::Read, CPU::brk),
 
     // General NOP
     Opcode::new(0xEA, "NOP", 1, 2, AddressingMode::None, AccessType::None, CPU::nop),
@@ -220,13 +220,12 @@ const OPCODES: &[Opcode] = &[
 
     // Jumps
     Opcode::new(0x4C, "JMP", 3, 3, AddressingMode::Absolute, AccessType::Read, CPU::jmp),
+    Opcode::new(0x6C, "JMP", 3, 5, AddressingMode::Indirect, AccessType::Read, CPU::jmp), // Note: 6502 has a jmp bug here
+    Opcode::new(0x20, "JSR", 3, 6, AddressingMode::Absolute, AccessType::Read, CPU::jsr),
 
-    Opcode::new(0x6C, "JMP", 3, 5, AddressingMode::Indirect, AccessType::Read, CPU::jmp), // Note: 6502 has a bug
-    //
-    // Opcode::new(0x20, "JSR", 3, 6, AddressingMode::Absolute, AccessType::Read, CPU::nop),
-    // Opcode::new(0x60, "RTS", 1, 6, AddressingMode::None, AccessType::Read, CPU::nop),
-    //
-    // Opcode::new(0x40, "RTI", 1, 6, AddressingMode::None, AccessType::Read, CPU::nop),
+    // Returns
+    Opcode::new(0x60, "RTS", 1, 6, AddressingMode::None, AccessType::Read, CPU::rts),
+    Opcode::new(0x40, "RTI", 1, 6, AddressingMode::None, AccessType::Read, CPU::rti),
 
     // Branches
     Opcode::new(0xD0, "BNE", 2, 2, AddressingMode::Relative, AccessType::Read, CPU::bne), // cycles +1 if branch succeeds, +2 if to a new page
@@ -291,112 +290,114 @@ const OPCODES: &[Opcode] = &[
     Opcode::new(0xDA, "*NOP", 1, 2,  AddressingMode::None, AccessType::Read, CPU::nop),
     Opcode::new(0xFA, "*NOP", 1, 2,  AddressingMode::None, AccessType::Read, CPU::nop),
 
-    // // DCP => DEC oper + CMP oper
-    // Opcode::new(0xc7, "*DCP", 2, 5, AddressingMode::ZeroPage, AccessType::Read, CPU::nop),
-    // Opcode::new(0xd7, "*DCP", 2, 6, AddressingMode::ZeroPageX, AccessType::Read, CPU::nop),
-    // Opcode::new(0xCF, "*DCP", 3, 6, AddressingMode::Absolute, AccessType::Read, CPU::nop),
-    // Opcode::new(0xdF, "*DCP", 3, 7, AddressingMode::AbsoluteX, AccessType::Read, CPU::nop),
-    // Opcode::new(0xdb, "*DCP", 3, 7, AddressingMode::AbsoluteY, AccessType::Read, CPU::nop),
-    // Opcode::new(0xd3, "*DCP", 2, 8, AddressingMode::IndirectY, AccessType::Read, CPU::nop),
-    // Opcode::new(0xc3, "*DCP", 2, 8, AddressingMode::IndirectX, AccessType::Read, CPU::nop),
-    //
-    // // RLA => ROL oper + AND oper
-    // Opcode::new(0x27, "*RLA", 2, 5, AddressingMode::ZeroPage, AccessType::Read, CPU::nop),
-    // Opcode::new(0x37, "*RLA", 2, 6, AddressingMode::ZeroPageX, AccessType::Read, CPU::nop),
-    // Opcode::new(0x2F, "*RLA", 3, 6, AddressingMode::Absolute, AccessType::Read, CPU::nop),
-    // Opcode::new(0x3F, "*RLA", 3, 7, AddressingMode::AbsoluteX, AccessType::Read, CPU::nop),
-    // Opcode::new(0x3B, "*RLA", 3, 7, AddressingMode::AbsoluteY, AccessType::Read, CPU::nop),
-    // Opcode::new(0x33, "*RLA", 2, 8, AddressingMode::IndirectY, AccessType::Read, CPU::nop),
-    // Opcode::new(0x23, "*RLA", 2, 8, AddressingMode::IndirectX, AccessType::Read, CPU::nop),
-    //
-    // // SLO => ASL oper + ORA oper
-    // Opcode::new(0x07, "*SLO", 2, 5, AddressingMode::ZeroPage, AccessType::Read, CPU::nop),
-    // Opcode::new(0x17, "*SLO", 2, 6, AddressingMode::ZeroPageX, AccessType::Read, CPU::nop),
-    // Opcode::new(0x0F, "*SLO", 3, 6, AddressingMode::Absolute, AccessType::Read, CPU::nop),
-    // Opcode::new(0x1F, "*SLO", 3, 7, AddressingMode::AbsoluteX, AccessType::Read, CPU::nop),
-    // Opcode::new(0x1B, "*SLO", 3, 7, AddressingMode::AbsoluteY, AccessType::Read, CPU::nop),
-    // Opcode::new(0x03, "*SLO", 2, 8, AddressingMode::IndirectX, AccessType::Read, CPU::nop),
-    // Opcode::new(0x13, "*SLO", 2, 8, AddressingMode::IndirectY, AccessType::Read, CPU::nop),
-    //
-    // // SRE => LSR oper + EOR oper
-    // Opcode::new(0x47, "*SRE", 2, 5, AddressingMode::ZeroPage, AccessType::Read, CPU::nop),
-    // Opcode::new(0x57, "*SRE", 2, 6, AddressingMode::ZeroPageX, AccessType::Read, CPU::nop),
-    // Opcode::new(0x4F, "*SRE", 3, 6, AddressingMode::Absolute, AccessType::Read, CPU::nop),
-    // Opcode::new(0x5F, "*SRE", 3, 7, AddressingMode::AbsoluteX, AccessType::Read, CPU::nop),
-    // Opcode::new(0x5B, "*SRE", 3, 7, AddressingMode::AbsoluteY, AccessType::Read, CPU::nop),
-    // Opcode::new(0x43, "*SRE", 2, 8, AddressingMode::IndirectX, AccessType::Read, CPU::nop),
-    // Opcode::new(0x53, "*SRE", 2, 8, AddressingMode::IndirectY, AccessType::Read, CPU::nop),
-    //
-    // // RRA => ROR oper + ADC oper
-    // Opcode::new(0x67, "*RRA", 2, 5, AddressingMode::ZeroPage, AccessType::Read, CPU::nop),
-    // Opcode::new(0x77, "*RRA", 2, 6, AddressingMode::ZeroPageX, AccessType::Read, CPU::nop),
-    // Opcode::new(0x6F, "*RRA", 3, 6, AddressingMode::Absolute, AccessType::Read, CPU::nop),
-    // Opcode::new(0x7F, "*RRA", 3, 7, AddressingMode::AbsoluteX, AccessType::Read, CPU::nop),
-    // Opcode::new(0x7B, "*RRA", 3, 7, AddressingMode::AbsoluteY, AccessType::Read, CPU::nop),
-    // Opcode::new(0x63, "*RRA", 2, 8, AddressingMode::IndirectX, AccessType::Read, CPU::nop),
-    // Opcode::new(0x73, "*RRA", 2, 8, AddressingMode::IndirectY, AccessType::Read, CPU::nop),
-    //
-    // // ISC => INC oper + SBC oper
-    // Opcode::new(0xE7, "*ISC", 2,5, AddressingMode::ZeroPage, AccessType::Read, CPU::nop),
-    // Opcode::new(0xF7, "*ISC", 2,6, AddressingMode::ZeroPageX, AccessType::Read, CPU::nop),
-    // Opcode::new(0xEF, "*ISC", 3,6, AddressingMode::Absolute, AccessType::Read, CPU::nop),
-    // Opcode::new(0xFF, "*ISC", 3,7, AddressingMode::AbsoluteX, AccessType::Read, CPU::nop),
-    // Opcode::new(0xFB, "*ISC", 3,7, AddressingMode::AbsoluteY, AccessType::Read, CPU::nop),
-    // Opcode::new(0xE3, "*ISC", 2,8, AddressingMode::IndirectX, AccessType::Read, CPU::nop),
-    // Opcode::new(0xF3, "*ISC", 2,8, AddressingMode::IndirectY, AccessType::Read, CPU::nop),
-    //
-    // // LAX => LDA oper + LDX oper
-    // Opcode::new(0xA7, "*LAX", 2, 3, AddressingMode::ZeroPage, AccessType::Read, CPU::nop),
-    // Opcode::new(0xB7, "*LAX", 2, 4, AddressingMode::ZeroPageY, AccessType::Read, CPU::nop),
-    // Opcode::new(0xAF, "*LAX", 3, 4, AddressingMode::Absolute, AccessType::Read, CPU::nop),
-    // Opcode::new(0xBF, "*LAX", 3, 4, AddressingMode::AbsoluteY, AccessType::Read, CPU::nop),
-    // Opcode::new(0xA3, "*LAX", 2, 6, AddressingMode::IndirectX, AccessType::Read, CPU::nop),
-    // Opcode::new(0xB3, "*LAX", 2, 5, AddressingMode::IndirectY, AccessType::Read, CPU::nop),
-    //
-    // // SAX => A AND X -> M
-    // Opcode::new(0x87, "*SAX", 2, 3, AddressingMode::ZeroPage, AccessType::Read, CPU::nop),
-    // Opcode::new(0x97, "*SAX", 2, 4, AddressingMode::ZeroPageY, AccessType::Read, CPU::nop),
-    // Opcode::new(0x8F, "*SAX", 3, 4, AddressingMode::Absolute, AccessType::Read, CPU::nop),
-    // Opcode::new(0x83, "*SAX", 2, 6, AddressingMode::IndirectX, AccessType::Read, CPU::nop),
-    //
-    // // SBX (AXS, SAX) => CMP and DEX at once, sets flags like CMP
-    // Opcode::new(0xCB, "*SBX", 2,2, AddressingMode::Immediate, AccessType::Read, CPU::nop),
-    //
-    // // ARR => AND oper + ROR (Plus some wonky flag manipulation)
-    // Opcode::new(0x6B, "*ARR", 2,2, AddressingMode::Immediate, AccessType::Read, CPU::nop),
-    //
-    // // USBC (SBC) => SBC oper + NOP
-    // Opcode::new(0xEB, "*USBC", 2,2, AddressingMode::Immediate, AccessType::Read, CPU::nop),
-    //
-    // // ANC => A AND oper, bit(7) -> C
-    // Opcode::new(0x0B, "*ANC", 2,2, AddressingMode::Immediate, AccessType::Read, CPU::nop),
-    // Opcode::new(0x2B, "*ANC", 2,2, AddressingMode::Immediate, AccessType::Read, CPU::nop),
-    //
-    // // ALR => AND oper + LSR
-    // Opcode::new(0x4B, "*ALR", 2,2, AddressingMode::Immediate, AccessType::Read, CPU::nop),
-    //
-    // // LAS => LDA/TSX oper
-    // Opcode::new(0xBB, "*LAS", 3,4, AddressingMode::AbsoluteY, AccessType::Read, CPU::nop), // cycles +1 if page page crossed
-    //
-    // // Kill for debugging (technically this entry is never accessed)
-    // Opcode::new(0x02, "*KIL/JAM", 1,11, AddressingMode::None, AccessType::Read, CPU::nop),
-    //
-    // //
-    // // Too Unstable to implement
-    // Opcode::new(0x8B, "*UNSTABLE", 1,1, AddressingMode::None, AccessType::Read, CPU::nop),
-    // Opcode::new(0xAB, "*UNSTABLE", 1,1, AddressingMode::None, AccessType::Read, CPU::nop),
-    // Opcode::new(0x9F, "*UNSTABLE", 1,1, AddressingMode::None, AccessType::Read, CPU::nop),
-    // Opcode::new(0x93, "*UNSTABLE", 1,1, AddressingMode::None, AccessType::Read, CPU::nop),
-    // Opcode::new(0x9E, "*UNSTABLE", 1,1, AddressingMode::None, AccessType::Read, CPU::nop),
-    // Opcode::new(0x9C, "*UNSTABLE", 1,1, AddressingMode::None, AccessType::Read, CPU::nop),
-    // Opcode::new(0x9B, "*UNSTABLE", 1,1, AddressingMode::None, AccessType::Read, CPU::nop),
+    // DCP => DEC oper + CMP oper
+    Opcode::new(0xC7, "*DCP", 2, 5, AddressingMode::ZeroPage,  AccessType::ReadModifyWrite, CPU::dcp),
+    Opcode::new(0xD7, "*DCP", 2, 6, AddressingMode::ZeroPageX, AccessType::ReadModifyWrite, CPU::dcp),
+    Opcode::new(0xCF, "*DCP", 3, 6, AddressingMode::Absolute,  AccessType::ReadModifyWrite, CPU::dcp),
+    Opcode::new(0xDF, "*DCP", 3, 7, AddressingMode::AbsoluteX, AccessType::ReadModifyWrite, CPU::dcp),
+    Opcode::new(0xDB, "*DCP", 3, 7, AddressingMode::AbsoluteY, AccessType::ReadModifyWrite, CPU::dcp),
+    Opcode::new(0xD3, "*DCP", 2, 8, AddressingMode::IndirectY, AccessType::ReadModifyWrite, CPU::dcp),
+    Opcode::new(0xC3, "*DCP", 2, 8, AddressingMode::IndirectX, AccessType::ReadModifyWrite, CPU::dcp),
+
+    // RLA => ROL oper + AND oper
+    Opcode::new(0x27, "*RLA", 2, 5, AddressingMode::ZeroPage,  AccessType::ReadModifyWrite, CPU::rla),
+    Opcode::new(0x37, "*RLA", 2, 6, AddressingMode::ZeroPageX, AccessType::ReadModifyWrite, CPU::rla),
+    Opcode::new(0x2F, "*RLA", 3, 6, AddressingMode::Absolute,  AccessType::ReadModifyWrite, CPU::rla),
+    Opcode::new(0x3F, "*RLA", 3, 7, AddressingMode::AbsoluteX, AccessType::ReadModifyWrite, CPU::rla),
+    Opcode::new(0x3B, "*RLA", 3, 7, AddressingMode::AbsoluteY, AccessType::ReadModifyWrite, CPU::rla),
+    Opcode::new(0x33, "*RLA", 2, 8, AddressingMode::IndirectY, AccessType::ReadModifyWrite, CPU::rla),
+    Opcode::new(0x23, "*RLA", 2, 8, AddressingMode::IndirectX, AccessType::ReadModifyWrite, CPU::rla),
+
+    // SLO => ASL oper + ORA oper
+    Opcode::new(0x07, "*SLO", 2, 5, AddressingMode::ZeroPage,  AccessType::ReadModifyWrite, CPU::slo),
+    Opcode::new(0x17, "*SLO", 2, 6, AddressingMode::ZeroPageX, AccessType::ReadModifyWrite, CPU::slo),
+    Opcode::new(0x0F, "*SLO", 3, 6, AddressingMode::Absolute,  AccessType::ReadModifyWrite, CPU::slo),
+    Opcode::new(0x1F, "*SLO", 3, 7, AddressingMode::AbsoluteX, AccessType::ReadModifyWrite, CPU::slo),
+    Opcode::new(0x1B, "*SLO", 3, 7, AddressingMode::AbsoluteY, AccessType::ReadModifyWrite, CPU::slo),
+    Opcode::new(0x03, "*SLO", 2, 8, AddressingMode::IndirectX, AccessType::ReadModifyWrite, CPU::slo),
+    Opcode::new(0x13, "*SLO", 2, 8, AddressingMode::IndirectY, AccessType::ReadModifyWrite, CPU::slo),
+
+    // SRE => LSR oper + EOR oper
+    Opcode::new(0x47, "*SRE", 2, 5, AddressingMode::ZeroPage,  AccessType::ReadModifyWrite, CPU::sre),
+    Opcode::new(0x57, "*SRE", 2, 6, AddressingMode::ZeroPageX, AccessType::ReadModifyWrite, CPU::sre),
+    Opcode::new(0x4F, "*SRE", 3, 6, AddressingMode::Absolute,  AccessType::ReadModifyWrite, CPU::sre),
+    Opcode::new(0x5F, "*SRE", 3, 7, AddressingMode::AbsoluteX, AccessType::ReadModifyWrite, CPU::sre),
+    Opcode::new(0x5B, "*SRE", 3, 7, AddressingMode::AbsoluteY, AccessType::ReadModifyWrite, CPU::sre),
+    Opcode::new(0x43, "*SRE", 2, 8, AddressingMode::IndirectX, AccessType::ReadModifyWrite, CPU::sre),
+    Opcode::new(0x53, "*SRE", 2, 8, AddressingMode::IndirectY, AccessType::ReadModifyWrite, CPU::sre),
+
+    // RRA => ROR oper + ADC oper
+    Opcode::new(0x67, "*RRA", 2, 5, AddressingMode::ZeroPage,  AccessType::ReadModifyWrite, CPU::rra),
+    Opcode::new(0x77, "*RRA", 2, 6, AddressingMode::ZeroPageX, AccessType::ReadModifyWrite, CPU::rra),
+    Opcode::new(0x6F, "*RRA", 3, 6, AddressingMode::Absolute,  AccessType::ReadModifyWrite, CPU::rra),
+    Opcode::new(0x7F, "*RRA", 3, 7, AddressingMode::AbsoluteX, AccessType::ReadModifyWrite, CPU::rra),
+    Opcode::new(0x7B, "*RRA", 3, 7, AddressingMode::AbsoluteY, AccessType::ReadModifyWrite, CPU::rra),
+    Opcode::new(0x63, "*RRA", 2, 8, AddressingMode::IndirectX, AccessType::ReadModifyWrite, CPU::rra),
+    Opcode::new(0x73, "*RRA", 2, 8, AddressingMode::IndirectY, AccessType::ReadModifyWrite, CPU::rra),
+
+    // ISC => INC oper + SBC oper
+    Opcode::new(0xE7, "*ISC", 2,5, AddressingMode::ZeroPage,  AccessType::ReadModifyWrite, CPU::isc),
+    Opcode::new(0xF7, "*ISC", 2,6, AddressingMode::ZeroPageX, AccessType::ReadModifyWrite, CPU::isc),
+    Opcode::new(0xEF, "*ISC", 3,6, AddressingMode::Absolute,  AccessType::ReadModifyWrite, CPU::isc),
+    Opcode::new(0xFF, "*ISC", 3,7, AddressingMode::AbsoluteX, AccessType::ReadModifyWrite, CPU::isc),
+    Opcode::new(0xFB, "*ISC", 3,7, AddressingMode::AbsoluteY, AccessType::ReadModifyWrite, CPU::isc),
+    Opcode::new(0xE3, "*ISC", 2,8, AddressingMode::IndirectX, AccessType::ReadModifyWrite, CPU::isc),
+    Opcode::new(0xF3, "*ISC", 2,8, AddressingMode::IndirectY, AccessType::ReadModifyWrite, CPU::isc),
+
+    // LAX => LDA oper + LDX oper
+    Opcode::new(0xA7, "*LAX", 2, 3, AddressingMode::ZeroPage,  AccessType::Read, CPU::lax),
+    Opcode::new(0xB7, "*LAX", 2, 4, AddressingMode::ZeroPageY, AccessType::Read, CPU::lax),
+    Opcode::new(0xAF, "*LAX", 3, 4, AddressingMode::Absolute,  AccessType::Read, CPU::lax),
+    Opcode::new(0xBF, "*LAX", 3, 4, AddressingMode::AbsoluteY, AccessType::Read, CPU::lax),
+    Opcode::new(0xA3, "*LAX", 2, 6, AddressingMode::IndirectX, AccessType::Read, CPU::lax),
+    Opcode::new(0xB3, "*LAX", 2, 5, AddressingMode::IndirectY, AccessType::Read, CPU::lax),
+
+    // SAX => A AND X -> M
+    Opcode::new(0x87, "*SAX", 2, 3, AddressingMode::ZeroPage,  AccessType::Write, CPU::sax),
+    Opcode::new(0x97, "*SAX", 2, 4, AddressingMode::ZeroPageY, AccessType::Write, CPU::sax),
+    Opcode::new(0x8F, "*SAX", 3, 4, AddressingMode::Absolute,  AccessType::Write, CPU::sax),
+    Opcode::new(0x83, "*SAX", 2, 6, AddressingMode::IndirectX, AccessType::Write, CPU::sax),
+
+    // SBX (AXS, SAX) => CMP and DEX at once, sets flags like CMP
+    Opcode::new(0xCB, "*SBX", 2,2, AddressingMode::Immediate, AccessType::Read, CPU::sbx),
+
+    // ARR => AND oper + ROR (Plus some wonky flag manipulation)
+    Opcode::new(0x6B, "*ARR", 2,2, AddressingMode::Immediate, AccessType::Read, CPU::arr),
+
+    // USBC (SBC) => SBC oper + NOP
+    Opcode::new(0xEB, "*USBC", 2,2, AddressingMode::Immediate, AccessType::Read, CPU::usbc),
+
+    // ANC => A AND oper, bit(7) -> C
+    Opcode::new(0x0B, "*ANC", 2,2, AddressingMode::Immediate, AccessType::Read, CPU::anc),
+    Opcode::new(0x2B, "*ANC", 2,2, AddressingMode::Immediate, AccessType::Read, CPU::anc),
+
+    // ALR => AND oper + LSR
+    Opcode::new(0x4B, "*ALR", 2,2, AddressingMode::Immediate, AccessType::Read, CPU::alr),
+
+    // LAS (LAR) => AND with SP, store in A, X, SP
+    Opcode::new(0xBB, "*LAS", 3,4, AddressingMode::AbsoluteY, AccessType::Read, CPU::las), // cycles +1 if page page crossed
+
+    // Kill for debugging (technically this entry is never accessed)
+    Opcode::new(0x02, "*KIL/JAM", 1,11, AddressingMode::None, AccessType::None, CPU::jam),
+
+    // Too Unstable to implement
+    Opcode::new(0x8B, "*UNSTABLE", 1,1, AddressingMode::None, AccessType::Read, CPU::unstable),
+    Opcode::new(0xAB, "*UNSTABLE", 1,1, AddressingMode::None, AccessType::Read, CPU::unstable),
+    Opcode::new(0x9F, "*UNSTABLE", 1,1, AddressingMode::None, AccessType::Read, CPU::unstable),
+    Opcode::new(0x93, "*UNSTABLE", 1,1, AddressingMode::None, AccessType::Read, CPU::unstable),
+    Opcode::new(0x9E, "*UNSTABLE", 1,1, AddressingMode::None, AccessType::Read, CPU::unstable),
+    Opcode::new(0x9C, "*UNSTABLE", 1,1, AddressingMode::None, AccessType::Read, CPU::unstable),
+    Opcode::new(0x9B, "*UNSTABLE", 1,1, AddressingMode::None, AccessType::Read, CPU::unstable),
+
+    // Jams
+
 
 ];
 
 pub static OPCODES_MAP: Lazy<HashMap<u8, &Opcode>> = Lazy::new(|| {
     let mut map = HashMap::new();
     for opcode in OPCODES {
-        map.insert(opcode.value, opcode);
+        map.insert(opcode.code, opcode);
     }
     map
 });

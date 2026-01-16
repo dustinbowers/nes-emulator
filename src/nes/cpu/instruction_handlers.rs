@@ -3,21 +3,43 @@ use crate::nes::cpu::interrupts::{Interrupt, InterruptType};
 use super::{AddressingMode, Flags, interrupts, opcodes, CPU, CPU_STACK_BASE, CpuError, AddrResult, ExecPhase, AccessType};
 
 impl CPU {
-
     // Software-defined interrupt
     pub(super) fn brk(&mut self) -> bool {
-        let total_cycles = self.current_op.opcode.unwrap().cycles - 1;
-        self.current_op.micro_cycle += 1;
-        if self.current_op.micro_cycle < total_cycles {
-            return false;
+        match self.current_op.micro_cycle {
+            0 => {
+                let _ = self.read_program_counter(); // dummy read
+                self.current_op.tmp_addr = self.program_counter.wrapping_add(1);
+            }
+            1 => {
+                let hi = self.current_op.tmp_addr >> 8;
+                self.stack_push(hi as u8);
+            }
+            2 => {
+                let lo = self.current_op.tmp_addr;
+                self.stack_push(lo as u8);
+            }
+            3 => {
+                let mut status_flags = Flags::from_bits_truncate(self.status.bits());
+                status_flags.set(Flags::BREAK, true);
+                status_flags.set(Flags::BREAK2, true);
+                self.stack_push(status_flags.bits());
+                self.status.insert(Flags::INTERRUPT_DISABLE); // Disable interrupts while handling one
+            }
+            4 => {
+                let lo = self.bus_read(0xFFFE);
+                self.current_op.tmp_addr = lo as u16;
+            }
+            5 => {
+                let hi = self.bus_read(0xFFFF);
+                let lo = self.current_op.tmp_addr;
+                let vector = ((hi as u16) << 8) | lo;
+                self.set_program_counter(vector);
+                return true
+            }
+            _ => unreachable!()
         }
-
-        let _ = self.bus_read(self.program_counter); // dummy read
-
-        // BRK - Software-defined Interrupt
-        self.program_counter = self.program_counter.wrapping_add(1); // BRK has an implied operand, so increment PC before pushing
-        self.handle_interrupt(interrupts::BRK);
-        return true
+        self.current_op.micro_cycle += 1;
+        false
     }
 
     // General NOP
@@ -168,7 +190,7 @@ impl CPU {
         })
     }
 
-    pub(super) fn plp(&mut self) -> bool{
+    pub(super) fn plp(&mut self) -> bool {
         self.exec_stack_cycle(|cpu| {
             // Pop stack into processor_status
             cpu.status = Flags::from_bits_truncate(cpu.stack_pop());
@@ -197,16 +219,18 @@ impl CPU {
     //
     // Shifts
     ///////////
+
+    /// Arithmetic Shift Left into carry
     pub(super) fn asl_reg(&mut self) -> bool {
-        // Arithmetic Shift Left into carry
         self.exec_modify_register(|cpu| {
             let carry = cpu.register_a & 0x80 != 0;
             cpu.status.set(Flags::CARRY, carry);
             cpu.set_register_a(cpu.register_a << 1);
         })
     }
+
+    /// Arithmetic Shift Left into carry
     pub(super) fn asl_mem(&mut self) -> bool {
-        // Arithmetic Shift Left into carry
         self.exec_read_modify_write_cycle(|cpu| {
             let value = cpu.current_op.tmp_data;
             let carry = value & 0x80 != 0;
@@ -216,8 +240,8 @@ impl CPU {
         })
     }
 
+    /// Logical Shift Right into carry (register)
     pub(super) fn lsr_reg(&mut self) -> bool {
-        // Logical Shift Right into carry
         self.exec_modify_register(|cpu| {
             let carry = cpu.register_a & 1 != 0;
             cpu.status.set(Flags::CARRY, carry);
@@ -225,6 +249,7 @@ impl CPU {
         })
     }
 
+    /// Logical Shift Right into carry (memory)
     pub(super) fn lsr_mem(&mut self) -> bool {
         self.exec_read_modify_write_cycle(|cpu| {
             let value = cpu.current_op.tmp_data;
@@ -238,8 +263,9 @@ impl CPU {
     //
     // Rotates
     ///////////////
+
+    /// Rotate Left through carry flag
     pub(super) fn rol_reg(&mut self) -> bool {
-        // Rotate Left through carry flag
         self.exec_modify_register(|cpu| {
             let carry = cpu.status.contains(Flags::CARRY);
             let (value, new_carry) = Self::rotate_value_left(cpu.register_a, carry);
@@ -248,8 +274,8 @@ impl CPU {
         })
     }
 
+    /// Rotate Left through carry flag
     pub(super) fn rol_mem(&mut self) -> bool {
-        // Rotate Left through carry flag
         self.exec_read_modify_write_cycle(|cpu| {
             let value = cpu.current_op.tmp_data;
             let carry = cpu.status.contains(Flags::CARRY);
@@ -257,12 +283,11 @@ impl CPU {
             cpu.current_op.tmp_data = result;
             cpu.update_zero_and_negative_flags(result);
             cpu.status.set(Flags::CARRY, new_carry);
-
         })
     }
 
+    /// Rotate Right through carry flag
     pub(super) fn ror_reg(&mut self) -> bool {
-        // Rotate Right through carry flag
         self.exec_modify_register(|cpu| {
             let carry = cpu.status.contains(Flags::CARRY);
             let (value, new_carry) = Self::rotate_value_right(cpu.register_a, carry);
@@ -271,8 +296,8 @@ impl CPU {
         })
     }
 
+    /// Rotate Right through carry flag
     pub(super) fn ror_mem(&mut self) -> bool {
-        // Rotate Right through carry flag
         self.exec_read_modify_write_cycle(|cpu| {
             let value = cpu.current_op.tmp_data;
             let carry = cpu.status.contains(Flags::CARRY);
@@ -280,7 +305,6 @@ impl CPU {
             cpu.current_op.tmp_data = result;
             cpu.update_zero_and_negative_flags(result);
             cpu.status.set(Flags::CARRY, new_carry);
-
         })
     }
 
@@ -288,13 +312,16 @@ impl CPU {
     //
     // Increments
     ///////////////
+
+    /// Increment value at Memory
     pub(super) fn inc(&mut self) -> bool {
-        // Increment value at Memory
         self.exec_read_modify_write_cycle(|cpu| {
             cpu.current_op.tmp_data = cpu.current_op.tmp_data.wrapping_add(1);
             cpu.update_zero_and_negative_flags(cpu.current_op.tmp_data);
         })
     }
+
+    /// Increment register X
     pub(super) fn inx(&mut self) -> bool {
         self.exec_modify_register(|cpu| {
             cpu.register_x = cpu.register_x.wrapping_add(1);
@@ -302,6 +329,7 @@ impl CPU {
         })
     }
 
+    /// Increment register Y
     pub(super) fn iny(&mut self) -> bool {
         self.exec_modify_register(|cpu| {
             cpu.register_y = cpu.register_y.wrapping_add(1);
@@ -312,8 +340,9 @@ impl CPU {
     //
     // Decrements
     ///////////////
+
+    /// Decrement value at Memory
     pub(super) fn dec(&mut self) -> bool {
-        // Decrement value at Memory
         self.exec_read_modify_write_cycle(|cpu| {
             cpu.current_op.tmp_data = cpu.current_op.tmp_data.wrapping_sub(1);
             cpu.update_zero_and_negative_flags(cpu.current_op.tmp_data);
@@ -358,23 +387,6 @@ impl CPU {
             cpu.compare(cpu.register_y);
         })
     }
-
-    // pub(super) fn cmp(&mut self, opcode: &opcodes::Opcode) {
-    //     // Compare A register
-    //     self.compare(opcode, self.register_a);
-    // }
-
-//     pub(super) fn cpx(&mut self, opcode: &opcodes::Opcode) {
-//         // Compare X Register
-//         self.compare(opcode, self.register_x);
-//     }
-//
-//     pub(super) fn cpy(&mut self, opcode: &opcodes::Opcode) {
-//         // Compare Y Register
-//         self.compare(opcode, self.register_y);
-//     }
-//
-
 
     pub(super) fn adc(&mut self) -> bool {
         self.exec_read_cycle(|cpu| {
@@ -422,6 +434,113 @@ impl CPU {
         })
     }
 
+    pub(super) fn jsr(&mut self) -> bool {
+        match self.tick_addressing_mode() {
+            AddrResult::InProgress => false,
+            AddrResult::Ready(addr) => {
+                match self.current_op.exec_phase {
+                    ExecPhase::Idle => {
+                        self.current_op.exec_phase = ExecPhase::Read;
+                        false
+                    }
+                    ExecPhase::Read => {
+                        self.bus_read(addr); // dummy read cycle
+                        self.current_op.exec_phase = ExecPhase::Internal;
+                        false
+                    }
+                    ExecPhase::Internal => {
+                        let pc = self.program_counter.wrapping_sub(1);
+                        let hi = (pc >> 8) as u8;
+                        self.stack_push(hi);
+                        self.current_op.exec_phase = ExecPhase::Write;
+                        false
+                    }
+                    ExecPhase::Write => {
+                        let pc = self.program_counter.wrapping_sub(1);
+                        let lo = pc as u8;
+                        self.stack_push(lo);
+                        self.set_program_counter(addr);
+                        self.current_op.exec_phase = ExecPhase::Done;
+                        true
+                    }
+                    _ => unreachable!()
+                }
+            }
+            _ => true
+        }
+    }
+
+    //
+    // Returns
+    //////////////
+    pub(super) fn rts(&mut self) -> bool {
+        // Return from subroutine
+        match self.current_op.micro_cycle {
+            0 => {
+                let _ = self.read_program_counter(); // dummy read
+            }
+            1 => {
+                let lo = self.stack_pop();
+                self.current_op.tmp_addr = lo as u16;
+            }
+            2 => {
+                let hi = self.stack_pop();
+                let lo = self.current_op.tmp_addr;
+                let addr = (hi as u16) << 8 | lo;
+                self.current_op.tmp_addr = addr;
+            }
+            3 => {
+                self.set_program_counter(self.current_op.tmp_addr);
+                self.advance_program_counter();
+            }
+            4 => {
+                let _ = self.read_program_counter(); // dummy read
+                return true;
+            }
+            _ => unreachable!()
+        }
+        self.current_op.micro_cycle += 1;
+        false
+    }
+
+    pub(super) fn rti(&mut self) -> bool {
+        match self.current_op.micro_cycle {
+            0 => {
+                let _ = self.read_program_counter(); // dummy read
+            }
+            1 => {
+                // Restore status flags
+                let status = self.stack_pop();
+                let mut flags = Flags::from_bits_truncate(status);
+                flags.set(Flags::BREAK, false); // BRK is always cleared after RTI
+                flags.set(Flags::BREAK2, true); // BRK2 is always cleared after RI
+                self.status = flags;
+            }
+            2 => {
+                let lo = self.stack_pop();
+                self.current_op.tmp_addr = lo as u16;
+            }
+            3 => {
+                let hi = self.stack_pop();
+                let lo = self.current_op.tmp_addr;
+                let return_addr = ((hi as u16) << 8) | lo;
+
+                // Restore PC
+                self.set_program_counter(return_addr);
+            }
+            4 => {
+                let _ = self.read_program_counter(); // dummy read
+                return true
+            }
+            _ => unreachable!()
+        }
+        self.current_op.micro_cycle += 1;
+        false
+    }
+
+    //
+    // Branches
+    ////////////////
     pub(super) fn bne(&mut self) -> bool {
         // Branch if ZERO is clear
         self.exec_branch_cycle(|cpu| !cpu.status.contains(Flags::ZERO))
@@ -476,253 +595,214 @@ impl CPU {
             cpu.status.set(Flags::ZERO, result == 0);
         })
     }
+}
 
+////////////////////////////////
+// Unofficial Opcodes
+////////////////////////////////
+impl CPU {
+    /// DCP => DEC oper + CMP oper
+    pub(super) fn dcp(&mut self) -> bool {
+        self.exec_read_modify_write_cycle(|cpu| {
+            // DEC
+            let value = cpu.current_op.tmp_data.wrapping_sub(1);
+            cpu.current_op.tmp_data = value;
+            cpu.update_zero_and_negative_flags(value);
 
+            // Compare register_a with decremented value
+            let result = cpu.register_a.wrapping_sub(value);
+            cpu.status.set(Flags::CARRY, cpu.register_a >= value);
+            cpu.update_zero_and_negative_flags(result);
+        })
+    }
 
-//     pub(super) fn jsr(&mut self, opcode: &opcodes::Opcode) {
-//         // Jump to Subroutine
-//         let (jump_address, _) = self.get_parameter_address(&opcode.mode);
-//         let return_address = self.program_counter.wrapping_add(1);
-//         self.stack_push_u16(return_address);
-//         self.set_program_counter(jump_address);
-//     }
-//
-//     pub(super) fn rts(&mut self) {
-//         // Return from Subroutine
-//         let return_address_minus_one = self.stack_pop_u16();
-//         let address = return_address_minus_one.wrapping_add(1);
-//
-//         let _ = self.bus_read(self.program_counter); // dummy read
-//         self.set_program_counter(address);
-//     }
-//
-//     pub(super) fn rti(&mut self) {
-//         // Return from Interrupt
-//         // NOTE: Note that unlike RTS, the return address on the stack is the actual address rather than the address-1
-//         let return_status = self.stack_pop(); // Restore status flags first
-//         let return_address = self.stack_pop_u16(); // Restore PC
-//
-//         let _ = self.bus_read(self.program_counter); // dummy read
-//         self.set_program_counter(return_address);
-//
-//         let mut restored_flags = Flags::from_bits_truncate(return_status);
-//         restored_flags.set(Flags::BREAK, false); // BRK flag is always cleared after RTI
-//         restored_flags.set(Flags::BREAK2, true); // BRK2 flag is always cleared after RTI
-//         self.status = restored_flags;
-//
-//         // Pop the most recent interrupt type
-//         self.interrupt_stack.pop();
-//     }
+    /// RLA => ROL oper + AND oper
+    pub(super) fn rla(&mut self) -> bool {
+        self.exec_read_modify_write_cycle(|cpu| {
+            // ROL
+            let value = cpu.current_op.tmp_data;
+            let carry = cpu.status.contains(Flags::CARRY);
+            let (result, new_carry) = Self::rotate_value_left(value, carry);
+            cpu.current_op.tmp_data = result;
+            cpu.update_zero_and_negative_flags(result);
+            cpu.status.set(Flags::CARRY, new_carry);
 
+            // AND
+            cpu.set_register_a(cpu.register_a & result); // M & A -> A
+        })
+    }
 
-//
-//     pub(super) fn slo(&mut self, opcode: &opcodes::Opcode) {
-//         let shifted_result = self.asl(opcode);
-//         let ora_result = self.register_a | shifted_result;
-//         self.set_register_a(ora_result);
-//         self.update_zero_and_negative_flags(ora_result);
-//     }
-//
-//     pub(super) fn nop_page_cross(&mut self, opcode: &opcodes::Opcode) {
-//         let (_address, boundary_cross) = self.get_parameter_address(&opcode.mode);
-//         self.extra_cycles += boundary_cross as u8;
-//     }
-// }
-//
-// /////////////////////////
-// // Illegal Opcodes
-// /////////////////////////
-// impl CPU {
-//     pub(super) fn sax(&mut self, opcode: &opcodes::Opcode) {
-//         // SAX => A AND X -> M
-//         /* A and X are put on the bus at the same time (resulting effectively
-//           in an AND operation) and stored in M
-//         */
-//         let (address, _) = self.get_parameter_address(&opcode.mode);
-//         let result = self.register_a & self.register_x;
-//         self.bus_write(address, result);
-//     }
-//
-//     pub(super) fn sbx(&mut self, opcode: &opcodes::Opcode) {
-//         let (address, _) = self.get_parameter_address(&opcode.mode);
-//         let value = self.bus_read(address);
-//
-//         let and_result = self.register_a & self.register_x;
-//         let result = and_result.wrapping_sub(value);
-//
-//         self.register_x = result;
-//         self.status.set(Flags::CARRY, and_result >= value);
-//         self.update_zero_and_negative_flags(result);
-//     }
-//
-//     pub(super) fn anc(&mut self, opcode: &opcodes::Opcode) {
-//         let (address, _) = self.get_parameter_address(&opcode.mode);
-//         let value = self.bus_read(address);
-//         self.set_register_a(self.register_a & value);
-//         self.status
-//             .set(Flags::CARRY, self.register_a & 0b1000_0000 != 0);
-//     }
-//
-//     pub(super) fn arr(&mut self, opcode: &opcodes::Opcode) {
-//         // ARR => AND + ROR with special flag behavior
-//         let (address, _) = self.get_parameter_address(&opcode.mode);
-//         let value = self.bus_read(address);
-//         self.register_a &= value;
-//
-//         // Perform ROR (Rotate Right) with Carry
-//         let carry = self.status.contains(Flags::CARRY) as u8;
-//         let result = (self.register_a >> 1) | (carry << 7);
-//         self.register_a = result;
-//         self.update_zero_and_negative_flags(result);
-//
-//         // Set Carry flag based on bit 6
-//         self.status.set(Flags::CARRY, result & 0b0100_0000 != 0);
-//
-//         // Set Overflow flag based on bits 6 and 5
-//         let bit6 = result & 0b0100_0000 != 0;
-//         let bit5 = result & 0b0010_0000 != 0;
-//         self.status.set(Flags::OVERFLOW, bit6 ^ bit5);
-//     }
-//
+    /// SLO => ASL oper + ORA oper
+    pub(super) fn slo(&mut self) -> bool {
+        self.exec_read_modify_write_cycle(|cpu|{
+            // ASL
+            let value = cpu.current_op.tmp_data;
+            let carry = value & 0x80 != 0;
+            cpu.status.set(Flags::CARRY, carry);
+            cpu.current_op.tmp_data = value << 1;
+            cpu.update_zero_and_negative_flags(cpu.current_op.tmp_data);
 
-//
-//     pub(super) fn sre(&mut self, opcode: &opcodes::Opcode) {
-//         // SRE => LSR oper + EOR oper
-//         let result = self.lsr(opcode); // LSR
-//         self.set_register_a(self.register_a ^ result); // A ^ M -> A
-//         self.extra_cycles = 0;
-//     }
-//
-//     pub(super) fn rla(&mut self, opcode: &opcodes::Opcode) {
-//         // RLA => ROL oper + AND oper
-//         let result = self.rol(opcode); // ROL
-//         self.set_register_a(self.register_a & result); // M & A -> A
-//         self.extra_cycles = 0;
-//     }
-//
-//     pub(super) fn dcp(&mut self, opcode: &opcodes::Opcode) {
-//         // DCP => DEC oper + CMP oper
-//         let dec_value = self.dec(opcode);
-//
-//         // Compare register_a with decremented value
-//         let result = self.register_a.wrapping_sub(dec_value);
-//         self.status.set(Flags::CARRY, self.register_a >= dec_value);
-//         self.update_zero_and_negative_flags(result);
-//         self.extra_cycles = 0;
-//     }
-//
-//     pub(super) fn isc(&mut self, opcode: &opcodes::Opcode) {
-//         // ISC (ISB / INS) => INC oper + SBC oper
-//         let inc_result = self.inc(opcode);
-//         self.sub_from_register_a(inc_result);
-//     }
-//
-//     pub(super) fn las(&mut self, opcode: &opcodes::Opcode) {
-//         // LAS (LAR) => AND with SP, store in A, X, SP
-//         let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-//         let value = self.bus_read(address);
-//         self.set_register_a(value);
-//
-//         // Perform AND operation with the stack pointer
-//         let result = value & self.stack_pointer;
-//         self.register_a = result;
-//         self.register_x = result;
-//         self.stack_pointer = result;
-//
-//         self.update_zero_and_negative_flags(result);
-//         self.extra_cycles += boundary_crossed as u8;
-//     }
-//
-// }
-//
-// ///////////////////////////////////////////////////////////////////////////////
-// ////// Utility functions
-// ///////////////////////////////////////////////////////////////////////////////
-// impl CPU {
-//     fn get_parameter_address(&mut self, mode: &AddressingMode) -> (u16, bool) {
-//         match mode {
-//             AddressingMode::Absolute => (self.bus_read_u16(self.program_counter), false),
-//             AddressingMode::Immediate => (self.program_counter, false),
-//             AddressingMode::ZeroPage => (self.bus_read(self.program_counter) as u16, false),
-//             AddressingMode::ZeroPageX => {
-//                 let base = self.bus_read(self.program_counter);
-//                 let addr = base.wrapping_add(self.register_x) as u16;
-//                 (addr, false)
-//             }
-//             AddressingMode::ZeroPageY => {
-//                 let base = self.bus_read(self.program_counter);
-//                 let addr = base.wrapping_add(self.register_y) as u16;
-//                 (addr, false)
-//             }
-//             AddressingMode::AbsoluteX => {
-//                 let base = self.bus_read_u16(self.program_counter);
-//                 let addr = base.wrapping_add(self.register_x as u16);
-//
-//                 // Only read from base page (not the final address)
-//                 let dummy_addr =
-//                     (base & 0xFF00) | ((base.wrapping_add(self.register_y as u16)) & 0x00FF);
-//                 let _ = self.bus_read(dummy_addr);
-//
-//                 (addr, Self::is_boundary_crossed(base, addr))
-//             }
-//             AddressingMode::AbsoluteY => {
-//                 let base = self.bus_read_u16(self.program_counter);
-//                 let addr = base.wrapping_add(self.register_y as u16);
-//
-//                 // Only read from base page (not the final address)
-//                 let dummy_addr =
-//                     (base & 0xFF00) | ((base.wrapping_add(self.register_y as u16)) & 0x00FF);
-//                 let _ = self.bus_read(dummy_addr);
-//
-//                 (addr, Self::is_boundary_crossed(base, addr))
-//             }
-//             AddressingMode::IndirectX => {
-//                 let base = self.bus_read(self.program_counter);
-//                 let addr = base.wrapping_add(self.register_x); // Zero-page wrapping
-//                 let lo = self.bus_read(addr as u16) as u16;
-//                 let hi = self.bus_read(addr.wrapping_add(1) as u16) as u16; // Zero-page wrap +1 as well
-//                 (hi << 8 | lo, false)
-//             }
-//             AddressingMode::IndirectY => {
-//                 let base = self.bus_read(self.program_counter) as u16;
-//                 let lo = self.bus_read(base) as u16;
-//                 let hi = self.bus_read((base as u8).wrapping_add(1) as u16) as u16;
-//                 let dynamic_base = hi << 8 | lo;
-//                 let addr = dynamic_base.wrapping_add(self.register_y as u16);
-//                 (addr, Self::is_boundary_crossed(dynamic_base, addr))
-//             }
-//             AddressingMode::Indirect => {
-//                 // Note: JMP is the only opcode to use this AddressingMode
-//                 /* NOTE:
-//                   An original 6502 has does not correctly fetch the target address if the indirect vector falls
-//                   on a page boundary (e.g. $xxFF where xx is any value from $00 to $FF). In this case fetches
-//                   the LSB from $xxFF as expected but takes the MSB from $xx00.
-//                 */
-//                 let indirect_vec = self.bus_read_u16(self.program_counter);
-//                 let address = if indirect_vec & 0x00FF == 0x00FF {
-//                     let lo = self.bus_read(indirect_vec) as u16;
-//                     let hi = self.bus_read(indirect_vec & 0xFF00) as u16;
-//                     (hi << 8) | lo
-//                 } else {
-//                     self.bus_read_u16(indirect_vec)
-//                 };
-//                 (address, false)
-//             }
-//             AddressingMode::Relative => {
-//                 // Note: Branch opcodes exclusively use this address mode
-//                 let offset = self.bus_read(self.program_counter) as i8; // sign-extend u8 to i8
-//                 let base_pc = self.program_counter.wrapping_add(1); // the relative address is based on a PC /after/ the current opcode
-//                 let target_address = base_pc.wrapping_add_signed(offset as i16);
-//                 let boundary_crossed = Self::is_boundary_crossed(base_pc, target_address);
-//                 (target_address, boundary_crossed)
-//             }
-//             _ => unimplemented!(),
-//         }
-//     }
-//     fn is_boundary_crossed(addr1: u16, addr2: u16) -> bool {
-//         addr1 & 0xFF00 != addr2 & 0xFF00
-//     }
-//
+            // ORA
+            let ora_result = cpu.register_a | cpu.current_op.tmp_data;
+            cpu.set_register_a(ora_result);
+        })
+    }
+
+    /// SRE => LSR oper + EOR oper
+    pub(super) fn sre(&mut self) -> bool {
+        self.exec_read_modify_write_cycle(|cpu| {
+            // LSR
+            let value = cpu.current_op.tmp_data;
+            let carry = value & 1 != 0;
+            cpu.status.set(Flags::CARRY, carry);
+            cpu.current_op.tmp_data = value >> 1;
+            cpu.update_zero_and_negative_flags(cpu.current_op.tmp_data);
+
+            // EOR
+            let value = cpu.current_op.tmp_data;
+            cpu.set_register_a(cpu.register_a ^ value);
+        })
+    }
+
+    /// RRA => ROR oper + ADC oper
+    pub(super) fn rra(&mut self) -> bool {
+        self.exec_read_modify_write_cycle(|cpu| {
+            // ROR
+            let value = cpu.current_op.tmp_data;
+            let carry = cpu.status.contains(Flags::CARRY);
+            let (result, new_carry) = Self::rotate_value_right(value, carry);
+            cpu.current_op.tmp_data = result;
+            cpu.update_zero_and_negative_flags(result);
+            cpu.status.set(Flags::CARRY, new_carry);
+
+            // ADC
+            let value = cpu.current_op.tmp_data;
+            cpu.add_to_register_a(value);
+        })
+    }
+
+    /// ISC => INC oper + SBC oper
+    pub(super) fn isc(&mut self) -> bool {
+        self.exec_read_modify_write_cycle(|cpu| {
+            // INC
+            cpu.current_op.tmp_data = cpu.current_op.tmp_data.wrapping_add(1);
+            cpu.update_zero_and_negative_flags(cpu.current_op.tmp_data);
+
+            // SBC
+            let value = cpu.current_op.tmp_data;
+            cpu.sub_from_register_a(value);
+        })
+    }
+
+    /// LAX => LDA oper + LDX oper
+    pub(super) fn lax(&mut self) -> bool {
+        self.exec_read_cycle(|cpu| {
+            cpu.set_register_a(cpu.current_op.tmp_data); // LDA
+            cpu.set_register_x(cpu.current_op.tmp_data); // LDX
+        })
+    }
+
+    /// SAX => A AND X -> M
+    pub(super) fn sax(&mut self) -> bool {
+        self.exec_write_cycle(|cpu| {
+            let a = cpu.register_a;
+            let x = cpu.register_x;
+            cpu.current_op.tmp_data = a & x;
+        })
+    }
+
+    /// SBX (AXS, SAX) => CMP and DEX at once, sets flags like CMP
+    pub(super) fn sbx(&mut self) -> bool {
+        self.exec_read_cycle(|cpu| {
+            let a = cpu.register_a;
+            let x = cpu.register_x;
+            let and = a & x;
+            let value =  cpu.current_op.tmp_data;
+            let result = and.wrapping_sub(value);
+
+            cpu.set_register_x(result);
+            cpu.status.set(Flags::CARRY, and >= value);
+            cpu.update_zero_and_negative_flags(result);
+        })
+    }
+
+    /// ARR => AND oper + ROR (Plus some wonky flag manipulation)
+    pub(super) fn arr(&mut self) -> bool {
+        self.exec_read_cycle(|cpu| {
+            // AND
+            let value = cpu.current_op.tmp_data;
+            cpu.set_register_a(cpu.register_a & value);
+
+            // ROR
+            let carry = cpu.status.contains(Flags::CARRY);
+            let (value, new_carry) = Self::rotate_value_right(cpu.register_a, carry);
+            cpu.set_register_a(value);
+            cpu.status.set(Flags::CARRY, new_carry);
+
+            // Set carry flag based on bit 6
+            cpu.status.set(Flags::CARRY, value & (1<<6) != 0);
+
+            // Set overflow flag based on bits 5 and 6
+            let b5 = value & (1<<5) != 0;
+            let b6 = value & (1<<6) != 0;
+            cpu.status.set(Flags::OVERFLOW, b5 ^ b6);
+        })
+    }
+
+    /// USBC (SBC) => SBC oper + NOP
+    pub(super) fn usbc(&mut self) -> bool {
+        self.sbc()
+    }
+
+    /// ANC => A AND oper, bit(7) -> C
+    pub(super) fn anc(&mut self) -> bool {
+        self.exec_read_cycle(|cpu| {
+            let a = cpu.register_a;
+            let value = cpu.current_op.tmp_data;
+            cpu.set_register_a(a & value);
+            cpu.status.set(Flags::CARRY, cpu.register_a & 0x80 != 0);
+        })
+    }
+
+    /// ALR => AND oper + LSR
+    pub(super) fn alr(&mut self) -> bool {
+        self.exec_read_cycle(|cpu| {
+            // AND
+            let value = cpu.current_op.tmp_data;
+            cpu.set_register_a(cpu.register_a & value);
+
+            // LSR
+            let carry = cpu.register_a & 1 != 0;
+            cpu.status.set(Flags::CARRY, carry);
+            cpu.set_register_a(cpu.register_a >> 1);
+        })
+    }
+
+    ///  LAS (LAR) => AND oper with SP, store in A, X, SP
+    pub(super) fn las(&mut self) -> bool {
+        self.exec_read_cycle(|cpu| {
+            let value = cpu.current_op.tmp_data;
+            let sp = cpu.stack_pointer;
+            let result = sp & value;
+            cpu.register_a = result;
+            cpu.register_x = result;
+            cpu.stack_pointer = result;
+            cpu.update_zero_and_negative_flags(result);
+        })
+    }
+
+    pub(super) fn jam(&mut self) -> bool {
+        let opcode = self.current_op.opcode.unwrap();
+        self.error = Some(CpuError::JamOpcode(opcode.code));
+        true
+    }
+    
+    pub(super) fn unstable(&mut self) -> bool {
+        let opcode = self.current_op.opcode.unwrap();
+        self.error = Some(CpuError::UnstableOpcode(opcode.code));
+        true
+    }
+
     pub(super) fn rotate_value_left(value: u8, current_carry: bool) -> (u8, bool) {
         let new_carry = value & 0b1000_0000 != 0;
         let mut shifted = value << 1;
@@ -827,30 +907,30 @@ impl CPU {
    //      }
    //  }
 
-    pub(super) fn handle_interrupt(&mut self, interrupt: Interrupt) {
-        // TODO: remove this sanity check
-        // if interrupt.interrupt_type == InterruptType::Nmi
-        //     && self.interrupt_stack.contains(&InterruptType::Nmi)
-        // {
-        //     self.error = Some(CpuError::InvalidNMI);
-        //     return;
-        // }
-
-        self.interrupt_stack.push(interrupt.interrupt_type);
-
-        self.stack_push_u16(self.program_counter);
-
-        let mut status_flags = Flags::from_bits_truncate(self.status.bits());
-        status_flags.set(Flags::BREAK, interrupt.b_flag_mask & 0b0001_0000 != 0);
-        status_flags.set(Flags::BREAK2, interrupt.b_flag_mask & 0b0010_0000 != 0);
-        self.stack_push(status_flags.bits());
-
-        self.status.set(Flags::INTERRUPT_DISABLE, true); // Disable interrupts while handling one
-
-        // self.extra_cycles += interrupt.cpu_cycles;
-        let jmp_address = self.bus_read_u16(interrupt.vector_addr);
-        self.set_program_counter(jmp_address);
-    }
+    // pub(super) fn handle_interrupt(&mut self, interrupt: Interrupt) {
+    //     // TODO: remove this sanity check
+    //     // if interrupt.interrupt_type == InterruptType::Nmi
+    //     //     && self.interrupt_stack.contains(&InterruptType::Nmi)
+    //     // {
+    //     //     self.error = Some(CpuError::InvalidNMI);
+    //     //     return;
+    //     // }
+    //
+    //     self.interrupt_stack.push(interrupt.interrupt_type);
+    //
+    //     self.stack_push_u16(self.program_counter);
+    //
+    //     let mut status_flags = Flags::from_bits_truncate(self.status.bits());
+    //     status_flags.set(Flags::BREAK, interrupt.b_flag_mask & 0b0001_0000 != 0);
+    //     status_flags.set(Flags::BREAK2, interrupt.b_flag_mask & 0b0010_0000 != 0);
+    //     self.stack_push(status_flags.bits());
+    //
+    //     self.status.set(Flags::INTERRUPT_DISABLE, true); // Disable interrupts while handling one
+    //
+    //     // self.extra_cycles += interrupt.cpu_cycles;
+    //     let jmp_address = self.bus_read_u16(interrupt.vector_addr);
+    //     self.set_program_counter(jmp_address);
+    // }
 
 }
 
@@ -884,9 +964,10 @@ impl CPU {
                         self.current_op.micro_cycle += 1;
                         AddrResult::Ready(self.current_op.tmp_addr)
                     }
-                    _ => {
+                    1 => {
                         AddrResult::Ready(self.current_op.tmp_addr)
                     }
+                    _ => unreachable!(),
                 }
             }
             AddressingMode::ZeroPageX | AddressingMode::ZeroPageY => {
@@ -925,9 +1006,10 @@ impl CPU {
                         self.current_op.micro_cycle += 1;
                         return AddrResult::Ready(self.current_op.tmp_addr);
                     }
-                    _ => {
+                    2 => {
                         return AddrResult::Ready(self.current_op.tmp_addr);
                     }
+                    _ => unreachable!()
                 }
             }
             AddressingMode::AbsoluteX | AddressingMode::AbsoluteY => {
@@ -1037,7 +1119,7 @@ impl CPU {
                     4 => {
                         return AddrResult::Ready(self.current_op.tmp_addr);
                     }
-                    _ => {}
+                    _ => unreachable!()
                 }
             }
             AddressingMode::Indirect => {
@@ -1062,7 +1144,7 @@ impl CPU {
                         self.current_op.tmp_addr = (hi as u16) << 8 | self.current_op.tmp_data as u16;
                         return AddrResult::Ready(self.current_op.tmp_addr);
                     }
-                    _ => {}
+                    _ => unreachable!()
                 }
             }
             AddressingMode::Relative => {
@@ -1082,7 +1164,7 @@ impl CPU {
                     1 => {
                         return AddrResult::Ready(self.current_op.tmp_addr);
                     }
-                    _ => {}
+                    _ => unreachable!()
                 }
             }
             _ => unreachable!("unsupported addressing mode"),
@@ -1269,5 +1351,45 @@ impl CPU {
             }
             _ => unreachable!(),
         }
+    }
+
+    pub(super) fn exec_interrupt_cycle(&mut self, interrupt: Interrupt) -> bool {
+        match self.current_op.micro_cycle {
+            0 => {
+                let _ = self.read_program_counter(); // dummy read
+            }
+            1 => {
+                let hi = (self.program_counter >> 8) as u8;
+                self.stack_push(hi);
+            }
+            2 => {
+                let lo = (self.program_counter >> 0) as u8;
+                self.stack_push(lo);
+            }
+            3 => {
+                let mut status = Flags::from_bits_truncate(self.status.bits());
+                status.set(Flags::BREAK, interrupt.b_flag_mask & Flags::BREAK.bits() != 0);
+                status.set(Flags::BREAK2, interrupt.b_flag_mask & Flags::BREAK2.bits() != 0);
+                self.stack_push(status.bits());
+                self.status.insert(Flags::INTERRUPT_DISABLE);
+            }
+            4 => {
+                let vector = interrupt.vector_addr;
+                let lo = self.bus_read(vector);
+                self.current_op.tmp_addr = lo as u16;
+            }
+            5 => {
+                let vector = interrupt.vector_addr;
+                let hi = self.bus_read(vector + 0x1);
+                let lo = self.current_op.tmp_addr;
+                let addr = ((hi as u16) << 8) | lo;
+
+                self.set_program_counter(addr);
+                return true;
+            }
+            _ => unreachable!(),
+        }
+        self.current_op.micro_cycle += 1;
+        false
     }
 }
