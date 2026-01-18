@@ -214,26 +214,29 @@ impl PPU {
                 // bits 4–0 = open bus (last read)
                 let result = (status & 0xE0) | (self.last_byte_read.output() & 0x1F);
 
-                if std::env::var("NES_STATUS_LOG").is_ok()
-                    && self.scanline >= 241
-                    && self.scanline <= 241
-                    && self.cycles <= 10
-                {
-                    eprintln!(
-                        "[STATUS READ] sl={} dot={} status={:02X} result={:02X}",
-                        self.scanline, self.cycles, status, result
-                    );
-                }
+                // if std::env::var("NES_STATUS_LOG").is_ok()
+                //     && self.scanline == 241
+                //     && self.cycles <= 10
+                // {
+                //     eprintln!(
+                //         "[STATUS READ] sl={} dot={} status={:02X} result={:02X}",
+                //         self.scanline, self.cycles, status, result
+                //     );
+                // }
 
                 // side effects happen AFTER capturing status
-                self.status_register.reset_vblank_status();
-                self.scroll_register.reset_latch();
+                if had_vblank {
+                    self.status_register.reset_vblank_status();
+                    self.scroll_register.reset_latch();
+                }
 
                 // update open bus with what was read
                 self.last_byte_read.set(reg, result);
 
                 // Quirk: reading $2002 one PPU clock before VBL suppresses VBL for that frame.
-                if self.scanline == 241 && self.cycles == 1 && !had_vblank {
+                if self.scanline == 241
+                    && (self.cycles == 0 || self.cycles == 1)
+                    && !had_vblank {
                     self.suppress_vblank = true;
                 }
 
@@ -264,12 +267,12 @@ impl PPU {
         match reg {
             0x2000 => self.write_to_ctrl(value),
             0x2001 => {
-                if std::env::var("NES_MASK_LOG").is_ok() {
-                    eprintln!(
-                        "[MASK WRITE] value={:02X} scanline={} dot={}",
-                        value, self.scanline, self.cycles
-                    );
-                }
+                // if std::env::var("NES_MASK_LOG").is_ok() {
+                //     eprintln!(
+                //         "[MASK WRITE] value={:02X} scanline={} dot={}",
+                //         value, self.scanline, self.cycles
+                //     );
+                // }
                 self.mask_register.update(value)
             }
             0x2003 => self.oam_addr = value,
@@ -286,7 +289,7 @@ impl PPU {
 
     /// tick Advance the PPU by 1 dot
     pub fn tick(&mut self) -> bool {
-        let dot = self.cycles;
+        let dot = self.cycles + 1;
         let scanline = self.scanline;
         let prerender_scanline = scanline == 261;
         let visible_scanline = scanline < 240;
@@ -314,6 +317,8 @@ impl PPU {
                 "[PPU] FRAME END: scanline={} dot={} global_ppu_ticks={}",
                 scanline, dot, self.global_ppu_ticks
             );
+
+            println!("vblank_ticks = {}", self.vblank_ticks);
             self.status_register.reset_vblank_status();
             self.status_register.set_sprite_zero_hit(false);
             self.status_register.set_sprite_overflow(false);
@@ -321,7 +326,10 @@ impl PPU {
             self.reset_sprite_evaluation();
         }
 
-        if (scanline >= 241 && dot >= 1) || (scanline <= 261 && dot <= 1) {
+        // if (scanline >= 241 && dot >= 1) || (scanline <= 261 && dot <= 1) {
+        //     self.vblank_ticks += 1;
+        // }
+        if self.status_register.vblank_active() {
             self.vblank_ticks += 1;
         }
 
@@ -402,23 +410,21 @@ impl PPU {
                 "[PPU] VBLANK SET: frame_is_odd={} scanline={} dot={} vblank_ticks={} global_ppu_ticks={}",
                 self.frame_is_odd, scanline, dot, self.vblank_ticks, self.global_ppu_ticks
             );
+        }
 
-            if !self.suppress_vblank && self.ctrl_register.generate_vblank_nmi() {
-                trace!(
-                    "[PPU] NMI TRIGGERED: scanline={} dot={} global_ppu_ticks={}",
-                    scanline, dot, self.global_ppu_ticks
-                );
-                if let Some(bus_ptr) = self.bus {
-                    unsafe {
-                        (*bus_ptr).nmi();
-                    }
+        // NMI edge
+        if (scanline == 241 && dot == 1)
+            && (!self.suppress_vblank && self.ctrl_register.generate_vblank_nmi()) {
+            trace!(
+                "[PPU] NMI TRIGGERED: scanline={} dot={} global_ppu_ticks={}",
+                scanline, dot, self.global_ppu_ticks
+            );
+            if let Some(bus_ptr) = self.bus {
+                unsafe {
+                    (*bus_ptr).nmi();
                 }
             }
         }
-
-        // Advance cycle/scanline/frame counters
-        self.global_ppu_ticks += 1;
-        self.cycles += 1;
 
         // Prevent overflow
         if self.global_ppu_ticks > 1_000_000 {
@@ -426,7 +432,9 @@ impl PPU {
         }
 
         let mut frame_complete = false;
-        if self.cycles > 340 {
+        self.global_ppu_ticks += 1;
+        self.cycles += 1;
+        if self.cycles == 341 {
             self.cycles = 0;
             self.scanline += 1;
 
@@ -701,9 +709,6 @@ impl PPU {
             && value & 0b1000_0000 != 0
             && (self.scanline >= 241 && self.cycles > 0)
             && (self.scanline <= 260 && self.cycles <= 340)
-        // && self
-        //     .status_register
-        //     .contains(StatusRegister::VBLANK_STARTED)
         {
             if let Some(bus_ptr) = self.bus {
                 unsafe {
