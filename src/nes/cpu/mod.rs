@@ -122,6 +122,7 @@ struct CpuCycleState {
     opcode: Option<&'static Opcode>,
     interrupt: Option<Interrupt>,
     micro_cycle: u8,
+    base_addr: u16,
     tmp_addr: u16,
     tmp_data: u8,
     page_crossed: bool,
@@ -143,18 +144,13 @@ pub struct CPU {
     pub status: Flags,
     pub program_counter: u16,
 
-    // pub skip_cycles: u8,
-    // pub extra_cycles: u8,
-    // skip_pc_advance: bool,
     current_op: CpuCycleState,
 
     nmi_pending: bool,
     irq_pending: bool,
     active_interrupt: Option<Interrupt>,
-    // interrupt_stack: Vec<InterruptType>,
 
     pub last_opcode_desc: String,
-    // pub tracer: Tracer,
     pub error: Option<CpuError>,
     pub stop: bool,
 }

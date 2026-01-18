@@ -1,9 +1,9 @@
 use std::cmp::PartialEq;
-use crate::nes::cpu::interrupts::{Interrupt, InterruptType};
+use interrupts::{Interrupt, InterruptType};
 use super::{AddressingMode, Flags, interrupts, opcodes, CPU, CPU_STACK_BASE, CpuError, AddrResult, ExecPhase, AccessType};
 
 impl CPU {
-    // Software-defined interrupt
+    /// Software-defined interrupt
     pub(super) fn brk(&mut self) -> bool {
         match self.current_op.micro_cycle {
             0 => {
@@ -42,7 +42,7 @@ impl CPU {
         false
     }
 
-    // General NOP
+    /// General NOP
     pub(super) fn nop(&mut self) -> bool {
         // Don't count initial opcode load
         let cycles_remaining = self.current_op.opcode.unwrap().cycles - 1;
@@ -50,8 +50,9 @@ impl CPU {
         self.current_op.micro_cycle == cycles_remaining
     }
 
+
+    /// Unofficial NOPs that consume extra bytes
     pub(super) fn fat_nop(&mut self) -> bool {
-        // These are unofficial NOPs that consume extra bytes
         self.exec_read_cycle(|cpu| {})
     }
 
@@ -98,34 +99,43 @@ impl CPU {
     //
     // Flags
     //////////
+
+    /// Set decimal_mode flag
     pub(super) fn sed(&mut self) -> bool {
         self.exec_modify_register(|cpu| {
             cpu.status.insert(Flags::DECIMAL_MODE);
         })
     }
 
+    /// Set interrupt_disable flag
     pub(super) fn sei(&mut self) -> bool {
         self.exec_modify_register(|cpu| {
             cpu.status.insert(Flags::INTERRUPT_DISABLE);
         })
     }
+
+    /// Set carry flag
     pub(super) fn sec(&mut self) -> bool {
         self.exec_modify_register(|cpu| {
             cpu.status.insert(Flags::CARRY);
         })
     }
 
+    /// Clear decimal mode flag
     pub(super) fn cld(&mut self) -> bool {
         self.exec_modify_register(|cpu| {
             cpu.status.remove(Flags::DECIMAL_MODE);
         })
     }
 
+    /// Clear interrupt_disable flag
     pub(super) fn cli(&mut self) -> bool {
         self.exec_modify_register(|cpu| {
             cpu.status.remove(Flags::INTERRUPT_DISABLE);
         })
     }
+
+    /// Clear carry flag
     pub(super) fn clc(&mut self) -> bool {
         self.exec_modify_register(|cpu| {
             cpu.status.remove(Flags::CARRY);
@@ -183,16 +193,18 @@ impl CPU {
     //
     // Stack
     //////////
+
+    /// Pop stack into accumulator
     pub(super) fn pla(&mut self) -> bool {
-        self.exec_stack_cycle(|cpu| {
+        self.exec_stack_pop_cycle(|cpu| {
             let value = cpu.stack_pop();
             cpu.set_register_a(value);
         })
     }
 
+    /// Pop stack into processor_status
     pub(super) fn plp(&mut self) -> bool {
-        self.exec_stack_cycle(|cpu| {
-            // Pop stack into processor_status
+        self.exec_stack_pop_cycle(|cpu| {
             cpu.status = Flags::from_bits_truncate(cpu.stack_pop());
             cpu.status.remove(Flags::BREAK); // This flag is disabled when fetching
             cpu.status.insert(Flags::BREAK2); // This flag is supposed to always be 1 on CPU
@@ -200,13 +212,13 @@ impl CPU {
     }
 
     pub(super) fn pha(&mut self) -> bool {
-        self.exec_stack_cycle(|cpu| {
+        self.exec_stack_push_cycle(|cpu| {
             cpu.stack_push(cpu.register_a);
         })
     }
 
     pub(super) fn php(&mut self) -> bool {
-        self.exec_stack_cycle(|cpu| {
+        self.exec_stack_push_cycle(|cpu| {
             // Push processor_status onto the stack
             // https://www.nesdev.org/wiki/Status_flags
             // says that B flag is pushed as 1, but not affected on the CPU
@@ -428,12 +440,15 @@ impl CPU {
     //
     // Jumps
     ///////////////
+
+    /// Unconditional jump
     pub(super) fn jmp(&mut self) -> bool {
         self.exec_jmp_cycle(|cpu| {
             cpu.set_program_counter(cpu.current_op.tmp_addr);
         })
     }
 
+    /// Jump to subroutine
     pub(super) fn jsr(&mut self) -> bool {
         match self.tick_addressing_mode() {
             AddrResult::InProgress => false,
@@ -473,6 +488,8 @@ impl CPU {
     //
     // Returns
     //////////////
+
+    /// Return from subroutine
     pub(super) fn rts(&mut self) -> bool {
         // Return from subroutine
         match self.current_op.micro_cycle {
@@ -503,6 +520,7 @@ impl CPU {
         false
     }
 
+    /// Return from interrupt
     pub(super) fn rti(&mut self) -> bool {
         match self.current_op.micro_cycle {
             0 => {
@@ -541,42 +559,44 @@ impl CPU {
     //
     // Branches
     ////////////////
+
+    /// Branch if ZERO is clear
     pub(super) fn bne(&mut self) -> bool {
-        // Branch if ZERO is clear
         self.exec_branch_cycle(|cpu| !cpu.status.contains(Flags::ZERO))
     }
+
+    /// Branch if OVERFLOW is set
     pub(super) fn bvs(&mut self) -> bool {
-        // Branch if OVERFLOW is set
         self.exec_branch_cycle(|cpu| cpu.status.contains(Flags::OVERFLOW))
     }
 
+    /// Branch if OVERFLOW is clear
     pub(super) fn bvc(&mut self) -> bool {
-        // Branch if OVERFLOW is clear
         self.exec_branch_cycle(|cpu| !cpu.status.contains(Flags::OVERFLOW))
     }
 
+    /// Branch if NEGATIVE is set
     pub(super) fn bmi(&mut self) -> bool {
-        // Branch if NEGATIVE is set
         self.exec_branch_cycle(|cpu| cpu.status.contains(Flags::NEGATIVE))
     }
 
+    /// Branch if ZERO is set
     pub(super) fn beq(&mut self) -> bool {
-        // Branch if ZERO is set
         self.exec_branch_cycle(|cpu| cpu.status.contains(Flags::ZERO))
     }
 
+    /// Branch if CARRY is set
     pub(super) fn bcs(&mut self) -> bool {
-        // Branch if CARRY is set
         self.exec_branch_cycle(|cpu| cpu.status.contains(Flags::CARRY))
     }
 
+    /// Branch if CARRY is clear
     pub(super) fn bcc(&mut self) -> bool {
-        // Branch if CARRY is clear
         self.exec_branch_cycle(|cpu| !cpu.status.contains(Flags::CARRY))
     }
 
+    /// Branch if NEGATIVE is clear
     pub(super) fn bpl(&mut self) -> bool {
-        // Branch if NEGATIVE is clear
         self.exec_branch_cycle(|cpu| !cpu.status.contains(Flags::NEGATIVE))
     }
 
@@ -628,13 +648,13 @@ impl CPU {
             cpu.status.set(Flags::CARRY, new_carry);
 
             // AND
-            cpu.set_register_a(cpu.register_a & result); // M & A -> A
+            cpu.set_register_a(cpu.register_a & result);
         })
     }
 
     /// SLO => ASL oper + ORA oper
     pub(super) fn slo(&mut self) -> bool {
-        self.exec_read_modify_write_cycle(|cpu|{
+        self.exec_read_modify_write_cycle(|cpu| {
             // ASL
             let value = cpu.current_op.tmp_data;
             let carry = value & 0x80 != 0;
@@ -717,7 +737,7 @@ impl CPU {
             let a = cpu.register_a;
             let x = cpu.register_x;
             let and = a & x;
-            let value =  cpu.current_op.tmp_data;
+            let value = cpu.current_op.tmp_data;
             let result = and.wrapping_sub(value);
 
             cpu.set_register_x(result);
@@ -740,11 +760,11 @@ impl CPU {
             cpu.status.set(Flags::CARRY, new_carry);
 
             // Set carry flag based on bit 6
-            cpu.status.set(Flags::CARRY, value & (1<<6) != 0);
+            cpu.status.set(Flags::CARRY, value & (1 << 6) != 0);
 
             // Set overflow flag based on bits 5 and 6
-            let b5 = value & (1<<5) != 0;
-            let b6 = value & (1<<6) != 0;
+            let b5 = value & (1 << 5) != 0;
+            let b6 = value & (1 << 6) != 0;
             cpu.status.set(Flags::OVERFLOW, b5 ^ b6);
         })
     }
@@ -778,7 +798,7 @@ impl CPU {
         })
     }
 
-    ///  LAS (LAR) => AND oper with SP, store in A, X, SP
+    /// LAS (LAR) => AND oper with SP, store in A, X, SP
     pub(super) fn las(&mut self) -> bool {
         self.exec_read_cycle(|cpu| {
             let value = cpu.current_op.tmp_data;
@@ -796,13 +816,18 @@ impl CPU {
         self.error = Some(CpuError::JamOpcode(opcode.code));
         true
     }
-    
+
     pub(super) fn unstable(&mut self) -> bool {
         let opcode = self.current_op.opcode.unwrap();
         self.error = Some(CpuError::UnstableOpcode(opcode.code));
         true
     }
+}
 
+//////////////////
+// Helpers
+//////////////////
+impl CPU {
     pub(super) fn rotate_value_left(value: u8, current_carry: bool) -> (u8, bool) {
         let new_carry = value & 0b1000_0000 != 0;
         let mut shifted = value << 1;
@@ -897,51 +922,19 @@ impl CPU {
             self.set_program_counter(addr);
         }
     }
-
-   // fn branch(&mut self, opcode: &opcodes::Opcode, condition: bool) {
-   //      let (address, boundary_crossed) = self.get_parameter_address(&opcode.mode);
-   //      let cycles = boundary_crossed as u8;
-   //      if condition {
-   //          self.set_program_counter(address);
-   //          self.extra_cycles = self.extra_cycles + cycles + 1;
-   //      }
-   //  }
-
-    // pub(super) fn handle_interrupt(&mut self, interrupt: Interrupt) {
-    //     // TODO: remove this sanity check
-    //     // if interrupt.interrupt_type == InterruptType::Nmi
-    //     //     && self.interrupt_stack.contains(&InterruptType::Nmi)
-    //     // {
-    //     //     self.error = Some(CpuError::InvalidNMI);
-    //     //     return;
-    //     // }
-    //
-    //     self.interrupt_stack.push(interrupt.interrupt_type);
-    //
-    //     self.stack_push_u16(self.program_counter);
-    //
-    //     let mut status_flags = Flags::from_bits_truncate(self.status.bits());
-    //     status_flags.set(Flags::BREAK, interrupt.b_flag_mask & 0b0001_0000 != 0);
-    //     status_flags.set(Flags::BREAK2, interrupt.b_flag_mask & 0b0010_0000 != 0);
-    //     self.stack_push(status_flags.bits());
-    //
-    //     self.status.set(Flags::INTERRUPT_DISABLE, true); // Disable interrupts while handling one
-    //
-    //     // self.extra_cycles += interrupt.cpu_cycles;
-    //     let jmp_address = self.bus_read_u16(interrupt.vector_addr);
-    //     self.set_program_counter(jmp_address);
-    // }
-
 }
 
+////////////////////////////////////
+// Address resolver and executors
+////////////////////////////////////
 impl CPU {
-
     fn needs_dummy_cycle(&mut self) -> bool {
         match self.current_op.access_type {
             AccessType::Read => self.current_op.page_crossed,
             _ => true,
         }
     }
+
     fn tick_addressing_mode(&mut self) -> AddrResult {
         let mode = self.current_op.opcode.unwrap().mode;
         match mode {
@@ -949,7 +942,6 @@ impl CPU {
                 match self.current_op.micro_cycle {
                     0 => {
                         self.current_op.tmp_data = self.consume_program_counter();
-                        // self.current_op.exec_phase = ExecPhase::Read;
                         self.current_op.micro_cycle += 1;
                         return AddrResult::ReadyImmediate(self.current_op.tmp_data);
                     }
@@ -1031,6 +1023,7 @@ impl CPU {
                         let addr = base.wrapping_add(index as u16);
 
                         self.current_op.page_crossed = (base & 0xFF00) != (addr & 0xFF00);
+                        self.current_op.base_addr = base;
                         self.current_op.tmp_addr = addr;
 
                         if !self.needs_dummy_cycle() {
@@ -1041,8 +1034,7 @@ impl CPU {
                     2 => {
                         if self.needs_dummy_cycle() {
                             // dummy read
-                            let dummy = (self.current_op.tmp_addr & 0xFF00)
-                                | ((self.current_op.tmp_addr.wrapping_sub(index as u16)) & 0x00FF);
+                            let dummy = (self.current_op.base_addr & 0xFF00) | (self.current_op.tmp_addr & 0x00FF);
                             let _ = self.bus_read(dummy);
                         }
                         self.current_op.micro_cycle += 1;
@@ -1084,7 +1076,6 @@ impl CPU {
                 }
             }
             AddressingMode::IndirectY => {
-                // Note: JMP is the only opcode to use this AddressingMode
                 match self.current_op.micro_cycle {
                     0 => {
                         let zero_page = self.consume_program_counter();
@@ -1100,6 +1091,7 @@ impl CPU {
                         let addr = base.wrapping_add(self.register_y as u16);
 
                         self.current_op.page_crossed = (base & 0xFF00) != (addr & 0xFF00);
+                        self.current_op.base_addr = base;
                         self.current_op.tmp_addr = addr;
 
                         if !self.needs_dummy_cycle() {
@@ -1109,8 +1101,7 @@ impl CPU {
                     }
                     3 => {
                         if self.needs_dummy_cycle() {
-                            let dummy = (self.current_op.tmp_addr & 0xFF00)
-                                | ((self.current_op.tmp_addr.wrapping_sub(self.register_y as u16)) & 0x00FF);
+                            let dummy = (self.current_op.base_addr & 0xFF00) | (self.current_op.tmp_addr & 0x00FF);
                             let _ = self.bus_read(dummy);
                         }
                         self.current_op.micro_cycle += 1;
@@ -1148,13 +1139,7 @@ impl CPU {
                 }
             }
             AddressingMode::Relative => {
-                // // Note: Branch opcodes exclusively use this address mode
-                // let offset = self.bus_read(self.program_counter) as i8; // sign-extend u8 to i8
-                // let base_pc = self.program_counter.wrapping_add(1); // the relative address is based on a PC /after/ the current opcode
-                // let target_address = base_pc.wrapping_add_signed(offset as i16);
-                // let boundary_crossed = Self::is_boundary_crossed(base_pc, target_address);
-                // (target_address, boundary_crossed)
-
+                // Note: Branch opcodes exclusively use this address mode
                 match self.current_op.micro_cycle {
                     0 => {
                         self.current_op.tmp_data = self.consume_program_counter();
@@ -1172,9 +1157,7 @@ impl CPU {
         self.current_op.micro_cycle += 1;
         AddrResult::InProgress
     }
-}
 
-impl CPU {
     fn exec_read_cycle<F>(&mut self, op: F) -> bool
     where
         F: Fn(&mut CPU),
@@ -1263,12 +1246,40 @@ impl CPU {
         }
     }
 
-    fn exec_stack_cycle<F>(&mut self, op: F) -> bool
+    fn exec_stack_pop_cycle<F>(&mut self, op: F) -> bool
     where
         F: Fn(&mut CPU),
     {
         match self.current_op.exec_phase {
             ExecPhase::Idle => {
+                self.read_program_counter(); // dummy read
+                self.current_op.exec_phase = ExecPhase::Read;
+                false
+            }
+            ExecPhase::Read => {
+                // dummy read stack
+                let stack_addr = self.stack_pointer.wrapping_add(1);
+                let _ =self.bus_read(CPU_STACK_BASE.wrapping_add(stack_addr as u16));
+
+                self.current_op.exec_phase = ExecPhase::Write;
+                false
+            }
+            ExecPhase::Write => {
+                op(self);
+                self.current_op.exec_phase = ExecPhase::Done;
+                true
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn exec_stack_push_cycle<F>(&mut self, op: F) -> bool
+    where
+        F: Fn(&mut CPU),
+    {
+        match self.current_op.exec_phase {
+            ExecPhase::Idle => {
+                self.read_program_counter(); // dummy read
                 self.current_op.exec_phase = ExecPhase::Write;
                 false
             }

@@ -389,9 +389,6 @@ const OPCODES: &[Opcode] = &[
     Opcode::new(0x9C, "*UNSTABLE", 1,1, AddressingMode::None, AccessType::Read, CPU::unstable),
     Opcode::new(0x9B, "*UNSTABLE", 1,1, AddressingMode::None, AccessType::Read, CPU::unstable),
 
-    // Jams
-
-
 ];
 
 pub static OPCODES_MAP: Lazy<HashMap<u8, &Opcode>> = Lazy::new(|| {
