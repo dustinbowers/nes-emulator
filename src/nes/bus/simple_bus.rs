@@ -1,4 +1,4 @@
-use crate::nes::cpu::processor::{CPU, CpuBusInterface};
+use crate::nes::cpu::{CPU, CpuBusInterface};
 
 #[cfg(any(test, feature = "single-step-runner"))]
 pub struct SimpleBus {
@@ -27,10 +27,10 @@ impl SimpleBus {
         self.cpu.program_counter = 0x0000;
     }
 
-    pub fn tick(&mut self) -> (u8, bool) {
-        let (tick_cycles, _, is_breaking) = self.cpu.tick();
-        self.cycles += tick_cycles as usize;
-        (tick_cycles, is_breaking)
+    pub fn tick(&mut self) -> (bool, bool) {
+        let (is_done, is_breaking) = self.cpu.tick();
+        self.cycles += 1;
+        (is_done, is_breaking)
     }
 }
 

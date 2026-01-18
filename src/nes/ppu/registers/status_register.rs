@@ -37,6 +37,10 @@ impl StatusRegister {
         self.remove(StatusRegister::VBLANK_STARTED);
     }
 
+    pub fn vblank_active(&mut self) -> bool {
+        self.contains(StatusRegister::VBLANK_STARTED)
+    }
+
     pub fn set_sprite_zero_hit(&mut self, status: bool) {
         self.set(StatusRegister::SPRITE_ZERO_HIT, status);
     }

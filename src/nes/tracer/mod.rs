@@ -1,9 +1,9 @@
-use crate::nes::tracer::traceable::Traceable;
 use once_cell::sync::Lazy;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
 pub mod traceable;
+pub use traceable::Traceable;
 
 #[macro_export]
 macro_rules! trace {

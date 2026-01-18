@@ -17,7 +17,7 @@ impl DecayRegister {
 
     pub fn tick(&mut self) {
         self.cycle -= 1;
-        if self.cycle <= 0 {
+        if self.cycle == 0 {
             self.value = 0;
         }
     }
@@ -29,6 +29,6 @@ impl DecayRegister {
     }
 
     pub fn output(&self) -> u8 {
-        return self.value;
+        self.value
     }
 }

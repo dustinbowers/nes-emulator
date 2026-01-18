@@ -1,3 +1,4 @@
+use cpu::CpuBusInterface;
 pub mod apu;
 pub mod bus;
 pub mod cartridge;
@@ -7,11 +8,10 @@ pub mod tracer;
 
 pub mod controller;
 
-use crate::nes::cartridge::rom::{Rom, RomError};
-use crate::{trace, trace_obj};
+use cartridge::rom::{Rom, RomError};
+use super::{trace, trace_obj};
 use bus::nes_bus::NesBus;
 use cartridge::Cartridge;
-use cpu::processor::CpuBusInterface;
 
 const OAM_DMA_START_CYCLES: usize = 0;
 const OAM_DMA_DONE_CYCLES: usize = 512;
@@ -22,6 +22,7 @@ enum DmaMode {
     None,
 }
 pub struct NES {
+    master_clock: u64,
     pub bus: &'static mut NesBus,
     // pub ppu_warmed_up: bool,
     dma_mode: DmaMode,
@@ -38,6 +39,7 @@ impl NES {
         let bus = NesBus::new();
         Self {
             bus,
+            master_clock: 0,
             // ppu_warmed_up: true,
             dma_mode: DmaMode::None,
             oam_transfer_cycles: 0,
@@ -72,6 +74,8 @@ impl NES {
     ///
     /// Returns `true` if a new frame is ready to be rendered, and `false` otherwise.
     pub fn tick(&mut self) -> bool {
+        self.master_clock += 1;
+
         // Tick PPU
         let frame_ready = self.bus.ppu.tick();
         // trace_obj!(self.bus.ppu);
@@ -80,19 +84,18 @@ impl NES {
         self.bus.tick();
 
         // CPU runs at 1/3 PPU speed
-        if self.bus.ppu.global_ppu_ticks.is_multiple_of(3) {
+        if self.master_clock.is_multiple_of(3) {
             match self.dma_mode {
                 DmaMode::None => {
-                    if !self.bus.cpu.rdy {
+                    if self.bus.cpu.rdy {
+                        self.bus.cpu.tick();
+                        trace_obj!(self.bus.cpu);
+                    } else {
                         // Start OAM DMA
                         // println!("DMA START");
                         trace!("PPU DMA START");
                         self.dma_mode = DmaMode::Oam;
                         self.oam_transfer_cycles = OAM_DMA_START_CYCLES; // counts 0..511 for 256 bytes
-                        self.bus.cpu.rdy = false;
-                    } else {
-                        self.bus.cpu.tick();
-                        trace_obj!(self.bus.cpu);
                     }
                 }
                 DmaMode::Oam => {
@@ -113,7 +116,7 @@ impl NES {
                         // DMA complete
                         trace!("PPU DMA COMPLETE");
                         self.dma_mode = DmaMode::None;
-                        self.bus.cpu.rdy = true;
+                        self.bus.cpu.rdy = true; // Carry on with regular CPU cycles
                     }
                 }
             }

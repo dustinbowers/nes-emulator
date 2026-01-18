@@ -1,7 +1,3 @@
-use crate::display::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
-use crate::nes::NES;
-use crate::nes::cartridge::rom::Rom;
-use crate::nes::controller::joypad::JoypadButton;
 use macroquad::prelude::*;
 use std::cell::UnsafeCell;
 use std::collections::{HashMap, VecDeque};
@@ -9,6 +5,11 @@ use std::error::Error;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use tinyaudio::prelude::*;
+
+use crate::display::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
+use crate::nes::NES;
+use crate::nes::cartridge::rom::Rom;
+use crate::nes::controller::joypad::JoypadButton;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::wasm_bindgen;

@@ -200,7 +200,7 @@ mod test {
     }
 
     fn frame_ticks_with_prerender_mask(ppu: &mut PPU, enable_bg: bool) -> usize {
- s       let mut ticks = 0usize;
+        let mut ticks = 0usize;
         let mask_value = if enable_bg { 0b0000_1000 } else { 0 };
         loop {
             if ppu.scanline == 261 && ppu.cycles == 338 {
@@ -249,7 +249,6 @@ mod test {
 
         ticks_until_frame_ready(&mut ppu);
         ticks_until_frame_ready(&mut ppu);
-
         for (label, pattern, expected_skips) in patterns {
             // Prime a couple frames; PPU starts at scanline 261 so the first "frame" is partial.
 
