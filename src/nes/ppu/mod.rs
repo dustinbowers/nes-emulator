@@ -326,9 +326,6 @@ impl PPU {
             self.reset_sprite_evaluation();
         }
 
-        // if (scanline >= 241 && dot >= 1) || (scanline <= 261 && dot <= 1) {
-        //     self.vblank_ticks += 1;
-        // }
         if self.status_register.vblank_active() {
             self.vblank_ticks += 1;
         }
@@ -400,7 +397,7 @@ impl PPU {
         }
 
         // VBLANK set at start of scanline 241 (dot 1)
-        if scanline == 241 && dot == 1 {
+        if scanline == 241 && dot == 2 {
             self.vblank_ticks = 0;
             if !self.suppress_vblank {
                 self.status_register.set_vblank_started();
@@ -426,6 +423,28 @@ impl PPU {
             }
         }
 
+        // Odd-frame skip
+        if prerender_scanline && dot == 339 && self.frame_is_odd && rendering_enabled {
+            // NES skips dot 339 on odd frames with rendering enabled at prerender start
+            if std::env::var("NES_ODD_SKIP_LOG").is_ok() {
+                eprintln!(
+                    "[ODD SKIP] mask={:02X} scanline={} dot={}",
+                    self.mask_register.bits(),
+                    scanline,
+                    dot
+                );
+            }
+            self.cycles = 0;
+            self.scanline = 0;
+            self.suppress_vblank = false;
+            self.frame_is_odd = !self.frame_is_odd;
+            trace!(
+                "[PPU DEBUG] Odd-frame SKIP: frame_is_odd={}, scanline={}, dot={}",
+                self.frame_is_odd, scanline, dot
+            );
+            return true;
+        }
+
         // Prevent overflow
         if self.global_ppu_ticks > 1_000_000 {
             self.global_ppu_ticks -= 1_000_000;
@@ -449,29 +468,6 @@ impl PPU {
                 );
             }
         }
-
-        // Odd-frame skip
-        if prerender_scanline && dot == 339 && self.frame_is_odd && rendering_enabled {
-            // NES skips dot 339 on odd frames with rendering enabled at prerender start
-            if std::env::var("NES_ODD_SKIP_LOG").is_ok() {
-                eprintln!(
-                    "[ODD SKIP] mask={:02X} scanline={} dot={}",
-                    self.mask_register.bits(),
-                    scanline,
-                    dot
-                );
-            }
-            self.cycles = 0;
-            self.scanline = 0;
-            self.suppress_vblank = false;
-            self.frame_is_odd = !self.frame_is_odd;
-            trace!(
-                "[PPU DEBUG] Odd-frame SKIP: frame_is_odd={}, scanline={}, dot={}",
-                self.frame_is_odd, scanline, dot
-            );
-            return true;
-        }
-
         frame_complete
     }
 
