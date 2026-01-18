@@ -357,7 +357,7 @@ impl PPU {
             }
 
             // Secondary OAM clear (dots 1–64)
-            if visible_scanline && (1..=64).contains(&dot) && dot % 2 == 0 {
+            if visible_scanline && (1..=64).contains(&dot) && dot.is_multiple_of(2) {
                 let ind = (dot - 1) / 2;
                 self.secondary_oam[ind] = 0xFF;
             }
@@ -373,11 +373,10 @@ impl PPU {
             }
 
             // Sprite pattern fetches (dots 257–320, every 8 dots)
-            if (257..=320).contains(&dot) && (dot - 257) % 8 == 0 {
-                if visible_scanline || prerender_scanline {
+            if (257..=320).contains(&dot) && (dot - 257).is_multiple_of(8)
+                && (visible_scanline || prerender_scanline) {
                     let sprite_num = (dot - 257) / 8;
-                    self.sprite_fill_register(sprite_num as usize, scanline);
-                }
+                    self.sprite_fill_register(sprite_num, scanline);
             }
 
             // Scroll updates
@@ -478,17 +477,6 @@ impl PPU {
             self.tick();
         }
     }
-
-    // pub fn write_to_oam_byte(&mut self, index: u8, value: u8) {
-    //     self.oam_data[index as usize] = value;
-    // }
-    //
-    // pub fn write_to_oam_dma(&mut self, data: &[u8; 256]) {
-    //     for x in data.iter() {
-    //         self.oam_data[self.oam_addr as usize] = *x;
-    //         self.oam_addr = self.oam_addr.wrapping_add(1);
-    //     }
-    // }
 }
 
 // Private implementations
@@ -510,19 +498,15 @@ impl PPU {
         // Only check for sprite 0 hit on visible scanlines and dots 1-256
         if show_bg && show_spr && scanline < 240 && (1..=256).contains(&dot) {
             // Leftmost 8px masking: if in dots 1-8, require both leftmost bits enabled
-            if dot > 8 || (left_bg && left_spr) {
-                if sprite_zero_rendered && bg_palette_index != 0 {
-                    if !self
-                        .status_register
-                        .contains(StatusRegister::SPRITE_ZERO_HIT)
-                    {
-                        trace!(
-                            "\tset_sprite_zero_hit TRUE @ scanline {} dot {}",
-                            scanline, dot
-                        );
-                        self.status_register.set_sprite_zero_hit(true);
-                    }
-                }
+            if (dot > 8 || (left_bg && left_spr))
+                && (sprite_zero_rendered && bg_palette_index != 0)
+                && !self.status_register.contains(StatusRegister::SPRITE_ZERO_HIT)
+            {
+                trace!(
+                    "\tset_sprite_zero_hit TRUE @ scanline {} dot {}",
+                    scanline, dot
+                );
+                self.status_register.set_sprite_zero_hit(true);
             }
         }
 

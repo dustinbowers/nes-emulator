@@ -35,8 +35,6 @@ impl Opcode {
     }
 }
 
-
-
 #[rustfmt::skip]
 const OPCODES: &[Opcode] = &[
     // Software-defined interrupt

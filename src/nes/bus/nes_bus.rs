@@ -46,7 +46,6 @@ impl NesBus {
         let mut bus = Box::new(NesBus {
             cart: None,
             cpu_ram: [0; CPU_RAM_SIZE],
-            // cycles: 0,
             cpu: CPU::new(),
             ppu: PPU::new(),
             apu: APU::new(),
@@ -73,7 +72,7 @@ impl NesBus {
         self.nmi_scheduled = None;
         self.oam_dma_addr = 0;
         self.last_cpu_read = 0;
-        self.controller1 = Box::new(Joypad::new());
+        *self.controller1 = Joypad::new();
 
         self.cpu.reset();
         self.ppu.reset();
@@ -97,11 +96,9 @@ impl NesBus {
         if let Some(ct) = self.nmi_scheduled {
             if ct == 0 {
                 self.cpu.trigger_nmi();
-                // println!("triggering NMI!");
                 trace!("PPU triggering NMI!");
                 self.nmi_scheduled = None;
             } else {
-                // println!("decrementing NMI: {}", ct);
                 self.nmi_scheduled = Some(ct - 1)
             }
         }

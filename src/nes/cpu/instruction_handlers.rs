@@ -142,6 +142,7 @@ impl CPU {
         })
     }
 
+    /// Clear overflow flag
     pub(super) fn clv(&mut self) -> bool {
         self.exec_modify_register(|cpu| {
             cpu.status.remove(Flags::OVERFLOW);
@@ -211,12 +212,14 @@ impl CPU {
         })
     }
 
+    /// Push accumulator onto stack
     pub(super) fn pha(&mut self) -> bool {
         self.exec_stack_push_cycle(|cpu| {
             cpu.stack_push(cpu.register_a);
         })
     }
 
+    /// Push status register onto stack
     pub(super) fn php(&mut self) -> bool {
         self.exec_stack_push_cycle(|cpu| {
             // Push processor_status onto the stack
@@ -361,6 +364,7 @@ impl CPU {
         })
     }
 
+    /// Decrement register x
     pub(super) fn dex(&mut self) -> bool {
         self.exec_modify_register(|cpu| {
             cpu.register_x = cpu.register_x.wrapping_sub(1);
@@ -368,6 +372,7 @@ impl CPU {
         })
     }
 
+    // Decrement register y
     pub(super) fn dey(&mut self) -> bool {
         self.exec_modify_register(|cpu| {
             cpu.register_y = cpu.register_y.wrapping_sub(1);
@@ -400,6 +405,10 @@ impl CPU {
         })
     }
 
+    
+    //
+    // Addition/Subtraction
+    ///////////////////////////
     pub(super) fn adc(&mut self) -> bool {
         self.exec_read_cycle(|cpu| {
             // Add with Carry
@@ -415,6 +424,10 @@ impl CPU {
         })
     }
 
+    
+    //
+    // Bitwise ops
+    //////////////////
     pub(super) fn and(&mut self) -> bool {
         self.exec_read_cycle(|cpu| {
             let value = cpu.current_op.tmp_data;
@@ -436,11 +449,9 @@ impl CPU {
         })
     }
 
-
     //
     // Jumps
     ///////////////
-
     /// Unconditional jump
     pub(super) fn jmp(&mut self) -> bool {
         self.exec_jmp_cycle(|cpu| {
@@ -488,7 +499,6 @@ impl CPU {
     //
     // Returns
     //////////////
-
     /// Return from subroutine
     pub(super) fn rts(&mut self) -> bool {
         // Return from subroutine
@@ -559,7 +569,6 @@ impl CPU {
     //
     // Branches
     ////////////////
-
     /// Branch if ZERO is clear
     pub(super) fn bne(&mut self) -> bool {
         self.exec_branch_cycle(|cpu| !cpu.status.contains(Flags::ZERO))

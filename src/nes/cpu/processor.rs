@@ -112,7 +112,6 @@ impl CPU {
     }
 
     pub fn tick(&mut self) -> (bool, bool) {
-
         if self.nmi_pending {
             self.nmi_pending = false;
             self.active_interrupt = Some(interrupts::NMI);
@@ -149,7 +148,6 @@ impl CPU {
                 return (done, false)
             }
 
-
             // Load next opcode
             let opcodes: &HashMap<u8, &'static Opcode> = &opcodes::OPCODES_MAP;
             let code = self.consume_program_counter();
@@ -170,17 +168,10 @@ impl CPU {
 
         // Execute current instruction
         let opcode = self.current_op.opcode.unwrap();
-        // println!("START executing opcode (PC = {:04X})", self.program_counter);
         let done = (opcode.exec)(self);
-        // println!(
-        //     "DONE executing opcode (PC = {:04X}), done = {}",
-        //     self.program_counter, done
-        // );
-        // dbg!(&self.current_op);
 
         // Prepare for next opcode
         if done {
-            // println!("opcode DONE");
             self.current_op = CpuCycleState::default();
         }
 

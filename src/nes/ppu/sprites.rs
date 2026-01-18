@@ -54,7 +54,7 @@ impl PPU {
         let oam_base = 4 * current_sprite_index;
         let secondary_oam_base = self.sprite_count * 4; // sprite_count ranges 0..8
 
-        let current_oam_y = self.oam_data[oam_base + 0] as usize;
+        let current_oam_y = self.oam_data[oam_base] as usize;
         let sprite_height = self.ctrl_register.sprite_size() as i16;
 
         if current_oam_y < 0xFF
@@ -62,7 +62,7 @@ impl PPU {
             && scanline < (current_oam_y + sprite_height as usize)
         {
             if self.sprite_count < 8 {
-                self.secondary_oam[secondary_oam_base + 0] = self.oam_data[oam_base + 0];
+                self.secondary_oam[secondary_oam_base] = self.oam_data[oam_base];
                 self.secondary_oam[secondary_oam_base + 1] = self.oam_data[oam_base + 1];
                 self.secondary_oam[secondary_oam_base + 2] = self.oam_data[oam_base + 2];
                 self.secondary_oam[secondary_oam_base + 3] = self.oam_data[oam_base + 3];
@@ -87,7 +87,7 @@ impl PPU {
         if sprite_num < self.sprite_count {
             let base = 4 * sprite_num;
 
-            let y = self.secondary_oam[base + 0];
+            let y = self.secondary_oam[base];
             let tile_index = self.secondary_oam[base + 1];
             let attributes = self.secondary_oam[base + 2];
             let x = self.secondary_oam[base + 3];
