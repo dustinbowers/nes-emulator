@@ -2,7 +2,7 @@
 .idea
 target/
 nes6502-tests/
-nes-test-roms/
+#nes-test-roms/
 mapper_docs/
 misc_docs/
 roms/

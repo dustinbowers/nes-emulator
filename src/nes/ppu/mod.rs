@@ -397,7 +397,8 @@ impl PPU {
         }
 
         // VBLANK set at start of scanline 241 (dot 1)
-        if scanline == 241 && dot == 2 {
+        // NMI edge
+        if scanline == 241 && dot == 1 {
             self.vblank_ticks = 0;
             if !self.suppress_vblank {
                 self.status_register.set_vblank_started();
@@ -407,18 +408,16 @@ impl PPU {
                 "[PPU] VBLANK SET: frame_is_odd={} scanline={} dot={} vblank_ticks={} global_ppu_ticks={}",
                 self.frame_is_odd, scanline, dot, self.vblank_ticks, self.global_ppu_ticks
             );
-        }
 
-        // NMI edge
-        if (scanline == 241 && dot == 1)
-            && (!self.suppress_vblank && self.ctrl_register.generate_vblank_nmi()) {
-            trace!(
-                "[PPU] NMI TRIGGERED: scanline={} dot={} global_ppu_ticks={}",
-                scanline, dot, self.global_ppu_ticks
-            );
-            if let Some(bus_ptr) = self.bus {
-                unsafe {
-                    (*bus_ptr).nmi();
+            if (!self.suppress_vblank && self.ctrl_register.generate_vblank_nmi()) {
+                trace!(
+                    "[PPU] NMI TRIGGERED: scanline={} dot={} global_ppu_ticks={}",
+                    scanline, dot, self.global_ppu_ticks
+                );
+                if let Some(bus_ptr) = self.bus {
+                    unsafe {
+                        (*bus_ptr).nmi();
+                    }
                 }
             }
         }
