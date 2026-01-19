@@ -96,10 +96,7 @@ pub enum CpuError {
     InvalidOpcode(u8),
 }
 
-
-
-#[derive(Default)]
-#[derive(Debug)]
+#[derive(Default, Debug, Clone, Copy)]
 enum AddrResult {
     #[default]
     InProgress,
@@ -122,12 +119,14 @@ struct CpuCycleState {
     opcode: Option<&'static Opcode>,
     interrupt: Option<Interrupt>,
     micro_cycle: u8,
+    access_type: AccessType,
+    exec_phase: ExecPhase,
+    addr_result: AddrResult,
+
     base_addr: u16,
     tmp_addr: u16,
     tmp_data: u8,
     page_crossed: bool,
-    access_type: AccessType,
-    exec_phase: ExecPhase,
 }
 
 pub struct CPU {
@@ -166,24 +165,18 @@ impl Traceable for CPU {
         "CPU"
     }
     fn trace_state(&self) -> Option<String> {
-        if self.current_op.micro_cycle == 0 {
-            Some(format!(
-                "(micro_cycle: {}) PC={:04X} A={:02X} X={:02X} Y={:02X} P={:02X} SP={:02X} [{:?}]",
-                self.current_op.micro_cycle,
-                self.program_counter,
-                self.register_a,
-                self.register_x,
-                self.register_y,
-                self.status,
-                self.stack_pointer,
-                self.last_opcode_desc
-            ))
-        } else {
-            // Some(format!(
-            //     "(skip: {}) PC={:04X}",
-            //     self.skip_cycles, self.program_counter
-            // ))
-            None
-        }
+        Some(format!(
+            "(micro_cycle: {}, addr_result: {:?}, exec_phase: {:?})\tPC={:04X} A={:02X} X={:02X} Y={:02X} P={:02X} SP={:02X} [{:?}]",
+            self.current_op.micro_cycle,
+            self.current_op.addr_result,
+            self.current_op.exec_phase,
+            self.program_counter,
+            self.register_a,
+            self.register_x,
+            self.register_y,
+            self.status,
+            self.stack_pointer,
+            self.last_opcode_desc
+        ))
     }
 }

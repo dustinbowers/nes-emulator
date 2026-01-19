@@ -1,7 +1,7 @@
 use bitflags::bitflags;
 use std::collections::HashMap;
 use thiserror::Error;
-
+use crate::trace_obj;
 use super::super::trace;
 use super::interrupts::{Interrupt, InterruptType};
 use super::opcodes::Opcode;
@@ -28,7 +28,6 @@ impl CPU {
             active_interrupt: None,
             nmi_pending: false,
             irq_pending: false,
-            // interrupt_stack: vec![],
             last_opcode_desc: "".to_string(),
             error: None,
             stop: false,
@@ -36,6 +35,11 @@ impl CPU {
     }
 
     pub fn reset(&mut self) {
+        let pcl = self.bus_read(0xFFFC) as u16;
+        let pch = self.bus_read(0xFFFD) as u16;
+        self.program_counter = (pch << 8) | pcl;
+        self.current_op = CpuCycleState::default();
+        self.last_opcode_desc = "".to_string();
         self.cycles = 0;
         self.halt_scheduled = false;
         self.rdy = true;
@@ -44,15 +48,9 @@ impl CPU {
         self.register_y = 0;
         self.stack_pointer = CPU_STACK_RESET;
         self.status = Flags::from_bits_truncate(0b0010_0010);
-
-        let pcl = self.bus_read(0xFFFC) as u16;
-        let pch = self.bus_read(0xFFFD) as u16;
-        self.program_counter = (pch << 8) | pcl;
-        self.current_op = CpuCycleState::default();
         self.active_interrupt = None;
         self.nmi_pending = false; // PPU will notify CPU when NMI needs handling
         self.irq_pending = false;
-        self.last_opcode_desc = "".to_string();
         self.error = None;
     }
 
@@ -128,6 +126,7 @@ impl CPU {
             if self.halt_scheduled {
                 match self.cpu_mode {
                     CpuMode::Read => {
+                        trace!("Pausing CPU for DMA");
                         self.rdy = false; // This pauses CPU execution while DMA runs
                         self.halt_scheduled = false;
                     }
@@ -145,6 +144,7 @@ impl CPU {
                 if done {
                     self.active_interrupt = None;
                 }
+                trace!("[INTERRUPT] {:?}", interrupt);
                 return (done, false)
             }
 
@@ -163,12 +163,15 @@ impl CPU {
             self.last_opcode_desc = opcode.name.parse().unwrap();
             self.current_op.opcode = Some(opcode);
             self.current_op.access_type = opcode.access_type;
+
+            // trace_obj!(&*self);
             return (false, false);
         }
 
         // Execute current instruction
         let opcode = self.current_op.opcode.unwrap();
         let done = (opcode.exec)(self);
+        // trace_obj!(&*self);
 
         // Prepare for next opcode
         if done {
