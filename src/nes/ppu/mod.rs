@@ -217,16 +217,6 @@ impl PPU {
                 // bits 4–0 = open bus (last read)
                 let result = (status & 0xE0) | (self.last_byte_read.output() & 0x1F);
 
-                // if std::env::var("NES_STATUS_LOG").is_ok()
-                //     && self.scanline == 241
-                //     && self.cycles <= 10
-                // {
-                //     eprintln!(
-                //         "[STATUS READ] sl={} dot={} status={:02X} result={:02X}",
-                //         self.scanline, self.cycles, status, result
-                //     );
-                // }
-
                 // side effects happen AFTER capturing status
                 if had_vblank {
                     self.status_register.reset_vblank_status();
@@ -267,15 +257,7 @@ impl PPU {
 
         match reg {
             0x2000 => self.write_to_ctrl(value),
-            0x2001 => {
-                // if std::env::var("NES_MASK_LOG").is_ok() {
-                //     eprintln!(
-                //         "[MASK WRITE] value={:02X} scanline={} dot={}",
-                //         value, self.scanline, self.cycles
-                //     );
-                // }
-                self.mask_register.update(value)
-            }
+            0x2001 => self.mask_register.update(value),
             0x2003 => self.oam_addr = value,
             0x2004 => self.write_to_oam_data(value),
             0x2005 => self.scroll_register.write_scroll(value),
@@ -420,7 +402,7 @@ impl PPU {
         }
 
         // Odd-frame skip
-        if prerender_scanline && dot == 339 && self.frame_is_odd && self.prerender_rendering_enabled
+        if prerender_scanline && dot == 340 && self.frame_is_odd && self.prerender_rendering_enabled
         {
             trace_ppu_event!(
                 "ODD SKIP      frame={} scanline={} dot={} ppu_cycle={}",
@@ -431,11 +413,12 @@ impl PPU {
             );
 
             // NES skips dot 339 on odd frames with rendering enabled at prerender start
+            self.global_ppu_ticks += 1;
             self.cycles = 0;
             self.scanline = 0;
             self.suppress_vblank = false;
             self.frame_is_odd = !self.frame_is_odd;
-            return true;
+            return true; // frame complete
         }
 
         // Prevent overflow
@@ -681,13 +664,6 @@ impl PPU {
         }
     }
 
-    // fn read_status(&mut self) -> u8 {
-    //     let data = self.status_register.value();
-    //     self.status_register.reset_vblank_status();
-    //     self.scroll_register.reset_latch();
-    //     data
-    // }
-
     pub fn write_to_oam_data(&mut self, value: u8) {
         self.oam_data[self.oam_addr as usize] = value;
         self.oam_addr = self.oam_addr.wrapping_add(1);
@@ -702,11 +678,10 @@ impl PPU {
             && value & 0b1000_0000 != 0
             && (self.scanline >= 241 && self.cycles > 0)
             && (self.scanline <= 260 && self.cycles <= 340)
+            && let Some(bus_ptr) = self.bus
         {
-            if let Some(bus_ptr) = self.bus {
-                unsafe {
-                    (*bus_ptr).nmi();
-                }
+            unsafe {
+                (*bus_ptr).nmi();
             }
         }
 
@@ -784,29 +759,16 @@ impl Traceable for PPU {
         "PPU"
     }
     fn trace_state(&self) -> Option<String> {
-        // if (0..=10).contains(&self.cycles) {
-        // let mut is_vblank = false;
-        // if self.scanline >= 241 && self.cycles >= 1 {
-        //     is_vblank = true;
-        // }
-        // if self.scanline >= 261 && self.cycles >= 1 {
-        //     is_vblank = false;
-        // }
         Some(format!(
-            "ppu_cycles={} scanline={} dot={} cpu_visible_vblank={} odd={} global_ppu_cycles={} ppu_status={:08b}",
-            self.global_ppu_ticks,
+            "scanline={} dot={} cpu_visible_vblank={} odd={} global_ppu_cycles={} ppu_status={:08b}",
             self.scanline,
             self.cycles,
-            // is_vblank,
             self.status_register
                 .contains(StatusRegister::VBLANK_STARTED),
             self.frame_is_odd,
             self.global_ppu_ticks,
             self.status_register.bits()
         ))
-        // } else {
-        //     None
-        // }
     }
 }
 
