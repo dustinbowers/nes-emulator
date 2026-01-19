@@ -11,9 +11,9 @@ use crate::nes::NES;
 use crate::nes::cartridge::rom::Rom;
 use crate::nes::controller::joypad::JoypadButton;
 
+use crate::trace_dump;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::wasm_bindgen;
-use crate::trace_dump;
 
 pub struct NesCell(UnsafeCell<NES>);
 

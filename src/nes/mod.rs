@@ -8,10 +8,10 @@ pub mod tracer;
 
 pub mod controller;
 
-use cartridge::rom::{Rom, RomError};
 use super::{trace, trace_obj};
 use bus::nes_bus::NesBus;
 use cartridge::Cartridge;
+use cartridge::rom::{Rom, RomError};
 
 const OAM_DMA_START_CYCLES: usize = 0;
 const OAM_DMA_DONE_CYCLES: usize = 512;

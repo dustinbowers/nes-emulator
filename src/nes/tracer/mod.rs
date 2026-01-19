@@ -95,7 +95,9 @@ pub struct Tracer;
 
 #[cfg(not(feature = "tracing"))]
 impl Tracer {
-    pub fn new(_: usize) -> Self { Tracer }
+    pub fn new(_: usize) -> Self {
+        Tracer
+    }
     pub fn write(&mut self, _: String) {}
     pub fn print(&self) {}
     pub fn clear(&mut self) {}

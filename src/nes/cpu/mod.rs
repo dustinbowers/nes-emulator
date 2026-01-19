@@ -1,14 +1,14 @@
-use bitflags::bitflags;
-use thiserror::Error;
-use interrupts::InterruptType;
-use opcodes::{Opcode};
-use crate::nes::cpu::interrupts::Interrupt;
 use super::tracer::Traceable;
+use crate::nes::cpu::interrupts::Interrupt;
+use bitflags::bitflags;
+use interrupts::InterruptType;
+use opcodes::Opcode;
+use thiserror::Error;
 
+mod instruction_handlers;
 mod interrupts;
 mod opcodes;
 mod processor;
-mod instruction_handlers;
 
 #[cfg(test)]
 pub mod processor_tests;
@@ -107,7 +107,7 @@ enum AddrResult {
 #[derive(Default, Debug, Copy, Clone, PartialEq)]
 enum ExecPhase {
     #[default]
-    Idle,     // instruction waiting for address resolution
+    Idle, // instruction waiting for address resolution
     Read,
     Internal, // cpu work (ALU / registers / etc.)
     Write,
@@ -153,7 +153,6 @@ pub struct CPU {
     pub error: Option<CpuError>,
     pub stop: bool,
 }
-
 
 pub trait CpuBusInterface {
     fn cpu_bus_read(&mut self, addr: u16) -> u8;

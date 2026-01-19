@@ -1,7 +1,7 @@
-use thiserror::Error;
 use dmc_channel::DmcChannel;
 use noise_channel::NoiseChannel;
 use pulse_channel::PulseChannel;
+use thiserror::Error;
 use triangle_channel::TriangleChannel;
 
 mod dmc_channel;

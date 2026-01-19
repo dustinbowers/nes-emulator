@@ -1,5 +1,5 @@
-use crate::nes::cpu::{CPU, CpuBusInterface};
 use crate::nes::apu::{APU, ApuBusInterface};
+use crate::nes::cpu::{CPU, CpuBusInterface};
 use crate::nes::ppu::{PPU, PpuBusInterface};
 
 use crate::nes::cartridge::Cartridge;
@@ -90,7 +90,6 @@ impl NesBus {
         self.cart = Some(cart);
         self.reset_components();
     }
-
 }
 
 impl CpuBusInterface for NesBus {
@@ -115,7 +114,7 @@ impl CpuBusInterface for NesBus {
                 }
 
                 // PPU Registers mirrored every 8 bytes
-               self.ppu.read_register(addr)
+                self.ppu.read_register(addr)
             }
             // 0x4000..=0x4013 => {
             //     // panic!("reading apu register: {:04X}", addr);
@@ -135,12 +134,10 @@ impl CpuBusInterface for NesBus {
                 // Open bus
                 self.last_cpu_read
             }
-            CART_START..=CART_END => {
-                match &mut self.cart {
-                    Some(cart) => cart.prg_read(addr),
-                    None => 0,
-                }
-            }
+            CART_START..=CART_END => match &mut self.cart {
+                Some(cart) => cart.prg_read(addr),
+                None => 0,
+            },
             _ => self.last_cpu_read,
         };
         self.last_cpu_read = value;

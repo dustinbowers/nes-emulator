@@ -1,6 +1,6 @@
+use super::{AccessType, AddressingMode, CPU};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use super::{AccessType, AddressingMode, CPU};
 
 #[derive(Debug)]
 pub struct Opcode {
@@ -30,7 +30,7 @@ impl Opcode {
             size,
             mode,
             access_type,
-            exec
+            exec,
         }
     }
 }

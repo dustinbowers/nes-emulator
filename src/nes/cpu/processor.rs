@@ -1,7 +1,3 @@
-use bitflags::bitflags;
-use std::collections::HashMap;
-use thiserror::Error;
-use crate::trace_obj;
 use super::super::trace;
 use super::interrupts::{Interrupt, InterruptType};
 use super::opcodes::Opcode;
@@ -9,6 +5,10 @@ use super::{
     CPU, CPU_STACK_RESET, CpuBusInterface, CpuCycleState, CpuError, CpuMode, DEBUG, Flags,
     interrupts, opcodes,
 };
+use crate::trace_obj;
+use bitflags::bitflags;
+use std::collections::HashMap;
+use thiserror::Error;
 
 impl CPU {
     pub fn new() -> CPU {
@@ -145,7 +145,7 @@ impl CPU {
                     self.active_interrupt = None;
                 }
                 trace!("[INTERRUPT] {:?}", interrupt);
-                return (done, false)
+                return (done, false);
             }
 
             // Load next opcode
