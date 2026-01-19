@@ -35,6 +35,7 @@ pub struct PPU {
     pub scanline: usize,
     suppress_vblank: bool,
     nmi_fired_this_vblank: bool,
+    instant_nmi_pending: bool,
     pub global_ppu_ticks: usize,
     pub vblank_ticks: usize, // TODO: remove this
     prerender_rendering_enabled: bool,
@@ -89,6 +90,7 @@ impl PPU {
             v_ram: [0; RAM_SIZE],
             cycles: 0,
             scanline: 261,
+            instant_nmi_pending: false,
             suppress_vblank: false,
             nmi_fired_this_vblank: false,
             global_ppu_ticks: 0,
@@ -147,6 +149,7 @@ impl PPU {
         self.v_ram = [0; RAM_SIZE];
         self.cycles = 0;
         self.scanline = 261;
+        self.instant_nmi_pending = false;
         self.suppress_vblank = false;
         self.nmi_fired_this_vblank = false;
         self.global_ppu_ticks = 0;
@@ -240,8 +243,9 @@ impl PPU {
 
                 // Quirk: reading $2002 one PPU clock before VBL suppresses VBL for that frame.
                 // if self.scanline == 241 && (self.cycles == 0 || self.cycles == 1) && !had_vblank {
-                //     self.suppress_vblank = true;
-                // }
+                if self.scanline == 241 && (self.cycles == 0) && !had_vblank {
+                    self.suppress_vblank = true;
+                }
                 result
             }
             0x2004 => {
@@ -386,10 +390,8 @@ impl PPU {
             self.vblank_ticks = 0;
 
             let suppress_nmi_due_to_read = self.last_2002_read_scanline == 241
-                && (
-                    self.last_2002_read_dot == 2
-                    // || self.last_2002_read_dot == 1
-                );
+                && (self.last_2002_read_dot >= 1 && self.last_2002_read_dot <= 3);
+
 
             trace_ppu_event!(
                 "VBLANK SET    frame={} scanline={} dot={} ppu_cycle={} suppress_nmi={}",
@@ -425,6 +427,14 @@ impl PPU {
             }
         }
 
+        // Notify CPU of NMI if one is triggered from a write to CTRL
+        if self.instant_nmi_pending && self.ctrl_register.nmi_enabled() {
+            if let Some(bus_ptr) = self.bus {
+                unsafe { (*bus_ptr).nmi(); }
+            }
+            self.instant_nmi_pending = false;
+        }
+
         // Odd-frame skip
         if prerender_scanline && dot == 340 && self.frame_is_odd && self.prerender_rendering_enabled
         {
@@ -440,6 +450,7 @@ impl PPU {
             self.global_ppu_ticks += 1;
             self.cycles = 0;
             self.scanline = 0;
+            self.suppress_vblank = false;
             self.frame_is_odd = !self.frame_is_odd;
             return true; // frame complete
         }
@@ -460,6 +471,7 @@ impl PPU {
 
             if self.scanline > 261 {
                 self.scanline = 0;
+                self.suppress_vblank = false;
                 frame_complete = true;
                 self.frame_is_odd = !self.frame_is_odd;
                 trace!(
@@ -702,9 +714,7 @@ impl PPU {
             && (self.scanline <= 260 && self.cycles <= 340)
             && let Some(bus_ptr) = self.bus
         {
-            unsafe {
-                (*bus_ptr).nmi();
-            }
+            self.instant_nmi_pending = true;
         }
 
         // Bits 0-1 control the base nametable, which go into bits 10 and 11 of t
