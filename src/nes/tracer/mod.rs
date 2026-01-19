@@ -16,17 +16,37 @@ macro_rules! trace {
 }
 
 #[macro_export]
+macro_rules! trace_dump {
+    () => {
+        #[cfg(feature = "tracing")]
+        {
+            $crate::nes::tracer::TRACER.lock().unwrap().print();
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! trace_obj {
     ($obj:expr) => {
         #[cfg(feature = "tracing")]
         {
-            $crate::nes::tracer::TRACER.lock().unwrap().log(&$obj);
+            $crate::nes::tracer::TRACER.lock().unwrap().log($obj);
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! trace_ppu_event {
+    ($($arg:tt)*) => {
+        #[cfg(feature = "tracing")]
+        {
+            trace!("[PPU EVENT] {}", format!($($arg)*));
         }
     };
 }
 
 #[cfg(feature = "tracing")]
-pub static TRACER: Lazy<Mutex<Tracer>> = Lazy::new(|| Mutex::new(Tracer::new(5_000_000)));
+pub static TRACER: Lazy<Mutex<Tracer>> = Lazy::new(|| Mutex::new(Tracer::new(1_000_000)));
 
 /// Global tracer
 #[cfg(feature = "tracing")]
@@ -60,7 +80,7 @@ impl Tracer {
     pub fn log<T: Traceable>(&mut self, thing: &T) {
         let trace = thing.trace();
         if let Some(trace) = trace {
-            self.write(format!("{}", trace));
+            self.write(trace.to_string());
         }
     }
 
@@ -75,10 +95,9 @@ pub struct Tracer;
 
 #[cfg(not(feature = "tracing"))]
 impl Tracer {
-    pub fn new(_: usize) -> Self {
-        Tracer
-    }
+    pub fn new(_: usize) -> Self { Tracer }
     pub fn write(&mut self, _: String) {}
     pub fn print(&self) {}
     pub fn clear(&mut self) {}
+    pub fn log<T>(&mut self, _: &T) {}
 }

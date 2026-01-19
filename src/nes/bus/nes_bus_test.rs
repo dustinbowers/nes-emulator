@@ -213,7 +213,7 @@ mod test {
         }
 
         // Execute instructions until JAM
-        while !bus.cpu.tick().2 {}
+        while !bus.cpu.tick().1 {}
 
         let addr = 0x2345;
         let mirror = bus.ppu.mirror_ram_addr(addr) as usize;
@@ -257,7 +257,7 @@ mod test {
         bus.ppu.run_until_vblank();
 
         // Execute instructions until JAM
-        while !bus.cpu.tick().2 {}
+        while !bus.cpu.tick().1 {}
 
         // Verify palette_table was written to
         let palette_base = 0x3F00;

@@ -78,18 +78,13 @@ impl NES {
 
         // Tick PPU
         let frame_ready = self.bus.ppu.tick();
-        // trace_obj!(self.bus.ppu);
-
-        // Runs at PPU speed
-        self.bus.tick();
 
         // CPU runs at 1/3 PPU speed
-        if self.master_clock.is_multiple_of(3) {
+        if self.master_clock % 3 == 0 {
             match self.dma_mode {
                 DmaMode::None => {
                     if self.bus.cpu.rdy {
                         self.bus.cpu.tick();
-                        trace_obj!(self.bus.cpu);
                     } else {
                         // Start OAM DMA
                         // println!("DMA START");
@@ -121,11 +116,9 @@ impl NES {
                 }
             }
 
-            // Runs at CPU speed
+            // APU Runs at CPU speed
             self.bus.apu.clock(self.bus.cpu.cycles);
         }
-
-        // trace!("NES: cpu_cycles={} ppu_cycles={}", self.bus.cpu.cycles, self.bus.ppu.global_ppu_ticks);
         frame_ready
     }
 

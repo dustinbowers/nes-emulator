@@ -1,7 +1,6 @@
 use super::*;
 use crate::nes::bus::simple_bus::SimpleBus;
 use crate::nes::cpu::CpuBusInterface;
-// use crate::nes::cpu::{CpuBusInterface, Flags, CPU};
 
 fn init_cpu_and_bus(program: &[u8]) -> SimpleBus {
     let mut bus = SimpleBus::new(program.to_vec());
@@ -15,9 +14,9 @@ fn run_test_program(bus: &mut SimpleBus) -> usize {
     println!("running program...");
     let mut total_cycles = 0;
     loop {
-        let (cycles, _, is_breaking) = bus.cpu.tick2();
-        println!("tick cycles: {cycles}");
-        total_cycles += cycles as usize;
+        let (done, is_breaking) = bus.cpu.tick();
+        total_cycles += 1;
+        println!("tick cycles: {total_cycles}");
         if is_breaking {
             break;
         }

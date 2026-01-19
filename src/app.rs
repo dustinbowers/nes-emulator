@@ -13,6 +13,7 @@ use crate::nes::controller::joypad::JoypadButton;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::wasm_bindgen;
+use crate::trace_dump;
 
 pub struct NesCell(UnsafeCell<NES>);
 
@@ -160,7 +161,7 @@ impl App {
                 let ppu_cycles_per_sample = 5369318.0 / 44100.0; // ~121.7 PPU cycles per sample
                 let mut cycle_acc = nes.cycle_acc;
 
-                println!("ticking nes for {} samples", data.len());
+                // println!("ticking nes for {} samples", data.len());
                 for sample in data {
                     cycle_acc += ppu_cycles_per_sample;
 
@@ -280,6 +281,11 @@ impl App {
             }
             if is_key_pressed(KeyCode::Key5) {
                 nes.bus.apu.mute_dmc = !nes.bus.apu.mute_dmc;
+            }
+
+            if is_key_pressed(KeyCode::T) {
+                trace_dump!();
+                break;
             }
 
             next_frame().await;

@@ -47,7 +47,12 @@ impl CPU {
         // Don't count initial opcode load
         let cycles_remaining = self.current_op.opcode.unwrap().cycles - 1;
         self.current_op.micro_cycle += 1;
-        self.current_op.micro_cycle == cycles_remaining
+
+        let done = self.current_op.micro_cycle == cycles_remaining;
+        if done {
+            self.current_op.exec_phase = ExecPhase::Done;
+        }
+        done
     }
 
 
@@ -948,28 +953,21 @@ impl CPU {
         let mode = self.current_op.opcode.unwrap().mode;
         match mode {
             AddressingMode::Immediate => {
-                match self.current_op.micro_cycle {
-                    0 => {
-                        self.current_op.tmp_data = self.consume_program_counter();
-                        self.current_op.micro_cycle += 1;
-                        return AddrResult::ReadyImmediate(self.current_op.tmp_data);
-                    }
-                    _ => unreachable!(),
+                if self.current_op.micro_cycle == 0 {
+                    self.current_op.tmp_data = self.consume_program_counter();
+                    // self.current_op.micro_cycle += 1;
+                    // return AddrResult::ReadyImmediate(self.current_op.tmp_data);
+                    self.current_op.addr_result = AddrResult::ReadyImmediate(self.current_op.tmp_data);
                 }
             }
             AddressingMode::ZeroPage => {
-                return match self.current_op.micro_cycle {
-                    0 => {
-                        let zero_page = self.consume_program_counter();
-                        self.current_op.tmp_addr = zero_page as u16;
-                        self.current_op.micro_cycle += 1;
-                        AddrResult::Ready(self.current_op.tmp_addr)
-                    }
-                    1 => {
-                        AddrResult::Ready(self.current_op.tmp_addr)
-                    }
-                    _ => unreachable!(),
+                if self.current_op.micro_cycle == 0 {
+                    let zero_page = self.consume_program_counter();
+                    self.current_op.tmp_addr = zero_page as u16;
+                    // self.current_op.micro_cycle += 1;
+                    self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
                 }
+                // return self.current_op.addr_result;
             }
             AddressingMode::ZeroPageX | AddressingMode::ZeroPageY => {
                 let index = if mode == AddressingMode::ZeroPageX {
@@ -986,13 +984,10 @@ impl CPU {
                         let _ = self.bus_read(self.current_op.tmp_addr); // dummy read
                         self.current_op.tmp_addr = self.current_op.tmp_addr.wrapping_add(index as u16) & 0x00FF;
 
-                        self.current_op.micro_cycle += 1;
-                        return AddrResult::Ready(self.current_op.tmp_addr);
+                        // self.current_op.micro_cycle += 1;
+                        self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
                     }
-                    2 => {
-                        return AddrResult::Ready(self.current_op.tmp_addr);
-                    }
-                    _ => unreachable!(),
+                    _ => {}
                 }
             }
             AddressingMode::Absolute => {
@@ -1004,13 +999,10 @@ impl CPU {
                     1 => {
                         let hi = self.consume_program_counter();
                         self.current_op.tmp_addr |= (hi as u16) << 8;
-                        self.current_op.micro_cycle += 1;
-                        return AddrResult::Ready(self.current_op.tmp_addr);
+                        // self.current_op.micro_cycle += 1;
+                        self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
                     }
-                    2 => {
-                        return AddrResult::Ready(self.current_op.tmp_addr);
-                    }
-                    _ => unreachable!()
+                    _ => {}
                 }
             }
             AddressingMode::AbsoluteX | AddressingMode::AbsoluteY => {
@@ -1036,8 +1028,8 @@ impl CPU {
                         self.current_op.tmp_addr = addr;
 
                         if !self.needs_dummy_cycle() {
-                            self.current_op.micro_cycle += 1;
-                            return AddrResult::Ready(self.current_op.tmp_addr);
+                            // self.current_op.micro_cycle += 1;
+                            self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
                         }
                     }
                     2 => {
@@ -1046,13 +1038,10 @@ impl CPU {
                             let dummy = (self.current_op.base_addr & 0xFF00) | (self.current_op.tmp_addr & 0x00FF);
                             let _ = self.bus_read(dummy);
                         }
-                        self.current_op.micro_cycle += 1;
-                        return AddrResult::Ready(self.current_op.tmp_addr);
+                        // self.current_op.micro_cycle += 1;
+                        self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
                     }
-                    3 => {
-                        return AddrResult::Ready(self.current_op.tmp_addr);
-                    }
-                    _ => unreachable!()
+                    _ => {}
                 }
             }
             AddressingMode::IndirectX => {
@@ -1075,13 +1064,10 @@ impl CPU {
                         let hi = self.bus_read((self.current_op.tmp_addr + 1) & 0x00FF);
                         let final_addr = ((hi as u16) << 8) | self.current_op.tmp_data as u16;
                         self.current_op.tmp_addr = final_addr;
-                        self.current_op.micro_cycle += 1;
-                        return AddrResult::Ready(self.current_op.tmp_addr);
+                        // self.current_op.micro_cycle += 1;
+                        self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
                     }
-                    4 => {
-                        return AddrResult::Ready(self.current_op.tmp_addr);
-                    }
-                    _ => unreachable!()
+                    _ => {}
                 }
             }
             AddressingMode::IndirectY => {
@@ -1104,8 +1090,8 @@ impl CPU {
                         self.current_op.tmp_addr = addr;
 
                         if !self.needs_dummy_cycle() {
-                            self.current_op.micro_cycle += 1;
-                            return AddrResult::Ready(self.current_op.tmp_addr);
+                            // self.current_op.micro_cycle += 1;
+                            self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
                         }
                     }
                     3 => {
@@ -1113,13 +1099,10 @@ impl CPU {
                             let dummy = (self.current_op.base_addr & 0xFF00) | (self.current_op.tmp_addr & 0x00FF);
                             let _ = self.bus_read(dummy);
                         }
-                        self.current_op.micro_cycle += 1;
-                        return AddrResult::Ready(self.current_op.tmp_addr);
+                        // self.current_op.micro_cycle += 1;
+                        self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
                     }
-                    4 => {
-                        return AddrResult::Ready(self.current_op.tmp_addr);
-                    }
-                    _ => unreachable!()
+                    _ => {}
                 }
             }
             AddressingMode::Indirect => {
@@ -1142,29 +1125,24 @@ impl CPU {
 
                         let hi = self.bus_read(hi_addr);
                         self.current_op.tmp_addr = (hi as u16) << 8 | self.current_op.tmp_data as u16;
-                        return AddrResult::Ready(self.current_op.tmp_addr);
+                        self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
                     }
-                    _ => unreachable!()
+                    _ => {}
                 }
             }
             AddressingMode::Relative => {
                 // Note: Branch opcodes exclusively use this address mode
-                match self.current_op.micro_cycle {
-                    0 => {
-                        self.current_op.tmp_data = self.consume_program_counter();
-                        self.current_op.micro_cycle += 1;
-                        return AddrResult::Ready(self.current_op.tmp_addr);
-                    }
-                    1 => {
-                        return AddrResult::Ready(self.current_op.tmp_addr);
-                    }
-                    _ => unreachable!()
+                if self.current_op.micro_cycle == 0 {
+                    self.current_op.tmp_data = self.consume_program_counter();
+                    // self.current_op.micro_cycle += 1;
+                    self.current_op.addr_result =  AddrResult::Ready(self.current_op.tmp_addr);
                 }
             }
             _ => unreachable!("unsupported addressing mode"),
         }
         self.current_op.micro_cycle += 1;
-        AddrResult::InProgress
+        self.current_op.addr_result
+        // AddrResult::InProgress
     }
 
     fn exec_read_cycle<F>(&mut self, op: F) -> bool
@@ -1190,6 +1168,7 @@ impl CPU {
             }
             AddrResult::ReadyImmediate(val) => {
                 op(self);
+                self.current_op.exec_phase = ExecPhase::Done;
                 true
             }
         }
@@ -1262,6 +1241,7 @@ impl CPU {
         match self.current_op.exec_phase {
             ExecPhase::Idle => {
                 self.read_program_counter(); // dummy read
+                self.current_op.micro_cycle += 1;
                 self.current_op.exec_phase = ExecPhase::Read;
                 false
             }
@@ -1270,11 +1250,13 @@ impl CPU {
                 let stack_addr = self.stack_pointer.wrapping_add(1);
                 let _ =self.bus_read(CPU_STACK_BASE.wrapping_add(stack_addr as u16));
 
+                self.current_op.micro_cycle += 1;
                 self.current_op.exec_phase = ExecPhase::Write;
                 false
             }
             ExecPhase::Write => {
                 op(self);
+                self.current_op.micro_cycle += 1;
                 self.current_op.exec_phase = ExecPhase::Done;
                 true
             }
@@ -1289,11 +1271,13 @@ impl CPU {
         match self.current_op.exec_phase {
             ExecPhase::Idle => {
                 self.read_program_counter(); // dummy read
+                self.current_op.micro_cycle += 1;
                 self.current_op.exec_phase = ExecPhase::Write;
                 false
             }
             ExecPhase::Write => {
                 op(self);
+                self.current_op.micro_cycle += 1;
                 self.current_op.exec_phase = ExecPhase::Done;
                 true
             }
@@ -1306,6 +1290,7 @@ impl CPU {
         F: Fn(&mut CPU),
     {
         op(self);
+        self.current_op.micro_cycle += 1;
         self.current_op.exec_phase = ExecPhase::Done;
         true
     }
@@ -1318,10 +1303,12 @@ impl CPU {
             AddrResult::InProgress => false,
             AddrResult::Ready(addr) => {
                 op(self);
+                self.current_op.exec_phase = ExecPhase::Done;
                 true
             }
             AddrResult::ReadyImmediate(val) => {
                 op(self);
+                self.current_op.exec_phase = ExecPhase::Done;
                 true
             }
         }
@@ -1383,7 +1370,7 @@ impl CPU {
                 self.stack_push(hi);
             }
             2 => {
-                let lo = (self.program_counter >> 0) as u8;
+                let lo = self.program_counter as u8;
                 self.stack_push(lo);
             }
             3 => {
@@ -1405,6 +1392,7 @@ impl CPU {
                 let addr = ((hi as u16) << 8) | lo;
 
                 self.set_program_counter(addr);
+                self.current_op.exec_phase = ExecPhase::Done;
                 return true;
             }
             _ => unreachable!(),
