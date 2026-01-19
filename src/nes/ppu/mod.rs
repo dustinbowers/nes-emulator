@@ -285,16 +285,16 @@ impl PPU {
         self.last_byte_read.set(addr, value);
     }
 
-    /// tick Advance the PPU by 1 dot
+    /// Advance the PPU by 1 dot
     pub fn tick(&mut self) -> bool {
         let dot = self.cycles + 1;
         let scanline = self.scanline;
         let prerender_scanline = scanline == 261;
         let visible_scanline = scanline < 240;
-        // let rendering_enabled = self.mask_register.rendering_enabled();
 
         // VBLANK clear at start of prerender scanline (dot 1)
-        if prerender_scanline && dot == 1 {
+        // if prerender_scanline && dot == 1 {
+        if prerender_scanline && self.cycles == 1 {
             trace_ppu_event!(
                 "VBLANK CLEAR  frame={} scanline={} dot={} ppu_cycle={}",
                 self.frame_is_odd as u8,
@@ -386,7 +386,8 @@ impl PPU {
 
         // VBLANK set at start of scanline 241 (dot 1)
         // NMI edge
-        if scanline == 241 && dot == 1 {
+        // if scanline == 241 && dot == 1 {
+        if scanline == 241 && self.cycles == 1 {
             self.vblank_ticks = 0;
 
             let suppress_nmi_due_to_read = self.last_2002_read_scanline == 241
