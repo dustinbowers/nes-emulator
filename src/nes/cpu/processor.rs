@@ -140,11 +140,11 @@ impl CPU {
 
             // Handle Interrupt if one is waiting
             if let Some(interrupt) = self.active_interrupt {
+                trace!("[INTERRUPT] micro_cycle={}, {:?}", self.current_op.micro_cycle, self.active_interrupt);
                 let done = self.exec_interrupt_cycle(interrupt);
                 if done {
                     self.active_interrupt = None;
                 }
-                trace!("[INTERRUPT] {:?}", interrupt);
                 return (done, false);
             }
 

@@ -33,10 +33,13 @@ enum PaletteKind {
 pub struct PPU {
     pub cycles: usize,
     pub scanline: usize,
-    pub suppress_vblank: bool,
+    suppress_vblank: bool,
+    nmi_fired_this_vblank: bool,
     pub global_ppu_ticks: usize,
     pub vblank_ticks: usize, // TODO: remove this
     prerender_rendering_enabled: bool,
+    last_2002_read_dot: usize,
+    last_2002_read_scanline: usize,
 
     bus: Option<*mut dyn PpuBusInterface>,
     pub v_ram: [u8; RAM_SIZE], // $2007 (R - latched)
@@ -87,9 +90,12 @@ impl PPU {
             cycles: 0,
             scanline: 261,
             suppress_vblank: false,
+            nmi_fired_this_vblank: false,
             global_ppu_ticks: 0,
             vblank_ticks: 0, // TODO: Remove this
             prerender_rendering_enabled: false,
+            last_2002_read_dot: 0,
+            last_2002_read_scanline: 0,
 
             internal_data: 0,
             frame_is_odd: false,
@@ -142,9 +148,12 @@ impl PPU {
         self.cycles = 0;
         self.scanline = 261;
         self.suppress_vblank = false;
+        self.nmi_fired_this_vblank = false;
         self.global_ppu_ticks = 0;
         self.vblank_ticks = 0;
         self.prerender_rendering_enabled = false;
+        self.last_2002_read_dot = 0;
+        self.last_2002_read_scanline = 0;
 
         self.internal_data = 0;
         self.frame_is_odd = false;
@@ -211,11 +220,14 @@ impl PPU {
                 // PPUSTATUS - latch current status before side effects
                 let status = self.status_register.bits();
                 let had_vblank = (status & 0x80) != 0;
+                self.last_2002_read_scanline = self.scanline;
+                self.last_2002_read_dot = self.cycles + 1;
 
                 // From return value:
                 // bits 7–5 = real status
                 // bits 4–0 = open bus (last read)
                 let result = (status & 0xE0) | (self.last_byte_read.output() & 0x1F);
+                // trace!("[READ $2002] last_2002_read_cycle = {}", self.global_ppu_ticks);
 
                 // side effects happen AFTER capturing status
                 if had_vblank {
@@ -227,10 +239,9 @@ impl PPU {
                 self.last_byte_read.set(reg, result);
 
                 // Quirk: reading $2002 one PPU clock before VBL suppresses VBL for that frame.
-                if self.scanline == 241 && (self.cycles == 0 || self.cycles == 1) && !had_vblank {
-                    self.suppress_vblank = true;
-                }
-
+                // if self.scanline == 241 && (self.cycles == 0 || self.cycles == 1) && !had_vblank {
+                //     self.suppress_vblank = true;
+                // }
                 result
             }
             0x2004 => {
@@ -289,6 +300,7 @@ impl PPU {
             );
 
             self.prerender_rendering_enabled = self.mask_register.rendering_enabled();
+            self.nmi_fired_this_vblank = false;
             self.status_register.reset_vblank_status();
             self.status_register.set_sprite_zero_hit(false);
             self.status_register.set_sprite_overflow(false);
@@ -372,26 +384,38 @@ impl PPU {
         // NMI edge
         if scanline == 241 && dot == 1 {
             self.vblank_ticks = 0;
-            if !self.suppress_vblank {
-                self.status_register.set_vblank_started();
-            }
+
+            let suppress_nmi_due_to_read = self.last_2002_read_scanline == 241
+                && (
+                    self.last_2002_read_dot == 2
+                    // || self.last_2002_read_dot == 1
+                );
 
             trace_ppu_event!(
-                "VBLANK SET    frame={} scanline={} dot={} ppu_cycle={} suppress={}",
+                "VBLANK SET    frame={} scanline={} dot={} ppu_cycle={} suppress_nmi={}",
                 self.frame_is_odd as u8,
                 scanline,
                 dot,
                 self.global_ppu_ticks,
-                self.suppress_vblank
+                suppress_nmi_due_to_read
             );
 
-            if !self.suppress_vblank && self.ctrl_register.generate_vblank_nmi() {
+            if !self.suppress_vblank {
+                self.status_register.set_vblank_started();
+            }
+
+            if self.ctrl_register.nmi_enabled()
+                && !suppress_nmi_due_to_read
+                && !self.nmi_fired_this_vblank
+            {
+                self.nmi_fired_this_vblank = true;
                 trace_ppu_event!(
-                    "NMI FIRED     frame={} scanline={} dot={} ppu_cycle={}",
+                    "NMI FIRED     frame={} scanline={} dot={} ppu_cycle={} nmi_fired_this_vblank={}",
                     self.frame_is_odd as u8,
                     scanline,
                     dot,
-                    self.global_ppu_ticks
+                    self.global_ppu_ticks,
+                    self.nmi_fired_this_vblank
                 );
                 if let Some(bus_ptr) = self.bus {
                     unsafe {
@@ -416,7 +440,6 @@ impl PPU {
             self.global_ppu_ticks += 1;
             self.cycles = 0;
             self.scanline = 0;
-            self.suppress_vblank = false;
             self.frame_is_odd = !self.frame_is_odd;
             return true; // frame complete
         }
@@ -438,7 +461,6 @@ impl PPU {
             if self.scanline > 261 {
                 self.scanline = 0;
                 frame_complete = true;
-                self.suppress_vblank = false;
                 self.frame_is_odd = !self.frame_is_odd;
                 trace!(
                     "[FRAME END] SL={} dot={} frame_is_odd becomes: {}",

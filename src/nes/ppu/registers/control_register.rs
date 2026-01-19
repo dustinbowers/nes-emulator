@@ -43,7 +43,7 @@ impl ControlRegister {
         }
     }
 
-    pub fn generate_vblank_nmi(&self) -> bool {
+    pub fn nmi_enabled(&self) -> bool {
         self.contains(Self::GENERATE_NMI)
     }
 
@@ -94,7 +94,7 @@ mod tests {
         let ctrl = ControlRegister::new();
         assert_eq!(ctrl.bits(), 0);
         assert_eq!(ctrl.addr_increment(), 1);
-        assert_eq!(ctrl.generate_vblank_nmi(), false);
+        assert_eq!(ctrl.nmi_enabled(), false);
         assert_eq!(ctrl.background_pattern_addr(), 0x0000);
     }
 
@@ -129,10 +129,10 @@ mod tests {
     #[test]
     fn test_nmi_generation() {
         let mut ctrl = ControlRegister::new();
-        assert_eq!(ctrl.generate_vblank_nmi(), false);
+        assert_eq!(ctrl.nmi_enabled(), false);
 
         ctrl.update(ControlRegister::GENERATE_NMI.bits());
-        assert_eq!(ctrl.generate_vblank_nmi(), true);
+        assert_eq!(ctrl.nmi_enabled(), true);
     }
 
     #[test]
