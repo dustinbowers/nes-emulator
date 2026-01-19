@@ -237,9 +237,7 @@ impl PPU {
                 self.last_byte_read.set(reg, result);
 
                 // Quirk: reading $2002 one PPU clock before VBL suppresses VBL for that frame.
-                if self.scanline == 241
-                    && (self.cycles == 0 || self.cycles == 1)
-                    && !had_vblank {
+                if self.scanline == 241 && (self.cycles == 0 || self.cycles == 1) && !had_vblank {
                     self.suppress_vblank = true;
                 }
 
@@ -368,10 +366,12 @@ impl PPU {
             }
 
             // Sprite pattern fetches (dots 257–320, every 8 dots)
-            if (257..=320).contains(&dot) && (dot - 257).is_multiple_of(8)
-                && (visible_scanline || prerender_scanline) {
-                    let sprite_num = (dot - 257) / 8;
-                    self.sprite_fill_register(sprite_num, scanline);
+            if (257..=320).contains(&dot)
+                && (dot - 257).is_multiple_of(8)
+                && (visible_scanline || prerender_scanline)
+            {
+                let sprite_num = (dot - 257) / 8;
+                self.sprite_fill_register(sprite_num, scanline);
             }
 
             // Scroll updates
@@ -403,7 +403,7 @@ impl PPU {
                 self.suppress_vblank
             );
 
-            if !self.suppress_vblank && self.ctrl_register.generate_vblank_nmi()  {
+            if !self.suppress_vblank && self.ctrl_register.generate_vblank_nmi() {
                 trace_ppu_event!(
                     "NMI FIRED     frame={} scanline={} dot={} ppu_cycle={}",
                     self.frame_is_odd as u8,
@@ -420,7 +420,8 @@ impl PPU {
         }
 
         // Odd-frame skip
-        if prerender_scanline && dot == 339 && self.frame_is_odd && self.prerender_rendering_enabled {
+        if prerender_scanline && dot == 339 && self.frame_is_odd && self.prerender_rendering_enabled
+        {
             trace_ppu_event!(
                 "ODD SKIP      frame={} scanline={} dot={} ppu_cycle={}",
                 self.frame_is_odd as u8,
@@ -498,7 +499,9 @@ impl PPU {
             // Leftmost 8px masking: if in dots 1-8, require both leftmost bits enabled
             if (dot > 8 || (left_bg && left_spr))
                 && (sprite_zero_rendered && bg_palette_index != 0)
-                && !self.status_register.contains(StatusRegister::SPRITE_ZERO_HIT)
+                && !self
+                    .status_register
+                    .contains(StatusRegister::SPRITE_ZERO_HIT)
             {
                 trace!(
                     "\tset_sprite_zero_hit TRUE @ scanline {} dot {}",

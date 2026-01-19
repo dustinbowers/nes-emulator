@@ -11,6 +11,7 @@ pub trait Traceable {
         // } else {
         //     None
         // }
-        self.trace_state().map(|state| format!("{} {}", self.trace_name(), state))
+        self.trace_state()
+            .map(|state| format!("{} {}", self.trace_name(), state))
     }
 }

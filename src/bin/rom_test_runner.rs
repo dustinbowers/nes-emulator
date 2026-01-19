@@ -133,7 +133,10 @@ fn main() {
     let mut ticks = 0usize;
 
     match opts.run_mode {
-        RunMode::Frames { frames: target, buffer } => {
+        RunMode::Frames {
+            frames: target,
+            buffer,
+        } => {
             let target_frames = target + buffer;
             while frames < target_frames {
                 if nes.tick() {
