@@ -122,19 +122,19 @@ impl NES {
         frame_ready
     }
 
-    pub fn set_sample_frequency(&mut self, sample_rate: u32) {
-        self.audio_time_per_system_sample = 1.0 / (sample_rate as f32);
-        self.audio_time_per_nes_clock = 1.0 / 1789773.0; // CPU clock frequency (NTSC)
-
-        println!(
-            "audio_time_per_system_sample: {}",
-            self.audio_time_per_system_sample
-        );
-        println!(
-            "audio_time_per_nes_clock: {}",
-            self.audio_time_per_nes_clock
-        );
-    }
+    // pub fn set_sample_frequency(&mut self, sample_rate: u32) {
+    //     self.audio_time_per_system_sample = 1.0 / (sample_rate as f32);
+    //     self.audio_time_per_nes_clock = 1.0 / 1789773.0; // CPU clock frequency (NTSC)
+    //
+    //     println!(
+    //         "audio_time_per_system_sample: {}",
+    //         self.audio_time_per_system_sample
+    //     );
+    //     println!(
+    //         "audio_time_per_nes_clock: {}",
+    //         self.audio_time_per_nes_clock
+    //     );
+    // }
 
     pub fn get_frame_buffer(&self) -> &[u8; 256 * 240] {
         &self.bus.ppu.frame_buffer

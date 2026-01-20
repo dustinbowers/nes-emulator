@@ -4,12 +4,14 @@ use crate::nes::ppu::registers::decay_register::DecayRegister;
 use crate::nes::ppu::registers::mask_register::MaskRegister;
 use crate::nes::ppu::registers::scroll_register::ScrollRegister;
 use crate::nes::ppu::registers::status_register::StatusRegister;
+use crate::nes::ppu::scheduler::{PPU_SCHEDULE, PpuOperation};
 use crate::nes::tracer::traceable::Traceable;
 use crate::{trace, trace_obj, trace_ppu_event};
 
 mod background;
 mod mod_tests;
 pub mod registers;
+mod scheduler;
 mod sprites;
 
 const PRIMARY_OAM_SIZE: usize = 256;
@@ -203,7 +205,206 @@ impl PPU {
         self.next_tile_lsb = 0;
         self.next_tile_msb = 0;
     }
+}
 
+impl PPU {
+    /// Advance the PPU by 1 dot
+    pub fn tick(&mut self) -> bool {
+        let dot_ops = &PPU_SCHEDULE[self.scanline][self.cycles];
+
+        for i in 0..dot_ops.len as usize {
+            let op = dot_ops.ops[i];
+            if self.is_op_enabled(op) {
+                self.exec_operation(op);
+            }
+        }
+
+        self.handle_instant_nmi();
+        self.advance_dot()
+    }
+
+    #[inline(always)]
+    fn is_op_enabled(&self, op: PpuOperation) -> bool {
+        if !self.mask_register.rendering_enabled() {
+            return (scheduler::RENDER_OPS & scheduler::bit(op)) == 0;
+        }
+        true
+    }
+
+    #[inline(always)]
+    pub fn exec_operation(&mut self, operation: PpuOperation) {
+        match operation {
+            PpuOperation::ShiftRegisters => {
+                self.shift_background_registers();
+                if self.cycles >= 1 && self.cycles <= 256 {
+                    self.shift_sprite_registers();
+                }
+            }
+            PpuOperation::FetchNameTable => {
+                self.fetch_name_table_byte();
+            }
+            PpuOperation::FetchAttribute => {
+                self.fetch_attribute_byte();
+            }
+            PpuOperation::FetchTileLow => {
+                self.fetch_tile_low_byte();
+            }
+            PpuOperation::FetchTileHigh => {
+                self.fetch_tile_high_byte();
+            }
+            PpuOperation::IncCoarseX => {
+                self.scroll_register.increment_x();
+            }
+            PpuOperation::RenderPixel => {
+                let color = self.render_dot();
+                self.frame_buffer[self.scanline * 256 + (self.cycles - 1)] = color;
+            }
+            PpuOperation::IncFineY => {
+                self.scroll_register.increment_y();
+            }
+            PpuOperation::CopyHorizV => {
+                self.scroll_register.copy_horizontal_bits();
+            }
+            PpuOperation::CopyVertV => {
+                self.scroll_register.copy_horizontal_bits();
+            }
+            PpuOperation::ClearSecondaryOam => {
+                let ind = (self.cycles - 1) / 2;
+                self.secondary_oam[ind] = 0xFF;
+            }
+            PpuOperation::ResetSpriteEvaluation => {
+                self.reset_sprite_evaluation();
+            }
+            PpuOperation::EvaluateSprites => {
+                self.sprite_evaluation(self.scanline, self.cycles);
+            }
+            PpuOperation::FillSpriteRegister => {
+                let sprite_num = (self.cycles - 257) / 8;
+                self.sprite_fill_register(sprite_num, self.scanline);
+            }
+            PpuOperation::SetVBlank => {
+                let dot = self.cycles;
+                let scanline = self.scanline;
+                self.vblank_ticks = 0;
+
+                // Suppress NMI if $2002 was read 3 dots **before or at the VBLANK edge**
+                let suppress_nmi_due_to_read = self.last_2002_read_scanline == 241
+                    && self.last_2002_read_dot <= 2
+                    && self.last_2002_read_dot < dot;
+
+                trace_ppu_event!(
+                    "VBLANK SET    frame={} scanline={} dot={} ppu_cycle={} suppress_nmi={}",
+                    self.frame_is_odd as u8,
+                    scanline,
+                    dot,
+                    self.global_ppu_ticks,
+                    suppress_nmi_due_to_read
+                );
+
+                if !self.suppress_vblank {
+                    self.status_register.set_vblank_started();
+                }
+
+                if self.ctrl_register.nmi_enabled()
+                    && !suppress_nmi_due_to_read
+                    && !self.nmi_fired_this_vblank
+                {
+                    self.nmi_fired_this_vblank = true;
+                    trace_ppu_event!(
+                        "NMI FIRED     frame={} scanline={} dot={} ppu_cycle={} nmi_fired_this_vblank={}",
+                        self.frame_is_odd as u8,
+                        scanline,
+                        dot,
+                        self.global_ppu_ticks,
+                        self.nmi_fired_this_vblank
+                    );
+                    if let Some(bus_ptr) = self.bus {
+                        unsafe {
+                            (*bus_ptr).nmi();
+                        }
+                    }
+                }
+            }
+            PpuOperation::ClearVBlank => {
+                trace_ppu_event!(
+                    "VBLANK CLEAR  frame={} scanline={} dot={} ppu_cycle={}",
+                    self.frame_is_odd as u8,
+                    self.scanline,
+                    self.cycles,
+                    self.global_ppu_ticks
+                );
+                self.prerender_rendering_enabled = self.mask_register.rendering_enabled();
+                self.nmi_fired_this_vblank = false;
+                self.status_register.reset_vblank_status();
+                self.status_register.set_sprite_zero_hit(false);
+                self.status_register.set_sprite_overflow(false);
+                self.scroll_register.reset_latch();
+                self.reset_sprite_evaluation();
+            }
+            PpuOperation::LoadBackgroundRegisters => {
+                self.load_background_registers();
+            }
+            PpuOperation::None => {}
+        }
+    }
+
+    #[inline(always)]
+    /// Notify CPU of NMI if one is triggered from a write to CTRL
+    pub fn handle_instant_nmi(&mut self) {
+        if self.instant_nmi_pending && self.ctrl_register.nmi_enabled() {
+            if let Some(bus_ptr) = self.bus {
+                unsafe {
+                    (*bus_ptr).nmi();
+                }
+            }
+            self.instant_nmi_pending = false;
+        }
+    }
+
+    #[inline(always)]
+    pub fn advance_dot(&mut self) -> bool {
+        let mut frame_complete = false;
+
+        // Prevent overflow
+        if self.global_ppu_ticks > 1_000_000 {
+            self.global_ppu_ticks -= 1_000_000;
+        }
+
+        self.global_ppu_ticks += 1;
+        self.cycles += 1;
+        if self.cycles == 341 {
+            self.cycles = 0;
+            self.scanline += 1;
+
+            // Odd-frame skip: skip dot 0 of pre-render scanline
+            if self.scanline == 261 && self.frame_is_odd && self.prerender_rendering_enabled {
+                self.cycles = 1; // start at dot 1 instead of dot 0
+                trace_ppu_event!(
+                    "ODD SKIP      frame={} scanline={} dot={} ppu_cycle={}",
+                    self.frame_is_odd as u8,
+                    self.scanline,
+                    self.cycles,
+                    self.global_ppu_ticks
+                );
+            }
+
+            if self.scanline > 261 {
+                self.scanline = 0;
+                self.suppress_vblank = false;
+                frame_complete = true;
+                self.frame_is_odd = !self.frame_is_odd;
+                trace!(
+                    "[FRAME END] SL={} dot={} frame_is_odd becomes: {}",
+                    self.scanline, self.cycles, self.frame_is_odd
+                );
+            }
+        }
+        frame_complete
+    }
+}
+
+// Public implementations
+impl PPU {
     /// `connect_bus` MUST be called after constructing PPU
     pub fn connect_bus(&mut self, bus: *mut dyn PpuBusInterface) {
         self.bus = Some(bus);
@@ -224,7 +425,7 @@ impl PPU {
                 let status = self.status_register.bits();
                 let had_vblank = (status & 0x80) != 0;
                 self.last_2002_read_scanline = self.scanline;
-                self.last_2002_read_dot = self.cycles;// + 1;
+                self.last_2002_read_dot = self.cycles; // + 1;
 
                 // From return value:
                 // bits 7–5 = real status
@@ -283,203 +484,6 @@ impl PPU {
             }
         }
         self.last_byte_read.set(addr, value);
-    }
-
-    /// Advance the PPU by 1 dot
-    pub fn tick(&mut self) -> bool {
-        let dot = self.cycles;// + 1;
-        let scanline = self.scanline;
-        let prerender_scanline = scanline == 261;
-        let visible_scanline = scanline < 240;
-
-        // VBLANK clear at start of prerender scanline (dot 1)
-        // if prerender_scanline && dot == 1 {
-        if prerender_scanline && self.cycles == 0 {
-            trace_ppu_event!(
-                "VBLANK CLEAR  frame={} scanline={} dot={} ppu_cycle={}",
-                self.frame_is_odd as u8,
-                scanline,
-                dot,
-                self.global_ppu_ticks
-            );
-
-            self.prerender_rendering_enabled = self.mask_register.rendering_enabled();
-            self.nmi_fired_this_vblank = false;
-            self.status_register.reset_vblank_status();
-            self.status_register.set_sprite_zero_hit(false);
-            self.status_register.set_sprite_overflow(false);
-            self.scroll_register.reset_latch();
-            self.reset_sprite_evaluation();
-        }
-
-        if self.status_register.vblank_active() {
-            self.vblank_ticks += 1;
-        }
-
-        // Rendering pipeline
-        if self.mask_register.rendering_enabled() && (visible_scanline || prerender_scanline) {
-            // Background fetches (dots 1..=256, 321..=336)
-            if (1..=256).contains(&dot) || (321..=336).contains(&dot) {
-                self.shift_background_registers();
-                if visible_scanline && (1..=256).contains(&dot) {
-                    self.shift_sprite_registers();
-                }
-            }
-
-            // Pixel rendering (visible scanlines, dots 1..=256)
-            if visible_scanline && (1..=256).contains(&dot) {
-                let color = self.render_dot();
-                self.frame_buffer[scanline * 256 + (dot - 1)] = color;
-            }
-
-            // Background fetch sequence
-            match dot % 8 {
-                1 => self.fetch_name_table_byte(),
-                3 => self.fetch_attribute_byte(),
-                5 => self.fetch_tile_low_byte(),
-                7 => self.fetch_tile_high_byte(),
-                0 => {
-                    self.load_background_registers();
-                    if (8..=256).contains(&dot) || (328..=336).contains(&dot) {
-                        self.scroll_register.increment_x();
-                    }
-                }
-                _ => {}
-            }
-
-            // Secondary OAM clear (dots 1–64)
-            if visible_scanline && (1..=64).contains(&dot) && dot.is_multiple_of(2) {
-                let ind = (dot - 1) / 2;
-                self.secondary_oam[ind] = 0xFF;
-            }
-
-            // Reset sprite evaluation at dot 64
-            if visible_scanline && dot == 64 {
-                self.reset_sprite_evaluation();
-            }
-
-            // Sprite evaluation (dots 65–256, odd dots)
-            if visible_scanline && (65..=256).contains(&dot) && dot % 2 == 1 {
-                self.sprite_evaluation(scanline, dot);
-            }
-
-            // Sprite pattern fetches (dots 257–320, every 8 dots)
-            if (257..=320).contains(&dot)
-                && (dot - 257).is_multiple_of(8)
-                && (visible_scanline || prerender_scanline)
-            {
-                let sprite_num = (dot - 257) / 8;
-                self.sprite_fill_register(sprite_num, scanline);
-            }
-
-            // Scroll updates
-            if dot == 256 {
-                self.scroll_register.increment_y();
-            }
-            if dot == 257 {
-                self.scroll_register.copy_horizontal_bits();
-            }
-            if prerender_scanline && (280..=304).contains(&dot) {
-                self.scroll_register.copy_vertical_bits();
-            }
-        }
-
-        // VBLANK set at start of scanline 241 (dot 1)
-        // NMI edge
-        // if scanline == 241 && dot == 1 {
-        if scanline == 241 && dot == 0 {
-            self.vblank_ticks = 0;
-
-            // Suppress NMI if $2002 was read 3 dots **before or at the VBLANK edge**
-            let suppress_nmi_due_to_read =
-                self.last_2002_read_scanline == 241 &&
-                    self.last_2002_read_dot <= 2 &&
-                    self.last_2002_read_dot < dot;
-
-            trace_ppu_event!(
-                "VBLANK SET    frame={} scanline={} dot={} ppu_cycle={} suppress_nmi={}",
-                self.frame_is_odd as u8,
-                scanline,
-                dot,
-                self.global_ppu_ticks,
-                suppress_nmi_due_to_read
-            );
-
-            if !self.suppress_vblank {
-                self.status_register.set_vblank_started();
-            }
-
-            if self.ctrl_register.nmi_enabled()
-                && !suppress_nmi_due_to_read
-                && !self.nmi_fired_this_vblank
-            {
-                self.nmi_fired_this_vblank = true;
-                trace_ppu_event!(
-                    "NMI FIRED     frame={} scanline={} dot={} ppu_cycle={} nmi_fired_this_vblank={}",
-                    self.frame_is_odd as u8,
-                    scanline,
-                    dot,
-                    self.global_ppu_ticks,
-                    self.nmi_fired_this_vblank
-                );
-                if let Some(bus_ptr) = self.bus {
-                    unsafe {
-                        (*bus_ptr).nmi();
-                    }
-                }
-            }
-        }
-
-        // Notify CPU of NMI if one is triggered from a write to CTRL
-        if self.instant_nmi_pending && self.ctrl_register.nmi_enabled() {
-            if let Some(bus_ptr) = self.bus {
-                unsafe { (*bus_ptr).nmi(); }
-            }
-            self.instant_nmi_pending = false;
-        }
-
-        // Prevent overflow
-        if self.global_ppu_ticks > 1_000_000 {
-            self.global_ppu_ticks -= 1_000_000;
-        }
-
-        // trace_obj!(&*self);
-
-        let mut frame_complete = false;
-        self.global_ppu_ticks += 1;
-        self.cycles += 1;
-        if self.cycles == 341 {
-            self.cycles = 0;
-            self.scanline += 1;
-
-            // Odd-frame skip: skip dot 0 of pre-render scanline
-            if self.scanline == 261
-                && self.frame_is_odd
-                && self.prerender_rendering_enabled
-            {
-                self.cycles = 1; // start at dot 1 instead of dot 0
-                trace_ppu_event!(
-                    "ODD SKIP      frame={} scanline={} dot={} ppu_cycle={}",
-                    self.frame_is_odd as u8,
-                    self.scanline,
-                    self.cycles,
-                    self.global_ppu_ticks
-                );
-            }
-
-            if self.scanline > 261 {
-                self.scanline = 0;
-                self.suppress_vblank = false;
-                frame_complete = true;
-                self.frame_is_odd = !self.frame_is_odd;
-                trace!(
-                    "[FRAME END] SL={} dot={} frame_is_odd becomes: {}",
-                    scanline, dot, self.frame_is_odd
-                );
-            }
-
-        }
-        frame_complete
     }
 
     #[cfg(test)]

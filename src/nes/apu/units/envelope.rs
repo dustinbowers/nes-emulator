@@ -34,9 +34,7 @@ impl Envelope {
     }
 
     pub fn set(&mut self, value: u8) {
-        // println!("envelope: set({:?})", value);
         self.period = value & 0b0000_1111; // lower 4 bits
-        // println!("period: {:?}", self.period);
         self.constant_volume = self.period;
         self.loop_flag = (value & 0b0010_0000) != 0; // bit 5
         self.volume_mode = if (value & 0b0001_0000) == 0 {
@@ -53,17 +51,15 @@ impl Envelope {
             self.start = false;
             self.decay = 15;
             self.divider = self.period;
-        } else {
-            if self.divider == 0 {
-                self.divider = self.period;
-                if self.decay > 0 {
-                    self.decay -= 1;
-                } else if self.loop_flag {
-                    self.decay = 15;
-                }
-            } else {
-                self.divider -= 1;
+        } else if self.divider == 0 {
+            self.divider = self.period;
+            if self.decay > 0 {
+                self.decay -= 1;
+            } else if self.loop_flag {
+                self.decay = 15;
             }
+        } else {
+            self.divider -= 1;
         }
     }
 
