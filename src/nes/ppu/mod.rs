@@ -224,7 +224,7 @@ impl PPU {
                 let status = self.status_register.bits();
                 let had_vblank = (status & 0x80) != 0;
                 self.last_2002_read_scanline = self.scanline;
-                self.last_2002_read_dot = self.cycles + 1;
+                self.last_2002_read_dot = self.cycles;// + 1;
 
                 // From return value:
                 // bits 7–5 = real status
@@ -287,14 +287,14 @@ impl PPU {
 
     /// Advance the PPU by 1 dot
     pub fn tick(&mut self) -> bool {
-        let dot = self.cycles + 1;
+        let dot = self.cycles;// + 1;
         let scanline = self.scanline;
         let prerender_scanline = scanline == 261;
         let visible_scanline = scanline < 240;
 
         // VBLANK clear at start of prerender scanline (dot 1)
         // if prerender_scanline && dot == 1 {
-        if prerender_scanline && self.cycles == 1 {
+        if prerender_scanline && self.cycles == 0 {
             trace_ppu_event!(
                 "VBLANK CLEAR  frame={} scanline={} dot={} ppu_cycle={}",
                 self.frame_is_odd as u8,
@@ -387,12 +387,14 @@ impl PPU {
         // VBLANK set at start of scanline 241 (dot 1)
         // NMI edge
         // if scanline == 241 && dot == 1 {
-        if scanline == 241 && self.cycles == 1 {
+        if scanline == 241 && dot == 0 {
             self.vblank_ticks = 0;
 
-            let suppress_nmi_due_to_read = self.last_2002_read_scanline == 241
-                && (self.last_2002_read_dot >= 1 && self.last_2002_read_dot <= 3);
-
+            // Suppress NMI if $2002 was read 3 dots **before or at the VBLANK edge**
+            let suppress_nmi_due_to_read =
+                self.last_2002_read_scanline == 241 &&
+                    self.last_2002_read_dot <= 2 &&
+                    self.last_2002_read_dot < dot;
 
             trace_ppu_event!(
                 "VBLANK SET    frame={} scanline={} dot={} ppu_cycle={} suppress_nmi={}",
@@ -436,26 +438,6 @@ impl PPU {
             self.instant_nmi_pending = false;
         }
 
-        // Odd-frame skip
-        if prerender_scanline && dot == 340 && self.frame_is_odd && self.prerender_rendering_enabled
-        {
-            trace_ppu_event!(
-                "ODD SKIP      frame={} scanline={} dot={} ppu_cycle={}",
-                self.frame_is_odd as u8,
-                scanline,
-                dot,
-                self.global_ppu_ticks
-            );
-
-            // NES skips dot 339 on odd frames with rendering enabled at prerender start
-            self.global_ppu_ticks += 1;
-            self.cycles = 0;
-            self.scanline = 0;
-            self.suppress_vblank = false;
-            self.frame_is_odd = !self.frame_is_odd;
-            return true; // frame complete
-        }
-
         // Prevent overflow
         if self.global_ppu_ticks > 1_000_000 {
             self.global_ppu_ticks -= 1_000_000;
@@ -470,6 +452,21 @@ impl PPU {
             self.cycles = 0;
             self.scanline += 1;
 
+            // Odd-frame skip: skip dot 0 of pre-render scanline
+            if self.scanline == 261
+                && self.frame_is_odd
+                && self.prerender_rendering_enabled
+            {
+                self.cycles = 1; // start at dot 1 instead of dot 0
+                trace_ppu_event!(
+                    "ODD SKIP      frame={} scanline={} dot={} ppu_cycle={}",
+                    self.frame_is_odd as u8,
+                    self.scanline,
+                    self.cycles,
+                    self.global_ppu_ticks
+                );
+            }
+
             if self.scanline > 261 {
                 self.scanline = 0;
                 self.suppress_vblank = false;
@@ -480,6 +477,7 @@ impl PPU {
                     scanline, dot, self.frame_is_odd
                 );
             }
+
         }
         frame_complete
     }

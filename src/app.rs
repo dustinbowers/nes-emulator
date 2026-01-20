@@ -87,6 +87,7 @@ enum State {
     Start,
     Waiting,
     Running,
+    Paused,
     Error,
 }
 
@@ -249,6 +250,19 @@ impl App {
                         self.set_error(err.to_string());
                         continue;
                     }
+
+                    if is_key_pressed(KeyCode::P) {
+                        PAUSE_EMULATION.store(true, Ordering::SeqCst);
+                        self.state = State::Paused;
+                    }
+                }
+                State::Paused => {
+                    self.render();
+                    self.draw_pause_screen();
+                    if is_key_pressed(KeyCode::P) {
+                        PAUSE_EMULATION.store(false, Ordering::SeqCst);
+                        self.state = State::Running;
+                    }
                 }
                 State::Error => {
                     let msg = self
@@ -285,7 +299,7 @@ impl App {
 
             if is_key_pressed(KeyCode::T) {
                 trace_dump!();
-                break;
+                self.state = State::Paused;
             }
 
             next_frame().await;
@@ -376,6 +390,27 @@ impl App {
             println!("{}", msg);
         }
     }
+
+    pub fn draw_pause_screen(&self) {
+        let (w, h) = (screen_width(), screen_height());
+
+        // Background
+        draw_rectangle(0.0, 0.0, w, h, Color::new(0.05, 0.0, 0.0, 0.85));
+
+        let title = "[Paused]";
+        let title_dim = measure_text(title, None, 40, 1.0);
+        draw_text(title, w * 0.5 - title_dim.width * 0.5, h * 0.3, 40.0, RED);
+
+        // message
+        // let msg = "";
+        // let msg_dim = measure_text(msg, None, 28, 1.0);
+        // draw_text(msg, w * 0.5 - msg_dim.width * 0.5, h * 0.45, 28.0, WHITE);
+
+        let hint = "Press P to Unpause";
+        let hint_dim = measure_text(hint, None, 24, 1.0);
+        draw_text(hint, w * 0.5 - hint_dim.width * 0.5, h * 0.6, 24.0, GRAY);
+    }
+
     pub fn draw_error_screen(&self, msg: &str) {
         let (w, h) = (screen_width(), screen_height());
 
