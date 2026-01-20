@@ -1,18 +1,19 @@
 use crate::nes::cartridge::rom::Mirroring;
-use crate::nes::ppu::registers::control_register::ControlRegister;
-use crate::nes::ppu::registers::decay_register::DecayRegister;
-use crate::nes::ppu::registers::mask_register::MaskRegister;
-use crate::nes::ppu::registers::scroll_register::ScrollRegister;
-use crate::nes::ppu::registers::status_register::StatusRegister;
-use crate::nes::ppu::scheduler::{PPU_SCHEDULE, PpuOperation};
+use registers::control_register::ControlRegister;
+use registers::decay_register::DecayRegister;
+use registers::mask_register::MaskRegister;
+use registers::scroll_register::ScrollRegister;
+use registers::status_register::StatusRegister;
+use scheduler::{PPU_SCHEDULE, PpuOperation, DotOperations};
 use crate::nes::tracer::traceable::Traceable;
 use crate::{trace, trace_obj, trace_ppu_event};
 
-mod background;
-mod mod_tests;
-pub mod registers;
 mod scheduler;
+pub mod registers;
+mod background;
 mod sprites;
+
+mod mod_tests;
 
 const PRIMARY_OAM_SIZE: usize = 256;
 const SECONDARY_OAM_SIZE: usize = 32;
@@ -219,6 +220,10 @@ impl PPU {
             }
         }
 
+        if self.status_register.vblank_active() {
+            self.vblank_ticks += 1;
+        }
+
         self.handle_instant_nmi();
         self.advance_dot()
     }
@@ -266,7 +271,7 @@ impl PPU {
                 self.scroll_register.copy_horizontal_bits();
             }
             PpuOperation::CopyVertV => {
-                self.scroll_register.copy_horizontal_bits();
+                self.scroll_register.copy_vertical_bits();
             }
             PpuOperation::ClearSecondaryOam => {
                 let ind = (self.cycles - 1) / 2;
@@ -276,7 +281,8 @@ impl PPU {
                 self.reset_sprite_evaluation();
             }
             PpuOperation::EvaluateSprites => {
-                self.sprite_evaluation(self.scanline, self.cycles);
+                let dot = self.cycles;
+                self.sprite_evaluation(self.scanline, dot);
             }
             PpuOperation::FillSpriteRegister => {
                 let sprite_num = (self.cycles - 257) / 8;
@@ -285,12 +291,11 @@ impl PPU {
             PpuOperation::SetVBlank => {
                 let dot = self.cycles;
                 let scanline = self.scanline;
-                self.vblank_ticks = 0;
 
                 // Suppress NMI if $2002 was read 3 dots **before or at the VBLANK edge**
-                let suppress_nmi_due_to_read = self.last_2002_read_scanline == 241
-                    && self.last_2002_read_dot <= 2
-                    && self.last_2002_read_dot < dot;
+                let suppress_nmi_due_to_read =
+                    (self.last_2002_read_scanline == 241 && self.last_2002_read_dot <= 2)
+                    || (self.last_2002_read_scanline == 240 && self.last_2002_read_dot >= 338);
 
                 trace_ppu_event!(
                     "VBLANK SET    frame={} scanline={} dot={} ppu_cycle={} suppress_nmi={}",
@@ -302,6 +307,8 @@ impl PPU {
                 );
 
                 if !self.suppress_vblank {
+                    self.vblank_ticks = 0;
+                    println!("Set VBLANK  (scanline = {}, dot = {})", self.scanline, self.cycles);
                     self.status_register.set_vblank_started();
                 }
 
@@ -326,6 +333,7 @@ impl PPU {
                 }
             }
             PpuOperation::ClearVBlank => {
+                println!("ClearVBlank (scanline = {}, dot = {}, vblank_ticks = {})", self.scanline, self.cycles, self.vblank_ticks);
                 trace_ppu_event!(
                     "VBLANK CLEAR  frame={} scanline={} dot={} ppu_cycle={}",
                     self.frame_is_odd as u8,
@@ -335,6 +343,7 @@ impl PPU {
                 );
                 self.prerender_rendering_enabled = self.mask_register.rendering_enabled();
                 self.nmi_fired_this_vblank = false;
+                self.suppress_vblank = false;
                 self.status_register.reset_vblank_status();
                 self.status_register.set_sprite_zero_hit(false);
                 self.status_register.set_sprite_overflow(false);
@@ -390,7 +399,6 @@ impl PPU {
 
             if self.scanline > 261 {
                 self.scanline = 0;
-                self.suppress_vblank = false;
                 frame_complete = true;
                 self.frame_is_odd = !self.frame_is_odd;
                 trace!(
@@ -433,7 +441,7 @@ impl PPU {
                 let result = (status & 0xE0) | (self.last_byte_read.output() & 0x1F);
                 // trace!("[READ $2002] last_2002_read_cycle = {}", self.global_ppu_ticks);
 
-                // side effects happen AFTER capturing status
+                // side effects happen capturing status
                 if had_vblank {
                     self.status_register.reset_vblank_status();
                     self.scroll_register.reset_latch();
@@ -443,10 +451,13 @@ impl PPU {
                 self.last_byte_read.set(reg, result);
 
                 // Quirk: reading $2002 one PPU clock before VBL suppresses VBL for that frame.
-                // if self.scanline == 241 && (self.cycles == 0 || self.cycles == 1) && !had_vblank {
-                if self.scanline == 241 && (self.cycles == 0) && !had_vblank {
+                if !had_vblank && (
+                    (self.scanline == 241 && self.cycles == 0) ||  // dot 0 of scanline 241
+                    (self.scanline == 240 && self.cycles >= 254 && self.cycles <= 256))  // last 3 dots
+                {
                     self.suppress_vblank = true;
                 }
+                println!("READ (scanline = {}, dot = {}) - $2002 = {:08b}", self.scanline, self.cycles, result);
                 result
             }
             0x2004 => {

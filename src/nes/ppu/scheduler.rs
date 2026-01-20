@@ -1,3 +1,4 @@
+
 pub const DOTS: usize = 341;
 pub const SCAN_LINES: usize = 262;
 
@@ -21,7 +22,7 @@ pub const RENDER_OPS: u64 = bit(PpuOperation::ShiftRegisters)
 pub const fn bit(op: PpuOperation) -> u64 {
     1u64 << (op as u8)
 }
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum PpuOperation {
     FetchNameTable,
@@ -120,7 +121,7 @@ const fn schedule_for(scanline: usize, dot: usize) -> DotOperations {
     }
 
     // Fine Y increments
-    if visible && dot == 256 {
+    if (visible || prerender) && dot == 256 {
         ops = ops.push(PpuOperation::IncFineY);
     }
 
@@ -140,7 +141,7 @@ const fn schedule_for(scanline: usize, dot: usize) -> DotOperations {
     }
 
     // Reset sprite evaluation (dot 65)
-    if visible && dot == 65 {
+    if visible && dot == 64 {
         ops = ops.push(PpuOperation::ResetSpriteEvaluation);
     }
 
@@ -164,6 +165,202 @@ const fn schedule_for(scanline: usize, dot: usize) -> DotOperations {
             ops = ops.push(PpuOperation::ClearVBlank);
         }
     }
-
     ops
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn has_op(ops: &DotOperations, op: PpuOperation) -> bool {
+        ops.ops[..ops.len as usize].contains(&op)
+    }
+
+    fn assert_has(scanline: usize, dot: usize, op: PpuOperation) {
+        let ops = &PPU_SCHEDULE[scanline][dot];
+        assert!(
+            has_op(ops, op),
+            "Expected {:?} at scanline {}, dot {} but got {:?}",
+            op, scanline, dot, &ops.ops[..ops.len as usize]
+        );
+    }
+
+    fn assert_not(scanline: usize, dot: usize, op: PpuOperation) {
+        let ops = &PPU_SCHEDULE[scanline][dot];
+        assert!(
+            !has_op(ops, op),
+            "Did not expect {:?} at scanline {}, dot {} but got {:?}",
+            op, scanline, dot, &ops.ops[..ops.len as usize]
+        );
+    }
+
+    #[test]
+    fn test_background_fetch_pipeline() {
+        let scanline = 0;
+
+        for dot in 1..=256 {
+            let ops = &PPU_SCHEDULE[scanline][dot];
+
+            // Always shifts during fetch cycles
+            assert!(has_op(ops, PpuOperation::ShiftRegisters));
+
+            match dot % 8 {
+                1 => assert!(has_op(ops, PpuOperation::FetchNameTable)),
+                3 => assert!(has_op(ops, PpuOperation::FetchAttribute)),
+                5 => assert!(has_op(ops, PpuOperation::FetchTileLow)),
+                7 => assert!(has_op(ops, PpuOperation::FetchTileHigh)),
+                0 => {
+                    assert!(has_op(ops, PpuOperation::LoadBackgroundRegisters));
+                    assert!(has_op(ops, PpuOperation::IncCoarseX));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn test_render_only_on_visible_dots() {
+        for scanline in 0..240 {
+            for dot in 1..=256 {
+                assert_has(scanline, dot, PpuOperation::RenderPixel);
+            }
+
+            for dot in [0, 257, 320, 340] {
+                assert_not(scanline, dot, PpuOperation::RenderPixel);
+            }
+        }
+
+        // No rendering in vblank or prerender
+        for scanline in [241, 260, 261] {
+            for dot in 0..341 {
+                assert_not(scanline, dot, PpuOperation::RenderPixel);
+            }
+        }
+    }
+
+    #[test]
+    fn test_sprite_evaluation_timing() {
+        let scanline = 10;
+
+        for dot in 65..=256 {
+            if dot % 2 == 1 {
+                assert_has(scanline, dot, PpuOperation::EvaluateSprites);
+            } else {
+                assert_not(scanline, dot, PpuOperation::EvaluateSprites);
+            }
+        }
+
+        for dot in 0..64 {
+            assert_not(scanline, dot, PpuOperation::EvaluateSprites);
+        }
+    }
+
+    #[test]
+    fn test_secondary_oam_clear() {
+        let scanline = 20;
+
+        for dot in 1..=64 {
+            assert_has(scanline, dot, PpuOperation::ClearSecondaryOam);
+        }
+
+        for dot in 65..341 {
+            assert_not(scanline, dot, PpuOperation::ClearSecondaryOam);
+        }
+    }
+
+    #[test]
+    fn trace_inc_y_timing() {
+        // Visible
+        let ops = PPU_SCHEDULE[0][256];
+        assert!(ops.ops[..ops.len as usize]
+            .contains(&PpuOperation::IncFineY));
+
+        // Pre-render
+        let ops = PPU_SCHEDULE[261][256];
+        assert!(ops.ops[..ops.len as usize]
+            .contains(&PpuOperation::IncFineY));
+    }
+
+    #[test]
+    fn trace_vertical_reload_window() {
+        for dot in 280..=304 {
+            let ops = &PPU_SCHEDULE[261][dot];
+            assert!(
+                ops.ops[..ops.len as usize].contains(&PpuOperation::CopyVertV),
+                "Missing CopyVertV at prerender dot {}",
+                dot
+            );
+        }
+    }
+
+    #[test]
+    fn test_sprite_eval_reset() {
+        let scanline = 50;
+
+        assert_has(scanline, 65, PpuOperation::ResetSpriteEvaluation);
+        assert_not(scanline, 64, PpuOperation::ResetSpriteEvaluation);
+        assert_not(scanline, 66, PpuOperation::ResetSpriteEvaluation);
+    }
+
+    #[test]
+    fn test_scroll_timing() {
+        for scanline in 0..240 {
+            assert_has(scanline, 256, PpuOperation::IncFineY);
+            assert_has(scanline, 257, PpuOperation::CopyHorizV);
+        }
+
+        // Only prerender has CopyVert
+        for dot in 280..=304 {
+            assert_has(261, dot, PpuOperation::CopyVertV);
+        }
+    }
+
+    #[test]
+    fn test_vblank_timing() {
+        // VBlank set
+        assert_has(241, 1, PpuOperation::SetVBlank);
+
+        // VBlank clear (pre-render)
+        assert_has(261, 1, PpuOperation::ClearVBlank);
+
+        // Should not appear elsewhere
+        for scanline in 0..262 {
+            for dot in 0..341 {
+                if !(scanline == 241 && dot == 1) {
+                    assert_not(scanline, dot, PpuOperation::SetVBlank);
+                }
+                if !(scanline == 261 && dot == 1) {
+                    assert_not(scanline, dot, PpuOperation::ClearVBlank);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_no_fetches_during_vblank() {
+        for scanline in 241..261 {
+            for dot in 0..341 {
+                let ops = &PPU_SCHEDULE[scanline][dot];
+                assert!(!has_op(ops, PpuOperation::FetchNameTable));
+                assert!(!has_op(ops, PpuOperation::FetchAttribute));
+                assert!(!has_op(ops, PpuOperation::FetchTileLow));
+                assert!(!has_op(ops, PpuOperation::FetchTileHigh));
+            }
+        }
+    }
+
+    #[test]
+    fn test_sprite_fetch_window() {
+        let scanline = 0;
+
+        for dot in 257..=320 {
+            if (dot - 257) % 8 == 0 {
+                assert_has(scanline, dot, PpuOperation::FillSpriteRegister);
+            } else {
+                assert_not(scanline, dot, PpuOperation::FillSpriteRegister);
+            }
+        }
+    }
+
+
 }
