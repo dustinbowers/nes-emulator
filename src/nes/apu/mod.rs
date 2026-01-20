@@ -272,12 +272,10 @@ impl APU {
                             half_frame_clock = true;
                             self.clock_counter = 0;
 
-                            if self.irq_disable == false {
-                                if let Some(bus_ptr) = self.bus {
-                                    unsafe {
-                                        (*bus_ptr).irq();
-                                    }
-                                }
+                            if !self.irq_disable 
+                                && let Some(bus_ptr) = self.bus
+                            {
+                                unsafe { (*bus_ptr).irq(); }
                             }
                         }
                         _ => {}

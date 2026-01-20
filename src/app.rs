@@ -103,8 +103,7 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
-        let mut nes = NES::new();
-        nes.set_sample_frequency(44_100);
+        let nes = NES::new();
         let nes_arc = NesCell::new(nes);
 
         let key_map_data: &[(KeyCode, JoypadButton)] = &[
@@ -135,7 +134,7 @@ impl App {
     }
 
     pub fn init_audio(&mut self) -> Result<(), String> {
-        Self::log(&"init_audio()".to_owned());
+        Self::log("init_audio()");
         let nes_clone = self.nes_arc.clone();
         let audio_device = run_output_device(
             OutputDeviceParameters {
@@ -209,10 +208,9 @@ impl App {
                     clear_background(Color::new(0.1, 0.1, 0.1, 1.0));
                     draw_text(str, x, y, size, Color::new(1.0, 1.0, 1.0, alpha));
                     if TRIGGER_LOAD.swap(false, Ordering::SeqCst) {
-                        if self.audio_device.is_none() {
-                            if let Err(_) = self.init_audio() {
-                                self.set_error("Audio initialization failed!".to_owned())
-                            }
+                        if self.audio_device.is_none() && let Err(_) = self.init_audio() {
+                            self.set_error("Audio initialization failed!".to_owned());
+                            continue
                         }
                         let nes: &mut NES = unsafe { self.nes_arc.get_mut() };
                         let rom_data = ROM_DATA.lock().unwrap();
@@ -400,11 +398,6 @@ impl App {
         let title = "[Paused]";
         let title_dim = measure_text(title, None, 40, 1.0);
         draw_text(title, w * 0.5 - title_dim.width * 0.5, h * 0.3, 40.0, RED);
-
-        // message
-        // let msg = "";
-        // let msg_dim = measure_text(msg, None, 28, 1.0);
-        // draw_text(msg, w * 0.5 - msg_dim.width * 0.5, h * 0.45, 28.0, WHITE);
 
         let hint = "Press P to Unpause";
         let hint_dim = measure_text(hint, None, 24, 1.0);

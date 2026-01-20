@@ -47,8 +47,6 @@ impl PPU {
         if current_sprite_index >= 64 {
             return;
         }
-        // debug_assert!(current_sprite_index < 64);
-        // debug_assert!(dot % 2 == 0); // Only runs on even cycles
         debug_assert!(dot % 2 == 1); // Only runs on odd cycles
 
         let oam_base = 4 * current_sprite_index;
@@ -140,7 +138,7 @@ impl PPU {
     }
 
     pub(super) fn shift_sprite_registers(&mut self) {
-        // Now shift sprite pattern registers for next pixel
+        // Shift sprite pattern registers for next pixel
         for i in 0..8 {
             if self.sprite_x_counter[i] > 0 {
                 self.sprite_x_counter[i] -= 1;
@@ -151,7 +149,6 @@ impl PPU {
         }
     }
 
-    // Add this method to properly reset sprite evaluation state
     pub(super) fn reset_sprite_evaluation(&mut self) {
         self.sprite_count = 0;
         self.sprite_zero_in_range = false;
