@@ -1,0 +1,8 @@
+[package]
+name = "nes-native"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+nes-app = { path = "../nes-app" }
+macroquad = "0.4.14"

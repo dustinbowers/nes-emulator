@@ -1,0 +1,12 @@
+[package]
+name = "nes-app"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+nes-core = { path = "../nes-core" }
+macroquad = "0.4.14"
+tinyaudio = "1.1.0"
