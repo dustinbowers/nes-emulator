@@ -24,7 +24,7 @@ This project uses Cargo workspaces:
 - `nes-romtest` - Headless ROM testing utility
 - `nes-step` - Single-step opcode testing tool
 
-<img src="https://github.com/dustinbowers/nes-emulator/imgs/workspace_hierarchy.png" width="40%">
+<img src="https://github.com/dustinbowers/nes-emulator/blob/main/imgs/workspace_hierarchy.png" width="60%">
 
 ## Quick Start
 
