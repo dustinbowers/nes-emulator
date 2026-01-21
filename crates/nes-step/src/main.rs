@@ -8,8 +8,8 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process;
 
-use serde::Deserialize;
 use nes_core::nes::test_utils::{CpuBusInterface, Flags, SimpleBus};
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 struct OpcodeTest {
@@ -152,80 +152,49 @@ fn run_opcode_test(bus: &mut SimpleBus, test: &OpcodeTest) {
     let end = &test.final_state;
     let expected_cycles = test.cycles.len();
     assert_eq!(
-        bus.cpu.program_counter,
-        end.pc,
-        "{}",
-        format!(
-            "program_counter mismatch - Got: ${:02X} Want: ${:02X}",
-            bus.cpu.program_counter, end.pc
-        )
+        bus.cpu.program_counter, end.pc,
+        "program_counter mismatch - Got: ${:02X} Want: ${:02X}",
+        bus.cpu.program_counter, end.pc
     );
     assert_eq!(
-        bus.cpu.stack_pointer,
-        end.s,
-        "{}",
-        format!(
-            "stack_pointer mismatch - Got: ${:02X} Want: ${:02X}",
-            bus.cpu.stack_pointer, end.s
-        )
+        bus.cpu.stack_pointer, end.s,
+        "stack_pointer mismatch - Got: ${:02X} Want: ${:02X}",
+        bus.cpu.stack_pointer, end.s
     );
     assert_eq!(
-        bus.cpu.register_a,
-        end.a,
-        "{}",
-        format!(
-            "register_a mismatch - Got: ${:02X} Want: ${:02X}",
-            bus.cpu.register_a, end.a
-        )
+        bus.cpu.register_a, end.a,
+        "register_a mismatch - Got: ${:02X} Want: ${:02X}",
+        bus.cpu.register_a, end.a
     );
     assert_eq!(
-        bus.cpu.register_x,
-        end.x,
-        "{}",
-        format!(
-            "register_x mismatch - Got: ${:02X} Want: ${:02X}",
-            bus.cpu.register_x, end.x
-        )
+        bus.cpu.register_x, end.x,
+        "register_x mismatch - Got: ${:02X} Want: ${:02X}",
+        bus.cpu.register_x, end.x
     );
     assert_eq!(
-        bus.cpu.register_y,
-        end.y,
-        "{}",
-        format!(
-            "register_y mismatch - Got: ${:02X} Want: ${:02X}",
-            bus.cpu.register_y, end.y
-        )
+        bus.cpu.register_y, end.y,
+        "register_y mismatch - Got: ${:02X} Want: ${:02X}",
+        bus.cpu.register_y, end.y
     );
     assert_eq!(
         bus.cpu.status.bits(),
         end.p,
-        "{}",
-        format!(
-            "status flag mismatch.\n\tGot:  {:08b}\n\tWant: {:08b}",
-            bus.cpu.status.bits(),
-            end.p
-        )
+        "status flag mismatch.\n\tGot:  {:08b}\n\tWant: {:08b}",
+        bus.cpu.status.bits(),
+        end.p
     );
     for (address, value) in end.ram.iter() {
         let got = bus.cpu.bus_read(*address);
         let want = *value;
         assert_eq!(
-            got,
-            want,
-            "{}",
-            format!(
-                "ram mismatch at ${:04X} ({}).\n\tGot:  {:08b} ${:02X} (dec: {})\n\tWant: {:08b} ${:02X} (dec: {})",
-                address, address, got, got, got, want, want, want
-            )
+            got, want,
+            "ram mismatch at ${:04X} ({}).\n\tGot:  {:08b} ${:02X} (dec: {})\n\tWant: {:08b} ${:02X} (dec: {})",
+            address, address, got, got, got, want, want, want
         );
     }
     assert_eq!(
-        bus.cycles,
-        expected_cycles,
-        "{}",
-        format!(
-            "cycle count mismatch - Got: {} Want: {}",
-            bus.cycles, expected_cycles
-        )
+        bus.cycles, expected_cycles,
+        "cycle count mismatch - Got: {} Want: {}",
+        bus.cycles, expected_cycles
     );
 }

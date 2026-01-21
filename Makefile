@@ -1,4 +1,4 @@
-.PHONY: all debug release release-tracing clean copy-assets wasm-debug wasm-release singlestep-op logs singlestep-all romtest help run
+.PHONY: all debug release release-tracing clean-wasm-dist copy-assets wasm-debug wasm-release singlestep-op logs singlestep-all romtest help run
 
 all: release
 
@@ -26,15 +26,15 @@ release-tracing:
 	cargo build --release --features "tracing"
 
 # Clean distribution directory
-clean:
+clean-wasm-dist:
 	rm -rf ./dist/*.html ./dist/*.js ./dist/nes-test-roms
 
 # WebAssembly build targets
-wasm-debug: clean
+wasm-debug: clean-wasm-dist
 	./wasm-bindgen-macroquad.sh nes-emulator
 	$(MAKE) copy-assets
 
-wasm-release: clean
+wasm-release: clean-wasm-dist
 	./wasm-bindgen-macroquad.sh nes-emulator --release
 	$(MAKE) copy-assets
 
@@ -53,7 +53,7 @@ logs:
 # Test specific opcode again single-step tests
 singlestep-op: # Usage: make singlestep-op op=a9
 	@echo "Running tests for operation: $(op)"
-	cargo run --quiet --package nes-emulator --bin single_step_runner --features single-step-runner -- "nes6502-tests/" "$(op)"
+	cargo run --quiet --package nes-step -- "nes6502-tests/" "$(op)"
 
 # Run all opcode tests ranging from 00 to FF
 singlestep-all: | logs
@@ -69,11 +69,11 @@ romtest: # Usage: make romtest rom=path/to/test.nes frames=120 buffer=30 (or tic
 	@if [ -z "$(rom)" ]; then echo "Missing rom=..."; exit 2; fi
 	@if [ -z "$(ticks)" ] && [ -z "$(frames)" ]; then echo "Missing frames=... or ticks=..."; exit 2; fi
 	@if [ ! -x target/debug/rom_test_runner ]; then \
-		echo "Building rom_test_runner (first run can take a while)..."; \
-		RUSTFLAGS="-Awarnings" cargo build --quiet --bin rom_test_runner; \
+		echo "Building rom_test_runner..."; \
+		RUSTFLAGS="-Awarnings" cargo build --package nes-romtest --quiet --release; \
 	fi
-	./target/debug/rom_test_runner "$(rom)" $(if $(ticks),--ticks "$(ticks)",--frames "$(frames)") --buffer "$(if $(buffer),$(buffer),0)"
+	./target/release/nes-romtest "$(rom)" $(if $(ticks),--ticks "$(ticks)",--frames "$(frames)") --buffer "$(if $(buffer),$(buffer),0)"
 
 # Run the emulator with a specified ROM
 run: # Usage: make rom=path/to/rom.nes
-	cargo run --release --bin nes-emulator -- $(rom)
+	cargo run --package nes-native --release -- $(rom)

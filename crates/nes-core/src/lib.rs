@@ -1,8 +1,5 @@
-// NES core modules
 pub mod nes;
+pub mod prelude;
 
-// Re-exports
-pub use nes::NES;
-
-pub use nes::cartridge::Cartridge;
-pub use nes::cartridge::rom::{Rom, RomError};
+// #[cfg(feature = "testing-utils")]
+// pub use crate::nes::test_utils;

@@ -1,9 +1,12 @@
 [workspace]
 members = [
     "crates/nes-core",
-    "crates/nes-app",
     "crates/nes-romtest",
     "crates/nes-step",
+
+    "crates/nes-app",
+    "crates/nes-native",
+    "crates/nes-wasm",
 ]
 
 resolver = "2"

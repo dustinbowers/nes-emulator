@@ -4,7 +4,7 @@ pub const PALETTE_SIZE: usize = 32;
 pub const PRIMARY_OAM_SIZE: usize = 256;
 pub const SECONDARY_OAM_SIZE: usize = 32;
 
-pub static SYSTEM_PALETTE: [(u8, u8, u8); 64] = [
+pub static NES_SYSTEM_PALETTE: [(u8, u8, u8); 64] = [
     (0x80, 0x80, 0x80),
     (0x00, 0x3D, 0xA6),
     (0x00, 0x12, 0xB0),

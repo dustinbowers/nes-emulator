@@ -1,19 +1,14 @@
 #![feature(get_mut_unchecked)]
 #![warn(clippy::all, rust_2018_idioms)]
-#![allow(unused_imports, dead_code, unused_variables)] // TODO: Remove this later
+// #![allow(unused_imports, dead_code, unused_variables)] // TODO: Remove this later
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
-mod app;
-mod display;
-
-// mod nes;
-
-// use nes_emulator::nes::NES;
-
-use crate::app::App;
-use crate::app::set_rom_data;
-use crate::display::consts::*;
+use std::sync::atomic::Ordering;
 use macroquad::prelude::*;
+use nes_app::app::App;
+use nes_app::{ROM_DATA, TRIGGER_LOAD, TRIGGER_RESET};
+
+const WINDOW_HEIGHT: u32 = 480;
+const WINDOW_WIDTH: u32 = 512;
 
 fn window_conf() -> Conf {
     Conf {
@@ -23,6 +18,13 @@ fn window_conf() -> Conf {
         window_width: WINDOW_WIDTH as i32,
         ..Default::default()
     }
+}
+
+pub fn set_rom_data(rom_bytes: Vec<u8>) {
+    let mut rom_data = ROM_DATA.lock().unwrap();
+    *rom_data = rom_bytes;
+    TRIGGER_LOAD.store(true, Ordering::SeqCst);
+    TRIGGER_RESET.store(false, Ordering::SeqCst);
 }
 
 #[macroquad::main(window_conf)]

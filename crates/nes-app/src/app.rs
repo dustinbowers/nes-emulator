@@ -1,24 +1,36 @@
-use nes_emulator::trace_dump;
-use macroquad::prelude::*;
 use std::cell::UnsafeCell;
-use std::collections::{HashMap, VecDeque};
-use std::error::Error;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
+
+use macroquad::prelude::*;
+use nes_core::prelude::*;
 use tinyaudio::prelude::*;
 
-
 use crate::display::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
-use nes_emulator::nes::NES;
-use nes_emulator::nes::cartridge::rom::Rom;
-use nes_emulator::nes::controller::joypad::JoypadButton;
 
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::wasm_bindgen;
 
+/// Wrapper around NES that allows shared access across threads.
+///
+/// The NES is driven primarily by the audio thread during emulation.
+/// The Main thread may temporarily take mutable access while emulation is paused.
+/// When emulation is running the Main thread only reads immutable state.
+///
+/// Synchronization is coordinated via atomic flags:
+/// - PAUSE_EMULATION gates audio-thread execution
+/// - Reset/load only occur while paused
 pub struct NesCell(UnsafeCell<NES>);
 
-// Safety: only the audio thread will ever tick the NES while running
+/// SAFETY:
+/// - NES is not thread-safe by itself.
+/// - At most one thread mutates NES at a time.
+/// - Audio thread mutates NES only while PAUSE_EMULATION == false.
+/// - UI thread mutates NES only while PAUSE_EMULATION == true.
+/// - Render thread only performs immutable reads.
+/// - Framebuffer reads may race with PPU writes (visual tearing allowed).
+/// - Atomic flags coordinate mutation phases.
+///
+/// This makes Send + Sync sound under the documented execution model.
 unsafe impl Send for NesCell {}
 unsafe impl Sync for NesCell {}
 
@@ -27,21 +39,33 @@ impl NesCell {
         Arc::new(Self(UnsafeCell::new(nes)))
     }
 
+    /// Get mutable access to NES.
+    ///
+    /// # SAFETY
+    /// Caller must guarantee:
+    /// - Emulation is paused OR this is the audio thread
+    /// - No other mutable access is active
+    /// - No immutable access is active during mutation (except for rendering purposes)
     #[inline(always)]
-    pub unsafe fn get_mut(&self) -> &mut NES {
-        unsafe { &mut *self.0.get() }
+    pub unsafe fn get_mut(&self) -> *mut NES {
+        self.0.get()
     }
 
+    /// Get immutable access to NES.
+    ///
+    /// # SAFETY
+    /// Caller must guarantee:
+    /// - This is only used for read-only inspection (rendering, error display)
     #[inline(always)]
     pub unsafe fn get_ref(&self) -> &NES {
         unsafe { &*self.0.get() }
     }
 }
 
-struct SharedInput {
+pub struct SharedInput {
     buttons: AtomicU8,
 }
-static CONTROLLER1: SharedInput = SharedInput {
+pub static CONTROLLER1: SharedInput = SharedInput {
     buttons: AtomicU8::new(0),
 };
 
@@ -50,39 +74,6 @@ pub static TRIGGER_LOAD: AtomicBool = AtomicBool::new(false);
 pub static TRIGGER_RESET: AtomicBool = AtomicBool::new(false);
 pub static PAUSE_EMULATION: AtomicBool = AtomicBool::new(true);
 pub static ROM_DATA: Mutex<Vec<u8>> = Mutex::new(Vec::new());
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn set_rom_data(rom_bytes: js_sys::Uint8Array) {
-    trigger_reset();
-    let mut rom_data = ROM_DATA.lock().unwrap();
-    *rom_data = rom_bytes.to_vec();
-    web_sys::console::log_1(&format!("set_rom_data() with {} bytes", (*rom_data).len()).into());
-    trigger_load();
-}
-#[cfg(not(target_arch = "wasm32"))]
-pub fn set_rom_data(rom_bytes: Vec<u8>) {
-    let mut rom_data = ROM_DATA.lock().unwrap();
-    *rom_data = rom_bytes;
-    TRIGGER_LOAD.store(true, Ordering::SeqCst);
-    TRIGGER_RESET.store(false, Ordering::SeqCst);
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn trigger_load() {
-    web_sys::console::log_1(&"trigger_load()".into());
-    // TRIGGER_RESET.store(false, Ordering::SeqCst);
-    TRIGGER_LOAD.store(true, Ordering::SeqCst);
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn trigger_reset() {
-    web_sys::console::log_1(&"trigger_reset()".into());
-    // TRIGGER_LOAD.store(false, Ordering::SeqCst);
-    TRIGGER_RESET.store(true, Ordering::SeqCst);
-}
 
 enum State {
     Start,
@@ -100,6 +91,12 @@ pub struct App {
     audio_device: Option<tinyaudio::OutputDevice>,
     state: State,
     error: Option<String>,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl App {
@@ -144,7 +141,6 @@ impl App {
                 channel_sample_count: 1200,
             },
             move |data| {
-                let nes: &mut NES = unsafe { nes_clone.get_mut() };
 
                 // if paused, send silence and don't tick NES
                 if PAUSE_EMULATION.load(Ordering::SeqCst) {
@@ -154,6 +150,12 @@ impl App {
                     return;
                 }
 
+                // SAFETY:
+                // This closure is executed exclusively on the audio thread.
+                // No other thread mutates NES while audio is running.
+                // The render thread only performs immutable reads.
+                let nes: &mut NES = unsafe { &mut *nes_clone.get_mut() };
+
                 nes.bus
                     .controller1
                     .set_buttons(CONTROLLER1.buttons.load(Ordering::SeqCst));
@@ -162,12 +164,10 @@ impl App {
                 let ppu_cycles_per_sample = 5369318.0 / 44100.0; // ~121.7 PPU cycles per sample
                 let mut cycle_acc = nes.cycle_acc;
 
-                // println!("ticking nes for {} samples", data.len());
                 for sample in data {
                     cycle_acc += ppu_cycles_per_sample;
 
                     while cycle_acc >= 1.0 {
-                        // println!("nes PC = {}", nes.bus.cpu.program_counter);
                         nes.tick(); // tick at PPU frequency
                         cycle_acc -= 1.0;
                     }
@@ -209,11 +209,13 @@ impl App {
                     clear_background(Color::new(0.1, 0.1, 0.1, 1.0));
                     draw_text(str, x, y, size, Color::new(1.0, 1.0, 1.0, alpha));
                     if TRIGGER_LOAD.swap(false, Ordering::SeqCst) {
-                        if self.audio_device.is_none() && let Err(_) = self.init_audio() {
+                        if self.audio_device.is_none()
+                            && let Err(_) = self.init_audio()
+                        {
                             self.set_error("Audio initialization failed!".to_owned());
-                            continue
+                            continue;
                         }
-                        let nes: &mut NES = unsafe { self.nes_arc.get_mut() };
+                        let nes: &mut NES = unsafe { &mut *self.nes_arc.get_mut() };
                         let rom_data = ROM_DATA.lock().unwrap();
                         match Rom::new(&rom_data) {
                             Ok(rom) => match rom.into_cartridge() {
@@ -279,7 +281,7 @@ impl App {
                 }
             }
 
-            let nes: &mut NES = unsafe { self.nes_arc.get_mut() };
+            let nes: &mut NES = unsafe { &mut *self.nes_arc.get_mut() };
             if is_key_pressed(KeyCode::Key1) {
                 nes.bus.apu.mute_pulse1 = !nes.bus.apu.mute_pulse1;
             }
@@ -329,34 +331,45 @@ impl App {
         self.error = None;
         self.state = State::Waiting;
 
-        let nes: &mut NES = unsafe { self.nes_arc.get_mut() };
+        // SAFETY:
+        // Reset only occurs while paused.
+        // Audio thread will not tick while PAUSE_EMULATION is true.
+        let nes: &mut NES = unsafe { &mut *self.nes_arc.get_mut() };
         nes.bus.reset_components();
     }
 
     pub fn render(&mut self) {
+        // SAFETY:
+        // Rendering only reads NES state.
+        // No mutation occurs here.
+        // Audio thread is the sole mutator.
         let nes = unsafe { self.nes_arc.get_ref() };
         let frame = nes.get_frame_buffer();
 
         for (i, &p) in frame.iter().enumerate() {
-            let color = crate::display::color_map::SYSTEM_PALETTE[p as usize];
+            let color = NES_SYSTEM_PALETTE[p as usize];
             let base = i * 4;
-            self.pixel_buffer[base + 0] = color.0;
+            self.pixel_buffer[base] = color.0;
             self.pixel_buffer[base + 1] = color.1;
             self.pixel_buffer[base + 2] = color.2;
             self.pixel_buffer[base + 3] = 255;
         }
 
-        if self.texture.is_none() {
-            self.texture = Some(Texture2D::from_rgba8(256, 240, &self.pixel_buffer));
-            self.texture
-                .as_ref()
-                .unwrap()
-                .set_filter(FilterMode::Linear);
-        } else {
-            self.texture
-                .as_ref()
-                .unwrap()
-                .update_from_bytes(256, 240, &self.pixel_buffer);
+        // FIXME: This can be simplified, i'll do it later
+        match self.texture {
+            Some(_) => {
+                self.texture
+                    .as_ref()
+                    .unwrap()
+                    .update_from_bytes(256, 240, &self.pixel_buffer);
+            }
+            None => {
+                self.texture = Some(Texture2D::from_rgba8(256, 240, &self.pixel_buffer));
+                self.texture
+                    .as_ref()
+                    .unwrap()
+                    .set_filter(FilterMode::Linear);
+            }
         }
 
         let tex = self.texture.as_ref().unwrap();
@@ -380,6 +393,7 @@ impl App {
         self.state = State::Error;
     }
 
+    // TODO: Create a callback so app consumers can set their own logging implementation
     fn log(msg: &str) {
         #[cfg(feature = "logging")]
         {

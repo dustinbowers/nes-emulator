@@ -1,22 +1,13 @@
 use crate::nes::apu::{APU, ApuBusInterface};
 use crate::nes::cpu::{CPU, CpuBusInterface};
 use crate::nes::ppu::{PPU, PpuBusInterface};
-
+use crate::nes::bus::consts::*;
 use crate::nes::cartridge::Cartridge;
 use crate::nes::cartridge::rom::Mirroring;
 use crate::nes::controller::NesController;
 use crate::nes::controller::joypad::Joypad;
-use crate::nes::tracer::traceable::Traceable;
+
 use crate::trace;
-
-const CPU_RAM_SIZE: usize = 2048;
-const CPU_RAM_START: u16 = 0x0000;
-const CPU_RAM_END: u16 = 0x1FFF;
-
-const PPU_REGISTERS_START: u16 = 0x2000;
-const PPU_REGISTERS_END: u16 = 0x3FFF;
-const CART_START: u16 = 0x4200;
-const CART_END: u16 = 0xFFFF;
 
 pub struct NesBus {
     cart: Option<Box<dyn Cartridge>>,
@@ -84,7 +75,6 @@ impl NesBus {
     }
 
     pub fn insert_cartridge(&mut self, cart: Box<dyn Cartridge>) {
-        println!("NesBus::insert_cartridge()");
         self.cart = Some(cart);
         self.reset_components();
     }
@@ -209,6 +199,9 @@ impl ApuBusInterface for NesBus {
     }
 }
 
+#[cfg(feature = "tracing")]
+use crate::nes::tracer::traceable::Traceable;
+#[cfg(feature = "tracing")]
 impl Traceable for NesBus {
     fn trace_name(&self) -> &'static str {
         "BUS"

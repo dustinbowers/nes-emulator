@@ -10,4 +10,5 @@ thiserror = "2.0.17"
 
 [features]
 default = []
+tracing = []
 testing-utils = []

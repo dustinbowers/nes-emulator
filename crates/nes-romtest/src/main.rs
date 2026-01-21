@@ -1,10 +1,8 @@
-#[path = "../../nes-workspace/crates/nes-core/mod.rs"]
-mod nes;
-
-use nes::NES;
 use std::env;
 use std::fs;
 use std::process;
+
+use nes_core::prelude::*;
 
 enum RunMode {
     Frames { frames: usize, buffer: usize },
@@ -161,16 +159,16 @@ fn main() {
         println!("Result byte: 0x{result:02X}");
     }
 
-    if result == 1 {
-        println!("PASS");
-        process::exit(0);
-    }
+    let (status, exit_code) = match result {
+        1 => ("PASS", 0),
+        2.. => ("FAIL", 1),
+        _ => ("UNKNOWN", 2)
+    };
 
-    if result >= 2 {
-        println!("FAIL #{}", result);
-        process::exit(1);
-    }
-
-    println!("UNKNOWN (result=0x{result:02X})");
-    process::exit(2);
+    println!("/**************************************************************\\");
+    println!("|  Status: {}", status);
+    println!("|  Rom: {}", &opts.rom_path);
+    println!("|  Response Code: #{} (${:02X})", result, result);
+    println!("\\**************************************************************/");
+    process::exit(exit_code);
 }

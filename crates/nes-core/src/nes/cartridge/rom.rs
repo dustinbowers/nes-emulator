@@ -102,10 +102,8 @@ impl Rom {
         match self.mapper {
             0 => {
                 let chr_rom_len = self.chr_rom.len();
-                println!("rom::into_cartridge() - chr_rom_len = {}", chr_rom_len);
                 let mut cart = NromCart::new(self.prg_rom, self.chr_rom, self.screen_mirroring);
                 if chr_rom_len == 0 {
-                    println!("Nrom, setting chr_is_ram = true");
                     cart.chr_is_ram = true;
                 }
                 Ok(Box::new(cart))

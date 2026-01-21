@@ -305,7 +305,6 @@ impl PPU {
 
                 if !self.suppress_vblank {
                     self.vblank_ticks = 0;
-                    println!("Set VBLANK  (scanline = {}, dot = {})", self.scanline, self.cycles);
                     self.status_register.set_vblank_started();
                 }
 
@@ -330,7 +329,6 @@ impl PPU {
                 }
             }
             PpuOperation::ClearVBlank => {
-                println!("ClearVBlank (scanline = {}, dot = {}, vblank_ticks = {})", self.scanline, self.cycles, self.vblank_ticks);
                 trace_ppu_event!(
                     "VBLANK CLEAR  frame={} scanline={} dot={} ppu_cycle={}",
                     self.frame_is_odd as u8,
@@ -454,7 +452,6 @@ impl PPU {
                 {
                     self.suppress_vblank = true;
                 }
-                println!("READ (scanline = {}, dot = {}) - $2002 = {:08b}", self.scanline, self.cycles, result);
                 result
             }
             0x2004 => {
