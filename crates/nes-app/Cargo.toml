@@ -1,0 +1,11 @@
+[package]
+name = "nes-app"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+macroquad = "0.4.14"
+tinyaudio = "1.1.0"
+env_logger = "0.11.8"
+
+nes-core = { path = "../nes-core" }

@@ -6,10 +6,8 @@ use crate::nes::cartridge::Cartridge;
 use crate::nes::cartridge::rom::Mirroring;
 use crate::nes::controller::NesController;
 use crate::nes::controller::joypad::Joypad;
-use crate::nes::ppu::registers::status_register::StatusRegister;
 use crate::nes::tracer::traceable::Traceable;
 use crate::trace;
-use std::pin::Pin;
 
 const CPU_RAM_SIZE: usize = 2048;
 const CPU_RAM_START: u16 = 0x0000;

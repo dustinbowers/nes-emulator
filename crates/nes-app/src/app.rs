@@ -1,3 +1,4 @@
+use nes_emulator::trace_dump;
 use macroquad::prelude::*;
 use std::cell::UnsafeCell;
 use std::collections::{HashMap, VecDeque};
@@ -6,12 +7,12 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use tinyaudio::prelude::*;
 
-use crate::display::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
-use crate::nes::NES;
-use crate::nes::cartridge::rom::Rom;
-use crate::nes::controller::joypad::JoypadButton;
 
-use crate::trace_dump;
+use crate::display::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
+use nes_emulator::nes::NES;
+use nes_emulator::nes::cartridge::rom::Rom;
+use nes_emulator::nes::controller::joypad::JoypadButton;
+
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::wasm_bindgen;
 

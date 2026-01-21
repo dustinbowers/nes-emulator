@@ -5,7 +5,10 @@
 
 mod app;
 mod display;
-mod nes;
+
+// mod nes;
+
+// use nes_emulator::nes::NES;
 
 use crate::app::App;
 use crate::app::set_rom_data;

@@ -5,17 +5,19 @@ pub mod cartridge;
 pub mod cpu;
 pub mod ppu;
 pub mod tracer;
-
 pub mod controller;
 
-use super::{trace, trace_obj};
+#[cfg(feature = "testing-utils")]
+pub mod test_utils;
+
+// use super::trace;
 use bus::nes_bus::NesBus;
 use cartridge::Cartridge;
 use cartridge::rom::{Rom, RomError};
+use crate::trace;
 
 const OAM_DMA_START_CYCLES: usize = 0;
 const OAM_DMA_DONE_CYCLES: usize = 512;
-// const PPU_WARMUP_CYCLES: usize = 89343;
 
 enum DmaMode {
     Oam,
@@ -24,7 +26,6 @@ enum DmaMode {
 pub struct NES {
     master_clock: u64,
     pub bus: &'static mut NesBus,
-    // pub ppu_warmed_up: bool,
     dma_mode: DmaMode,
 
     pub oam_transfer_cycles: usize,
@@ -121,20 +122,6 @@ impl NES {
         }
         frame_ready
     }
-
-    // pub fn set_sample_frequency(&mut self, sample_rate: u32) {
-    //     self.audio_time_per_system_sample = 1.0 / (sample_rate as f32);
-    //     self.audio_time_per_nes_clock = 1.0 / 1789773.0; // CPU clock frequency (NTSC)
-    //
-    //     println!(
-    //         "audio_time_per_system_sample: {}",
-    //         self.audio_time_per_system_sample
-    //     );
-    //     println!(
-    //         "audio_time_per_nes_clock: {}",
-    //         self.audio_time_per_nes_clock
-    //     );
-    // }
 
     pub fn get_frame_buffer(&self) -> &[u8; 256 * 240] {
         &self.bus.ppu.frame_buffer

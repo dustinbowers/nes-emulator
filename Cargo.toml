@@ -1,57 +1,9 @@
-[package]
-name = "nes-emulator"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = [
+    "crates/nes-core",
+    "crates/nes-app",
+    "crates/nes-romtest",
+    "crates/nes-step",
+]
 
-[dependencies]
-macroquad = "0.4.14"
-bitflags = "2.9.0"
-once_cell = "1.21.1"
-tinyaudio = "1.1.0"
-thiserror = "2.0.17"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0"
-
-[features]
-default = ["logging", "tracing"]
-tracing = []
-logging = []
-single-step-runner = []
-
-# Native:
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-env_logger = "0.11.8"
-
-# CPU single-step test runner
-[[bin]]
-name = "single_step_runner"
-path = "src/bin/single_step_runner.rs"
-required-features = ["single-step-runner"]
-
-# Headless ROM test runner
-[[bin]]
-name = "rom_test_runner"
-path = "src/bin/rom_test_runner.rs"
-
-# Web:
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.104"
-wasm-bindgen-futures = "0.4.54"
-web-sys = { version = "0.3", features = [
-    "Window",
-    "Request",
-    "RequestInit",
-    "Response",
-    "Headers",
-    "RequestMode",
-    "console"
-] }
-anyhow = "1.0.100"
-js-sys = "0.3.81"
-
-[profile.release]
-opt-level = 2 # fast and small wasm
-
-# Optimize all dependencies even in debug builds:
-[profile.dev.package."*"]
-opt-level = 2
+resolver = "2"

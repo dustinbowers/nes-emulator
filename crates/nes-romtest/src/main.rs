@@ -1,4 +1,4 @@
-#[path = "../nes/mod.rs"]
+#[path = "../../nes-workspace/crates/nes-core/mod.rs"]
 mod nes;
 
 use nes::NES;

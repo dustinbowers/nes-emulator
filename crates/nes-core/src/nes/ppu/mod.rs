@@ -4,22 +4,19 @@ use registers::decay_register::DecayRegister;
 use registers::mask_register::MaskRegister;
 use registers::scroll_register::ScrollRegister;
 use registers::status_register::StatusRegister;
-use scheduler::{PPU_SCHEDULE, PpuOperation, DotOperations};
+use scheduler::{PPU_SCHEDULE, PpuOperation};
 use crate::nes::tracer::traceable::Traceable;
 use crate::{trace, trace_obj, trace_ppu_event};
+use consts::{PALETTE_SIZE, RAM_SIZE};
+use crate::nes::ppu::consts::{NAME_TABLE_SIZE, PRIMARY_OAM_SIZE, SECONDARY_OAM_SIZE};
 
 mod scheduler;
-pub mod registers;
+mod registers;
 mod background;
 mod sprites;
 
 mod mod_tests;
-
-const PRIMARY_OAM_SIZE: usize = 256;
-const SECONDARY_OAM_SIZE: usize = 32;
-const RAM_SIZE: usize = 2048;
-const NAME_TABLE_SIZE: u16 = 0x400; // Size of each nametable (1 KB)
-const PALETTE_SIZE: usize = 0x20; // Size of the palette memory
+pub mod consts;
 
 pub trait PpuBusInterface {
     fn chr_read(&mut self, addr: u16) -> u8;

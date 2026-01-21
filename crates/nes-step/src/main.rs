@@ -2,17 +2,14 @@
    Test runner is meant to run nes6502 single-step opcode tests from
    https://github.com/SingleStepTests/65x02/tree/main/nes6502
 */
-#[path = "../nes/mod.rs"]
-mod nes;
-
-use crate::nes::bus::simple_bus::SimpleBus;
-use crate::nes::cpu::{CpuBusInterface, Flags};
-use serde::Deserialize;
 use std::env;
 use std::fs;
-use std::io::{self, Read};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process;
+
+use serde::Deserialize;
+use nes_core::nes::test_utils::{CpuBusInterface, Flags, SimpleBus};
 
 #[derive(Debug, Deserialize)]
 struct OpcodeTest {
