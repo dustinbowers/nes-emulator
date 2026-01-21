@@ -1,13 +1,155 @@
 # NES Emulator
 
-***NOTE**: This is still very much a work in progress.*
+A Nintendo Entertainment System (NES) emulator written in Rust, supporting both native and WebAssembly targets.
+
+> **Note**: This project is currently under active development. (There's still quite a few timing bugs to squash)
+
+## Features
+
+- 6502 CPU emulation with memory-cycle-accurate timing
+- Dot-based microcoded PPU implementation
+- Limited APU support
+- Small collection of supported mappers (currently NROM, MMC1, UxROM, CNROM)
+- Native desktop application
+- WebAssembly browser version
+- Test suite for CPU opcodes (single-step tests) and `nes-test-roms`
+
+## Project Structure
+
+This project uses Cargo workspaces:
+
+- `nes-core` - Core emulation library
+- `nes-app` - Native desktop application
+- `nes-wasm` - WebAssembly browser build
+- `nes-romtest` - Headless ROM testing utility
+- `nes-step` - Single-step opcode testing tool
+
+<img src="https://github.com/dustinbowers/nes-emulator/imgs/workspace_hierarchy.png" width="40%">
+
+## Quick Start
+
+### Native Build
+```bash
+# Build and run
+make run rom=path/to/rom.nes
+
+# Or build separately
+make release
+./target/release/nes-app path/to/rom.nes
+```
+
+### WebAssembly Build
+```bash
+# Build for web
+make wasm-release
+
+# Serve locally
+cd dist
+python -m http.server 8080
+# Navigate to http://localhost:8080
+```
+
+## Development
+
+### Building
+
+| Target | Description | Command |
+|--------|-------------|---------|
+| Debug | Build with debug symbols | `make debug` |
+| Release | Optimized release build | `make release` |
+| Release + Tracing | Release build with tracing enabled | `make release-tracing` |
+| WASM Debug | WebAssembly debug build | `make wasm-debug` |
+| WASM Release | WebAssembly release build | `make wasm-release` |
+
+### Testing
+
+| Command | Description |
+|---------|-------------|
+| `make singlestep-op op=A9` | Test a specific CPU opcode (hex value) |
+| `make singlestep-all` | Run all CPU opcode tests (00-FF) |
+| `make romtest rom=<path> frames=120` | Run headless ROM test for specified frames |
+| `make romtest rom=<path> ticks=89342 buffer=30` | Run headless ROM test for specified CPU ticks |
+
+### Utility Commands
+
+| Command | Description |
+|---------|-------------|
+| `make help` | Display all available targets |
+| `make clean-wasm-dist` | Clean WebAssembly distribution files |
+
+## ROM Compatibility
+
+Supports iNES 1.0 format ROMs with the following mappers:
+- Mapper 0 (NROM)
+- Mapper 1 (MMC1)
+- Mapper 2 (UxROM)
+- Mapper 3 (CNROM)
+
+## Automated ROM Testing
+
+The project includes a Python script for running batches of ROM tests defined in `nes-test-roms/test_roms.xml`.
+
+### Basic Usage
+```bash
+# Run all tests
+./scripts/run_romtests.py
+
+# Run tests matching a filter
+./scripts/run_romtests.py --filter "nestest"
+
+# Run a specific test
+./scripts/run_romtests.py --test "nes-test-roms/nestest.nes"
+
+# Dry run (show commands without executing)
+./scripts/run_romtests.py --dry-run
+
+# Limit number of tests
+./scripts/run_romtests.py --limit 5
+```
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--xml` | `nes-test-roms/test_roms.xml` | Path to test configuration XML |
+| `--rom-root` | `nes-test-roms` | Root directory for ROM paths |
+| `--buffer` | `30` | Extra frames to add to test duration |
+| `--frames` | `0` | Override frame count from XML (0 = use XML value) |
+| `--filter` | `""` | Substring filter for ROM filenames |
+| `--test` | `""` | Run single test by exact filename |
+| `--limit` | `0` | Maximum number of tests to run (0 = unlimited) |
+| `--dry-run` | `false` | Print commands without executing |
+
+### Examples
+```bash
+# Run CPU tests only
+./scripts/run_romtests.py --filter "cpu"
+
+# Run first 10 tests with verbose output
+./scripts/run_romtests.py --limit 10
+
+# Override frame count for all tests
+./scripts/run_romtests.py --frames 200 --buffer 50
+
+# Check what would run without executing
+./scripts/run_romtests.py --filter "ppu" --dry-run
+```
+
+### Test Configuration
+
+Tests are defined in `nes-test-roms/test_roms.xml` with the following format:
+```xml
+<test filename="path/to/rom.nes" runframes="120"/>
+```
+
+The script automatically adds the buffer frames to each test's duration to account for initialization overhead.
 
 ## TODO
 
-- ✅ Implement 6502 CPU (minus APU)
+- ✅ Implement 6502 CPU
   - ✅ Official opcodes
   - ✅ Unofficial opcodes
-  - ✅ Ensure cycle accuracy
+  - ✅ Ensure memory-cycle accuracy
 - ✅ Create 6502 CPU test runner for single-step tests
 - ✅ Implement iNES 1.0 ROM parsing
 - ✅ Implement Bus-centric architecture (NES wrapper handles orchestration)
@@ -37,39 +179,23 @@
   - ⬜ iNES 1.0 Mapper 004 - MMC3
   - ⬜ iNES 1.0 Mapper 005 - MMC5
   - ⬜ ...plus more...
+- ⬜ Fix CPU<->PPU timing/sync bugs 
 
-
-## Building
-
-| Command                | Command Description                                |
-|------------------------|----------------------------------------------------|
-| `make debug`           | Build debug binary                                 |
-| `make release`         | Build release binary                               |
-| `make release-tracing` | Build release with tracing enabled (*much* slower) |
-| `make wasm-debug`      | Build WASM debug to `dist/` (*much* slower)        |
-| `make wasm-release`    | Build WASM release to `dist/`                      |
-
-## Running
-
-- Native usage: `./nes-emulator <iNES 1.0 ROM path>`
-- For wasm usage: serve `dist/` locally with `python -m http.server 8080` or similar
-
-## Testing
-
-| Command                    | Command Description                                                 |
-|----------------------------|---------------------------------------------------------------------|
-| `make testop op=<opcode>`  | Test 6502 opcodes using single-step-tests (e.g. `make testop op=a9` |
 
 ## Resources
 
 - 6502 opcode references:
   - https://www.nesdev.org/obelisk-6502-guide/reference.html
   - http://www.6502.org/tutorials/6502opcodes.html
-- Illegal opcodes - https://www.masswerk.at/nowgobang/2021/6502-illegal-opcodes
+- Unofficial opcodes - https://www.masswerk.at/nowgobang/2021/6502-illegal-opcodes
 - Single-step opcode tests - https://github.com/SingleStepTests/65x02/tree/main/nes6502/v1
 - iNES file format spec - https://formats.kaitai.io/ines/index.html
-- snake.nes - https://skilldrick.github.io/easy6502/#snake
 - PPU timing chart - https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
 - PPU timing details - https://www.nesdev.org/wiki/PPU_rendering
 - APU details - https://www.nesdev.org/wiki/APU
 - NES APU Sound Hardware Reference - https://www.nesdev.org/apu_ref.txt
+
+## Acknowledgments
+
+- Test ROMs from [nes-test-roms](https://github.com/christopherpow/nes-test-roms)
+- CPU test suite from [single-step-tests](https://github.com/SingleStepTests/6502)
