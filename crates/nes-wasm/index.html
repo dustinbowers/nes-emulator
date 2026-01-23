@@ -1,150 +1,87 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="utf-8">
     <title>NES Emulator</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
         body {
-            font-family: system-ui, -apple-system, sans-serif;
-            background: #0a0a0a;
-            color: #fff;
+            margin: 0;
             padding: 20px;
+            font-family: sans-serif;
         }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
-        h1 {
-            margin-bottom: 20px;
-        }
-
         .controls {
-            margin-bottom: 20px;
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
+            margin: 10px 0;
         }
-
         button {
-            padding: 10px 20px;
-            font-size: 16px;
+            margin-right: 10px;
+            padding: 8px 16px;
+            font-size: 14px;
             cursor: pointer;
-            background: #333;
-            color: white;
-            border: 1px solid #555;
-            border-radius: 4px;
         }
-
-        button:hover {
-            background: #444;
-        }
-
-        input[type="file"] {
+        #rom-input {
             display: none;
         }
-
-        .file-label {
-            padding: 10px 20px;
-            font-size: 16px;
-            cursor: pointer;
-            background: #2a5;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            display: inline-block;
-        }
-
-        .file-label:hover {
-            background: #3b6;
-        }
-
-        #emulator-frame {
-            width: 100%;
-            height: 720px;
-            border: 2px solid #333;
-            border-radius: 8px;
-            background: #000;
-        }
-
-        .info {
-            margin-top: 20px;
-            padding: 15px;
-            background: #1a1a1a;
-            border-radius: 4px;
-            font-size: 14px;
+        #nes_canvas {
+            display: block;
+            margin-top: 10px;
+            border: 1px solid #ccc;
+            width: 512px;
+            height: 512px;
         }
     </style>
 </head>
 <body>
-<div class="container">
-    <h1>NES Emulator</h1>
-
-    <div class="controls">
-        <label class="file-label" for="rom-file">Load ROM</label>
-        <input type="file" id="rom-file" accept=".nes">
-
-        <button id="reset-btn">Reset</button>
-        <button id="pause-btn">Pause/Resume</button>
-    </div>
-
-    <iframe id="emulator-frame" src="emulator.html"></iframe>
-
-    <div class="info">
-        <p><strong>Controls:</strong> WASD = D-Pad, J = B, K = A, Space = Select, Enter = Start</p>
-        <p><strong>Debug:</strong> P = Pause, R = Reset, F1 = Debug Info, 1-5 = Mute Audio Channels</p>
-    </div>
+<h1>NES Emulator</h1>
+<div class="controls">
+    <button id="load-rom-btn">Load ROM</button>
+    <button id="pause-btn">Pause</button>
+    <input type="file" id="rom-input" accept=".nes">
 </div>
+<canvas id="nes_canvas"></canvas>
 
-<script>
-    const iframe = document.getElementById('emulator-frame');
-    const romFileInput = document.getElementById('rom-file');
-    const resetBtn = document.getElementById('reset-btn');
-    const pauseBtn = document.getElementById('pause-btn');
+<script type="module">
+    import init, { start_audio } from './nes-emulator.js';
 
-    // Wait for iframe to load
-    iframe.addEventListener('load', function() {
-        console.log('Emulator iframe loaded');
+    console.log("Starting WASM init...");
+    await init();
+    console.log("WASM initialized");
+
+    const loadRomBtn = document.getElementById("load-rom-btn");
+    const romInput = document.getElementById("rom-input");
+
+    // load rom button
+    loadRomBtn.addEventListener("click", () => {
+        start_audio();
+        romInput.click();
     });
 
-    // Load ROM file
-    romFileInput.addEventListener('change', function(e) {
+    // file selection
+    romInput.addEventListener("change", async (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
-        const reader = new FileReader();
-        reader.onload = function(event) {
-            const arrayBuffer = event.target.result;
-            const bytes = new Uint8Array(arrayBuffer);
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const romData = new Uint8Array(arrayBuffer);
 
-            iframe.contentWindow.postMessage(
-                {
-                    type: "LoadRom",
-                    rom: bytes
-                },
-                "*"
-            );
-            console.log("ROM sent:", file.name, "("+bytes.length+" bytes)");
-        };
-        reader.readAsArrayBuffer(file);
+            window.postMessage({
+                type: "LoadRom",
+                rom: Array.from(romData)
+            }, "*");
+
+            console.log(`Loaded ROM: ${file.name} (${romData.length} bytes)`);
+        } catch (error) {
+            console.error("Failed to load ROM:", error);
+        }
     });
 
-    // Reset button
-    resetBtn.addEventListener("click", () => {
-        iframe.contentWindow.postMessage({ type: "reset" }, "*");
-    });
-
-    // Pause button
-    pauseBtn.addEventListener('click', function() {
-        alert('Pause not implemented yet');
+    // pause button
+    const pauseBtn = document.getElementById("pause-btn");
+    pauseBtn.addEventListener("click", () => {
+        window.postMessage({
+            type: "Pause"
+        }, "*");
+        console.log("Sent Pause message");
     });
 </script>
 </body>

@@ -9,9 +9,6 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use egui::{ColorImage, TextureHandle, TextureOptions};
 
 use nes_core::prelude::*;
-// use tinyaudio::prelude::*;
-
-use crate::display::consts::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
 /// Wrapper around NES that allows shared access across threads.
 ///
@@ -79,7 +76,7 @@ pub static PAUSE_EMULATION: AtomicBool = AtomicBool::new(true);
 pub static ROM_DATA: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 
 enum State {
-    NeedUserInteraction,
+    // NeedUserInteraction,
     Waiting,
     Running,
     Paused,
@@ -136,11 +133,12 @@ impl<E: AppEventSource> App<E> {
         }
 
         // Skip user interaction screen for native with ROM argument
-        let initial_state = if skip_user_interaction {
-            State::Waiting
-        } else {
-            State::NeedUserInteraction
-        };
+        // let initial_state = if skip_user_interaction {
+        //     State::Waiting
+        // } else {
+        //     State::NeedUserInteraction
+        // };
+        let initial_state = State::Waiting;
 
         Self {
             nes_arc,
@@ -173,15 +171,21 @@ impl<E: AppEventSource> App<E> {
             }
             AppEvent::Reset => {
                 TRIGGER_RESET.store(true, Ordering::SeqCst);
+                TRIGGER_LOAD.store(false, Ordering::SeqCst);
+                self.state = State::Waiting
             }
             AppEvent::Pause => {
-                PAUSE_EMULATION.store(false, Ordering::SeqCst);
-                self.state = State::Running;
+                PAUSE_EMULATION.store(true, Ordering::SeqCst);
+                self.state = State::Paused;
             }
         }
     }
 
     pub fn init_audio(&mut self) -> Result<(), Box<dyn Error>> {
+        if self.audio_stream.is_some() {
+            return Ok(());
+        }
+
         let host = cpal::default_host();
         let device = host
             .default_output_device()
@@ -327,14 +331,12 @@ impl<E: AppEventSource> App<E> {
 
     fn update_state(&mut self) {
         match &self.state {
-            State::NeedUserInteraction => {}
+            // State::NeedUserInteraction => {}
             State::Paused => {}
             State::Error(msg) => {}
             State::Waiting => {
                 if TRIGGER_LOAD.swap(false, Ordering::SeqCst) {
-                    if self.audio_stream.is_none()
-                        && let Err(e) = self.init_audio()
-                    {
+                    if let Err(e) = self.init_audio() {
                         self.state = State::Error(format!("Audio init failed: {}", e));
                         return;
                     }
@@ -417,24 +419,6 @@ impl<E: AppEventSource> App<E> {
 
     fn render_ui(&mut self, ctx: &egui::Context) {
         match &self.state {
-            State::NeedUserInteraction => {
-                egui::CentralPanel::default().show(ctx, |ui| {
-                    ui.centered_and_justified(|ui| {
-                        ui.vertical_centered(|ui| {
-                            ui.heading("NES Emulator");
-                            ui.add_space(20.0);
-
-                            if ui.button("Click to Start").clicked() {
-                                self.user_interacted = true;
-                                self.state = State::Waiting;
-                            }
-
-                            ui.add_space(10.0);
-                            ui.label("(Required for audio to work)");
-                        });
-                    });
-                });
-            }
             State::Waiting => {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ui.centered_and_justified(|ui| {
@@ -460,9 +444,6 @@ impl<E: AppEventSource> App<E> {
                         });
                     });
                 });
-
-                // Handle drag and drop
-                self.handle_file_drop(ctx);
             }
             State::Running | State::Paused => {
                 egui::CentralPanel::default().show(ctx, |ui| {
@@ -490,14 +471,12 @@ impl<E: AppEventSource> App<E> {
                             ui.heading("Emulator Error");
                             ui.add_space(10.0);
 
-                            // Show the actual error message
                             ui.label(egui::RichText::new(msg).color(egui::Color32::RED));
-
                             ui.add_space(10.0);
-                            ui.label("Press R to reset");
 
-                            // Add debug info
+                            ui.label("Press R to reset");
                             ui.add_space(20.0);
+
                             if ui.button("Copy Error to Clipboard").clicked() {
                                 ctx.copy_text(msg.clone());
                             }
@@ -506,6 +485,8 @@ impl<E: AppEventSource> App<E> {
                 });
             }
         }
+
+        self.handle_file_drop(ctx);
     }
 
     fn handle_file_drop(&mut self, ctx: &egui::Context) {
@@ -516,10 +497,10 @@ impl<E: AppEventSource> App<E> {
             let painter =
                 ctx.layer_painter(LayerId::new(Order::Foreground, Id::new("file_drop_target")));
 
-            let screen_rect = ctx.screen_rect();
-            painter.rect_filled(screen_rect, 0.0, Color32::from_black_alpha(192));
+            let content_rect = ctx.content_rect();
+            painter.rect_filled(content_rect, 0.0, Color32::from_black_alpha(192));
             painter.text(
-                screen_rect.center(),
+                content_rect.center(),
                 Align2::CENTER_CENTER,
                 "Drop ROM file here",
                 FontId::proportional(40.0),
@@ -537,16 +518,18 @@ impl<E: AppEventSource> App<E> {
                     if let Some(path) = &file.path
                         && let Ok(rom_data) = std::fs::read(path)
                     {
-                        *ROM_DATA.lock().unwrap() = rom_data;
-                        TRIGGER_LOAD.store(true, Ordering::SeqCst);
+                        self.state = State::Waiting;
+                        let load_event = AppEvent::LoadRom(rom_data);
+                        self.handle_event(load_event);
                     }
                 }
 
                 #[cfg(target_arch = "wasm32")]
                 {
                     if let Some(bytes) = &file.bytes {
-                        *ROM_DATA.lock().unwrap() = bytes.to_vec();
-                        TRIGGER_LOAD.store(true, Ordering::SeqCst);
+                        self.state = State::Waiting;
+                        let load_event = AppEvent::LoadRom(bytes.to_vec());
+                        self.handle_event(load_event);
                     }
                 }
             }
@@ -603,13 +586,6 @@ impl<E: AppEventSource> App<E> {
         nes.bus.reset_components();
     }
 
-    // fn set_error(&mut self, err: String) {
-    //     PAUSE_EMULATION.store(true, Ordering::SeqCst);
-    //     TRIGGER_RESET.store(false, Ordering::SeqCst);
-    //     TRIGGER_LOAD.store(false, Ordering::SeqCst);
-    //     self.state = State::Error(err.to_string());
-    // }
-
     fn log(&self, msg: impl Into<String>) {
         if let Some(cb) = &self.log_callback {
             cb(msg.into())
@@ -627,7 +603,6 @@ impl<E: AppEventSource> eframe::App for App<E> {
         self.update_state();
         self.render_ui(ctx);
 
-        // Request continuous repaint for smooth animation
         ctx.request_repaint();
     }
 }

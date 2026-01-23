@@ -32,11 +32,11 @@ clean-wasm-dist:
 
 # WebAssembly build targets
 wasm-debug: clean-wasm-dist
-	cd crates/nes-wasm; trunk build
+	cd crates/nes-wasm; wasm-pack build --target web --out-dir --out-name nes-emulator dist
 	$(MAKE) copy-assets
 
 wasm-release: clean-wasm-dist
-	cd crates/nes-wasm; trunk build --release
+	cd crates/nes-wasm; wasm-pack build --target web --out-dir dist --out-name nes-emulator --release
 	$(MAKE) copy-assets
 
 # Copy assets to distribution
@@ -45,8 +45,8 @@ copy-assets:
 	cd crates/nes-wasm; cp index.html ./dist/
 
 # WebAssembly local testing
-wasm-serve:
-	cd crates/nes-wasm; trunk serve
+wasm-serve: clean-wasm-dist | wasm-release
+	python3 -m http.server 8081 --directory crates/nes-wasm/dist
 
 # Create logs directory
 logs:
