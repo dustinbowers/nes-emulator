@@ -35,7 +35,7 @@ make run rom=path/to/rom.nes
 
 # Or build separately
 make release
-./target/release/nes-app path/to/rom.nes
+./target/release/nes-native path/to/rom.nes
 ```
 
 ### WebAssembly Build
@@ -44,8 +44,7 @@ make release
 make wasm-release
 
 # Serve locally
-cd dist
-python -m http.server 8080
+make wasm-serve
 # Navigate to http://localhost:8080
 ```
 
@@ -60,6 +59,7 @@ python -m http.server 8080
 | Release + Tracing | Release build with tracing enabled | `make release-tracing` |
 | WASM Debug | WebAssembly debug build | `make wasm-debug` |
 | WASM Release | WebAssembly release build | `make wasm-release` |
+| WASM Release | WebAssembly + Serve | `make wasm-serve` |
 
 ### Testing
 
@@ -194,8 +194,4 @@ The script automatically adds the buffer frames to each test's duration to accou
 - PPU timing details - https://www.nesdev.org/wiki/PPU_rendering
 - APU details - https://www.nesdev.org/wiki/APU
 - NES APU Sound Hardware Reference - https://www.nesdev.org/apu_ref.txt
-
-## Acknowledgments
-
-- Test ROMs from [nes-test-roms](https://github.com/christopherpow/nes-test-roms)
-- CPU test suite from [single-step-tests](https://github.com/SingleStepTests/6502)
+- NES Test Roms - https://github.com/christopherpow/nes-test-roms
