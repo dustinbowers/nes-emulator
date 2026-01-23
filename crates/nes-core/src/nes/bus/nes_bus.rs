@@ -1,11 +1,11 @@
 use crate::nes::apu::{APU, ApuBusInterface};
-use crate::nes::cpu::{CPU, CpuBusInterface};
-use crate::nes::ppu::{PPU, PpuBusInterface};
 use crate::nes::bus::consts::*;
 use crate::nes::cartridge::Cartridge;
 use crate::nes::cartridge::rom::Mirroring;
 use crate::nes::controller::NesController;
 use crate::nes::controller::joypad::Joypad;
+use crate::nes::cpu::{CPU, CpuBusInterface};
+use crate::nes::ppu::{PPU, PpuBusInterface};
 
 use crate::trace;
 

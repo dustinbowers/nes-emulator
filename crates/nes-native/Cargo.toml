@@ -5,4 +5,8 @@ edition = "2024"
 
 [dependencies]
 nes-app = { path = "../nes-app" }
-macroquad = "0.4.14"
+egui = "0.33.3"
+eframe = { version = "0.33.3", default-features = false, features = [
+    "default_fonts",
+    "glow",
+] }

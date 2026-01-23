@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NES Emulator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #0a0a0a;
+            color: #fff;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 4px;
+        }
+
+        button:hover {
+            background: #444;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .file-label {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #2a5;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            display: inline-block;
+        }
+
+        .file-label:hover {
+            background: #3b6;
+        }
+
+        #emulator-frame {
+            width: 100%;
+            height: 720px;
+            border: 2px solid #333;
+            border-radius: 8px;
+            background: #000;
+        }
+
+        .info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #1a1a1a;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>NES Emulator</h1>
+
+    <div class="controls">
+        <label class="file-label" for="rom-file">Load ROM</label>
+        <input type="file" id="rom-file" accept=".nes">
+
+        <button id="reset-btn">Reset</button>
+        <button id="pause-btn">Pause/Resume</button>
+    </div>
+
+    <iframe id="emulator-frame" src="emulator.html"></iframe>
+
+    <div class="info">
+        <p><strong>Controls:</strong> WASD = D-Pad, J = B, K = A, Space = Select, Enter = Start</p>
+        <p><strong>Debug:</strong> P = Pause, R = Reset, F1 = Debug Info, 1-5 = Mute Audio Channels</p>
+    </div>
+</div>
+
+<script>
+    const iframe = document.getElementById('emulator-frame');
+    const romFileInput = document.getElementById('rom-file');
+    const resetBtn = document.getElementById('reset-btn');
+    const pauseBtn = document.getElementById('pause-btn');
+
+    // Wait for iframe to load
+    iframe.addEventListener('load', function() {
+        console.log('Emulator iframe loaded');
+    });
+
+    // Load ROM file
+    romFileInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            const arrayBuffer = event.target.result;
+            const bytes = new Uint8Array(arrayBuffer);
+
+            iframe.contentWindow.postMessage(
+                {
+                    type: "LoadRom",
+                    rom: bytes
+                },
+                "*"
+            );
+            console.log("ROM sent:", file.name, "("+bytes.length+" bytes)");
+        };
+        reader.readAsArrayBuffer(file);
+    });
+
+    // Reset button
+    resetBtn.addEventListener("click", () => {
+        iframe.contentWindow.postMessage({ type: "reset" }, "*");
+    });
+
+    // Pause button
+    pauseBtn.addEventListener('click', function() {
+        alert('Pause not implemented yet');
+    });
+</script>
+</body>
+</html>

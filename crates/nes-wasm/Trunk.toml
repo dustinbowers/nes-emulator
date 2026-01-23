@@ -1,0 +1,4 @@
+[build]
+target = "emulator.html"
+html_output = "emulator.html"
+dist = "dist"
