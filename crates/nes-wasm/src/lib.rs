@@ -1,6 +1,4 @@
 #![warn(clippy::all, rust_2018_idioms)]
-
-use crate::egui::Theme;
 use crate::messenger::Messenger;
 use eframe::egui;
 use nes_app::app::{App, AppEvent, AppEventSource};
@@ -9,7 +7,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
-// mod bootstrap;
 mod messenger;
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -46,7 +46,7 @@ copy-assets:
 
 # WebAssembly local testing
 wasm-serve: clean-wasm-dist | wasm-release
-	python3 -m http.server 8081 --directory crates/nes-wasm/dist
+	python3 -m http.server 8080 --directory crates/nes-wasm/dist
 
 # Create logs directory
 logs:

@@ -1,9 +1,7 @@
 use super::{
     AccessType, AddrResult, AddressingMode, CPU, CPU_STACK_BASE, CpuError, ExecPhase, Flags,
-    interrupts, opcodes,
+    Interrupt
 };
-use interrupts::{Interrupt, InterruptType};
-use std::cmp::PartialEq;
 
 impl CPU {
     /// Software-defined interrupt
@@ -953,8 +951,6 @@ impl CPU {
             AddressingMode::Immediate => {
                 if self.current_op.micro_cycle == 0 {
                     self.current_op.tmp_data = self.consume_program_counter();
-                    // self.current_op.micro_cycle += 1;
-                    // return AddrResult::ReadyImmediate(self.current_op.tmp_data);
                     self.current_op.addr_result =
                         AddrResult::ReadyImmediate(self.current_op.tmp_data);
                 }
@@ -963,10 +959,8 @@ impl CPU {
                 if self.current_op.micro_cycle == 0 {
                     let zero_page = self.consume_program_counter();
                     self.current_op.tmp_addr = zero_page as u16;
-                    // self.current_op.micro_cycle += 1;
                     self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
                 }
-                // return self.current_op.addr_result;
             }
             AddressingMode::ZeroPageX | AddressingMode::ZeroPageY => {
                 let index = if mode == AddressingMode::ZeroPageX {
@@ -984,7 +978,6 @@ impl CPU {
                         self.current_op.tmp_addr =
                             self.current_op.tmp_addr.wrapping_add(index as u16) & 0x00FF;
 
-                        // self.current_op.micro_cycle += 1;
                         self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
                     }
                     _ => {}
@@ -999,7 +992,6 @@ impl CPU {
                     1 => {
                         let hi = self.consume_program_counter();
                         self.current_op.tmp_addr |= (hi as u16) << 8;
-                        // self.current_op.micro_cycle += 1;
                         self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
                     }
                     _ => {}
@@ -1028,7 +1020,6 @@ impl CPU {
                         self.current_op.tmp_addr = addr;
 
                         if !self.needs_dummy_cycle() {
-                            // self.current_op.micro_cycle += 1;
                             self.current_op.addr_result =
                                 AddrResult::Ready(self.current_op.tmp_addr);
                         }
@@ -1040,7 +1031,6 @@ impl CPU {
                                 | (self.current_op.tmp_addr & 0x00FF);
                             let _ = self.bus_read(dummy);
                         }
-                        // self.current_op.micro_cycle += 1;
                         self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
                     }
                     _ => {}
@@ -1070,7 +1060,6 @@ impl CPU {
                         let hi = self.bus_read((self.current_op.tmp_addr + 1) & 0x00FF);
                         let final_addr = ((hi as u16) << 8) | self.current_op.tmp_data as u16;
                         self.current_op.tmp_addr = final_addr;
-                        // self.current_op.micro_cycle += 1;
                         self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
                     }
                     _ => {}
@@ -1096,7 +1085,6 @@ impl CPU {
                         self.current_op.tmp_addr = addr;
 
                         if !self.needs_dummy_cycle() {
-                            // self.current_op.micro_cycle += 1;
                             self.current_op.addr_result =
                                 AddrResult::Ready(self.current_op.tmp_addr);
                         }
@@ -1107,7 +1095,6 @@ impl CPU {
                                 | (self.current_op.tmp_addr & 0x00FF);
                             let _ = self.bus_read(dummy);
                         }
-                        // self.current_op.micro_cycle += 1;
                         self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
                     }
                     _ => {}
@@ -1143,7 +1130,6 @@ impl CPU {
                 // Note: Branch opcodes exclusively use this address mode
                 if self.current_op.micro_cycle == 0 {
                     self.current_op.tmp_data = self.consume_program_counter();
-                    // self.current_op.micro_cycle += 1;
                     self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
                 }
             }
@@ -1151,7 +1137,6 @@ impl CPU {
         }
         self.current_op.micro_cycle += 1;
         self.current_op.addr_result
-        // AddrResult::InProgress
     }
 
     fn exec_read_cycle<F>(&mut self, op: F) -> bool
