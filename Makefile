@@ -27,24 +27,26 @@ release-tracing:
 
 # Clean distribution directory
 clean-wasm-dist:
-	rm -rf ./dist/*.html ./dist/*.js ./dist/nes-test-roms
+	mkdir -p ./dist
+	rm -rf ./dist/*.html ./dist/*.js ./dist/*.wasm ./dist/nes-test-roms
 
 # WebAssembly build targets
 wasm-debug: clean-wasm-dist
-	./wasm-bindgen-macroquad.sh nes-emulator
+	cd crates/nes-wasm; trunk build
 	$(MAKE) copy-assets
 
 wasm-release: clean-wasm-dist
-	./wasm-bindgen-macroquad.sh nes-emulator --release
+	cd crates/nes-wasm; trunk build --release
 	$(MAKE) copy-assets
 
 # Copy assets to distribution
 copy-assets:
-	mkdir -p ./dist
-	cp -r ./assets/nes-test-roms ./dist/
-	cp -f  ./assets/index.html ./dist/
-	cp -f  ./assets/emulator.html ./dist/
-	cp -f  ./assets/macroquad.js ./dist/
+	cd crates/nes-wasm; mkdir -p ./dist
+	cd crates/nes-wasm; cp index.html ./dist/
+
+# WebAssembly local testing
+wasm-serve:
+	cd crates/nes-wasm; trunk serve
 
 # Create logs directory
 logs:

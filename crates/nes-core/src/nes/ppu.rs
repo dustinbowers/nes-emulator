@@ -1,22 +1,22 @@
 use crate::nes::cartridge::rom::Mirroring;
+use crate::nes::ppu::consts::{NAME_TABLE_SIZE, PRIMARY_OAM_SIZE, SECONDARY_OAM_SIZE};
+use crate::nes::tracer::traceable::Traceable;
+use crate::{trace, trace_obj, trace_ppu_event};
+use consts::{PALETTE_SIZE, RAM_SIZE};
 use registers::control_register::ControlRegister;
 use registers::decay_register::DecayRegister;
 use registers::mask_register::MaskRegister;
 use registers::scroll_register::ScrollRegister;
 use registers::status_register::StatusRegister;
 use scheduler::{PPU_SCHEDULE, PpuOperation};
-use crate::nes::tracer::traceable::Traceable;
-use crate::{trace, trace_obj, trace_ppu_event};
-use consts::{PALETTE_SIZE, RAM_SIZE};
-use crate::nes::ppu::consts::{NAME_TABLE_SIZE, PRIMARY_OAM_SIZE, SECONDARY_OAM_SIZE};
 
-mod scheduler;
-mod registers;
 mod background;
+mod registers;
+mod scheduler;
 mod sprites;
 
-mod mod_tests;
 pub mod consts;
+mod mod_tests;
 
 pub trait PpuBusInterface {
     fn chr_read(&mut self, addr: u16) -> u8;
@@ -290,8 +290,8 @@ impl PPU {
                 let scanline = self.scanline;
 
                 // Suppress NMI if $2002 was read 3 dots **before or at the VBLANK edge**
-                let suppress_nmi_due_to_read =
-                    (self.last_2002_read_scanline == 241 && self.last_2002_read_dot <= 2)
+                let suppress_nmi_due_to_read = (self.last_2002_read_scanline == 241
+                    && self.last_2002_read_dot <= 2)
                     || (self.last_2002_read_scanline == 240 && self.last_2002_read_dot >= 338);
 
                 trace_ppu_event!(
@@ -446,9 +446,10 @@ impl PPU {
                 self.last_byte_read.set(reg, result);
 
                 // Quirk: reading $2002 one PPU clock before VBL suppresses VBL for that frame.
-                if !had_vblank && (
-                    (self.scanline == 241 && self.cycles == 0) ||  // dot 0 of scanline 241
-                    (self.scanline == 240 && self.cycles >= 254 && self.cycles <= 256))  // last 3 dots
+                if !had_vblank
+                    && ((self.scanline == 241 && self.cycles == 0) ||  // dot 0 of scanline 241
+                    (self.scanline == 240 && self.cycles >= 254 && self.cycles <= 256))
+                // last 3 dots
                 {
                     self.suppress_vblank = true;
                 }

@@ -1,4 +1,3 @@
-
 pub const DOTS: usize = 341;
 pub const SCAN_LINES: usize = 262;
 
@@ -181,7 +180,10 @@ mod test {
         assert!(
             has_op(ops, op),
             "Expected {:?} at scanline {}, dot {} but got {:?}",
-            op, scanline, dot, &ops.ops[..ops.len as usize]
+            op,
+            scanline,
+            dot,
+            &ops.ops[..ops.len as usize]
         );
     }
 
@@ -190,7 +192,10 @@ mod test {
         assert!(
             !has_op(ops, op),
             "Did not expect {:?} at scanline {}, dot {} but got {:?}",
-            op, scanline, dot, &ops.ops[..ops.len as usize]
+            op,
+            scanline,
+            dot,
+            &ops.ops[..ops.len as usize]
         );
     }
 
@@ -272,13 +277,11 @@ mod test {
     fn trace_inc_y_timing() {
         // Visible
         let ops = PPU_SCHEDULE[0][256];
-        assert!(ops.ops[..ops.len as usize]
-            .contains(&PpuOperation::IncFineY));
+        assert!(ops.ops[..ops.len as usize].contains(&PpuOperation::IncFineY));
 
         // Pre-render
         let ops = PPU_SCHEDULE[261][256];
-        assert!(ops.ops[..ops.len as usize]
-            .contains(&PpuOperation::IncFineY));
+        assert!(ops.ops[..ops.len as usize].contains(&PpuOperation::IncFineY));
     }
 
     #[test]
@@ -361,6 +364,4 @@ mod test {
             }
         }
     }
-
-
 }

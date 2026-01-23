@@ -29,28 +29,13 @@
 
 <canvas id="glcanvas" tabindex="1" hidden></canvas>
 
-<!--<script src="gl.js"></script>-->
-<script src="mq_js_bundle.js"></script>
-<script src="sapp_jsutils.js"></script>
-<!--<script src="nes-wasm.js"></script>-->
-<script>
-    function on_init() {
-        console.log("on_init() called");
-        console.log("[iframe] initializing WASM");
-    }
+<script src="macroquad.js"></script>
+<script type="module">
+    import init, { set_wasm, trigger_reset, trigger_load, set_rom_data } from "./nes-wasm.js";
 
-    register_plugin = function(importObject) {
-        // This gives Rust access to call JS functions
-        importObject.env.hello_from_rust = hello_from_rust;
-    }
-
-    function hello_from_rust() {
-        console.log("hello_from_rust()");
-    }
-
-    //////////////////////////////////////////////////
     let ROM_DATA = null;
     let wasmReady = false;
+    let wbg = null;
 
     window.play_rom_url = async function(url) {
         console.log("[iframe] play_rom:", url);
@@ -94,14 +79,42 @@
     function startNES() {
         if (!ROM_DATA) return console.error("ROM_DATA missing");
         set_rom_data(ROM_DATA);
+        // trigger_reset();
+        // trigger_load();
+    }
+
+    async function start() {
+        console.log("[iframe] initializing WASM");
+
+        wbg = await init();
+
+        // Plugin describing Rust → JS bindings
+        miniquad_add_plugin({
+            register_plugin: (a) => {
+                a.wbg = wbg;
+            },
+            on_init: () => {
+                console.log("[iframe] miniQuad plugin init");
+                set_wasm(wasm_exports);
+                wasmReady = true;
+            },
+            version: "0.0.1",
+            name: "wbg",
+        });
+
+        load("nes-wasm_bg.wasm");
     }
 
     window.run = async function () {
+        console.log("asdfasdf");
         document.getElementById("run-container")?.remove();
         document.getElementById("glcanvas").hidden = false;
-        load("nes-wasm.wasm");
+        await start();
     };
+
+    window.onload = () => window.run();
 </script>
+
 <div id="run-container">
     <button onclick="run()">Run Emulator</button>
 </div>

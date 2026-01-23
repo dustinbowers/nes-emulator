@@ -2,19 +2,19 @@ use cpu::CpuBusInterface;
 pub mod apu;
 pub mod bus;
 pub mod cartridge;
+pub mod controller;
 pub mod cpu;
 pub mod ppu;
 pub mod tracer;
-pub mod controller;
 
 #[cfg(feature = "testing-utils")]
 pub mod test_utils;
 
 // use super::trace;
+use crate::trace;
 use bus::nes_bus::NesBus;
 use cartridge::Cartridge;
 use cartridge::rom::{Rom, RomError};
-use crate::trace;
 
 const OAM_DMA_START_CYCLES: usize = 0;
 const OAM_DMA_DONE_CYCLES: usize = 512;
@@ -35,13 +35,18 @@ pub struct NES {
     pub cycle_acc: f64,
 }
 
+impl Default for NES {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NES {
     pub fn new() -> Self {
         let bus = NesBus::new();
         Self {
             bus,
             master_clock: 0,
-            // ppu_warmed_up: true,
             dma_mode: DmaMode::None,
             oam_transfer_cycles: 0,
             audio_time_per_system_sample: 0.0,

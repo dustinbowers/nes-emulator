@@ -1,11 +1,3 @@
-
-pub use app::{
-    ROM_DATA,
-    CONTROLLER1,
-    TRIGGER_LOAD,
-    TRIGGER_RESET,
-    PAUSE_EMULATION
-};
+pub use app::{CONTROLLER1, PAUSE_EMULATION, ROM_DATA, TRIGGER_LOAD, TRIGGER_RESET};
 
 pub mod app;
-mod display;

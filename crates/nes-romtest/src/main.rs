@@ -162,7 +162,7 @@ fn main() {
     let (status, exit_code) = match result {
         1 => ("PASS", 0),
         2.. => ("FAIL", 1),
-        _ => ("UNKNOWN", 2)
+        _ => ("UNKNOWN", 2),
     };
 
     println!("/**************************************************************\\");

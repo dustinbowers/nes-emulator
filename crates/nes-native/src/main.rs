@@ -1,51 +1,54 @@
 #![feature(get_mut_unchecked)]
 #![warn(clippy::all, rust_2018_idioms)]
-// #![allow(unused_imports, dead_code, unused_variables)] // TODO: Remove this later
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+use eframe::NativeOptions;
+use nes_app::app::{App, AppEvent, AppEventSource};
+use nes_app::{ROM_DATA, TRIGGER_LOAD};
 use std::sync::atomic::Ordering;
-use macroquad::prelude::*;
-use nes_app::app::App;
-use nes_app::{ROM_DATA, TRIGGER_LOAD, TRIGGER_RESET};
+use std::sync::mpsc::Receiver;
 
-const WINDOW_HEIGHT: u32 = 480;
-const WINDOW_WIDTH: u32 = 512;
+pub struct NativeEventSource {
+    // rx: Receiver<AppEvent>,
+}
 
-fn window_conf() -> Conf {
-    Conf {
-        window_title: "NES".to_owned(),
-        fullscreen: false,
-        window_height: WINDOW_HEIGHT as i32,
-        window_width: WINDOW_WIDTH as i32,
+impl NativeEventSource {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+impl AppEventSource for NativeEventSource {
+    fn poll_event(&mut self) -> Option<AppEvent> {
+        // self.rx.try_recv().ok()
+        None
+    }
+}
+
+fn main() -> Result<(), eframe::Error> {
+    let options = NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([256.0 * 3.0, 240.0 * 3.0])
+            .with_title("NES Emulator"),
         ..Default::default()
-    }
-}
+    };
 
-pub fn set_rom_data(rom_bytes: Vec<u8>) {
-    let mut rom_data = ROM_DATA.lock().unwrap();
-    *rom_data = rom_bytes;
-    TRIGGER_LOAD.store(true, Ordering::SeqCst);
-    TRIGGER_RESET.store(false, Ordering::SeqCst);
-}
-
-#[macroquad::main(window_conf)]
-async fn main() {
-    // Native App
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let args: Vec<String> = std::env::args().collect();
-        if args.len() < 2 {
-            eprintln!("Usage: {} <iNES 1.0 ROM path>", args[0]);
+    // Check if ROM was provided via command line
+    if let Some(rom_path) = std::env::args().nth(1) {
+        match std::fs::read(&rom_path) {
+            Ok(rom_data) => {
+                *ROM_DATA.lock().unwrap() = rom_data;
+                TRIGGER_LOAD.store(true, Ordering::SeqCst);
+            }
+            Err(e) => {
+                eprintln!("Failed to load ROM '{}': {}", rom_path, e);
+            }
         }
-        let rom_data = std::fs::read(args[1].clone()).expect("File not found");
-        let mut app = App::new();
-        set_rom_data(rom_data);
-        app.run().await;
     }
 
-    // WASM App
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut app = App::new();
-        app.run().await;
-    }
+    let events = NativeEventSource::new();
+    eframe::run_native(
+        "NES Emulator",
+        options,
+        Box::new(move |_cc| Ok(Box::new(App::new_with_autostart(events, true)))),
+    )
 }
