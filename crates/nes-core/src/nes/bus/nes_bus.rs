@@ -25,8 +25,9 @@ pub struct NesBus {
     // i.e. invalid reads return last-read byte
     pub last_cpu_read: u8,
 
-    pub controller1: Box<Joypad>,
-    // TODO: controller2: Box<dyn NexController>,
+    pub joypads: [Joypad; 2],
+    // pub controller1: Box<Joypad>,
+    // pub controller2: Box<Joypad>,
 }
 
 impl NesBus {
@@ -42,7 +43,9 @@ impl NesBus {
             oam_dma_addr: 0,
 
             last_cpu_read: 0,
-            controller1: Box::new(Joypad::new()),
+            joypads: [Joypad::new(), Joypad::new()],
+            // controller1: Box::new(Joypad::new()),
+            // controller2: Box::new(Joypad::new()),
         });
 
         // Safety: This raw pointer should remain stable
@@ -60,7 +63,8 @@ impl NesBus {
         self.nmi_scheduled = None;
         self.oam_dma_addr = 0;
         self.last_cpu_read = 0;
-        *self.controller1 = Joypad::new();
+        self.joypads = [Joypad::new(), Joypad::new()];
+        // *self.controller1 = Joypad::new();
 
         self.cpu.reset();
         self.ppu.reset();
@@ -113,11 +117,8 @@ impl CpuBusInterface for NesBus {
                 // Open bus
                 self.last_cpu_read
             }
-            0x4016 => self.controller1.read(),
-            0x4017 => {
-                /* self.controller2.read() */
-                0
-            }
+            0x4016 => self.joypads[0].read(),
+            0x4017 => self.joypads[1].read(),
             0x4018..=0x401F => {
                 // Open bus
                 self.last_cpu_read
@@ -146,7 +147,9 @@ impl CpuBusInterface for NesBus {
                 self.oam_dma_addr = value;
             }
             0x4016 => {
-                self.controller1.write(value);
+                // Used strobing via bit 0
+                self.joypads[0].write(value);
+                self.joypads[1].write(value);
             }
             0x4000..=0x4013 | 0x4015 | 0x4017 => {
                 // APU

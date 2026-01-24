@@ -32,6 +32,7 @@ impl NesController for Joypad {
         if !self.strobe && self.button_index <= 7 {
             self.button_index += 1;
         }
+
         status
     }
 

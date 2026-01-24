@@ -1,6 +1,7 @@
 pub use crate::event::AppEvent;
 use std::collections::HashMap;
 use std::error::Error;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 pub use crate::command::{AppCommand, AppControl};
@@ -12,13 +13,11 @@ use crossbeam_channel::{Receiver, Sender};
 use egui::{ColorImage, TextureHandle, TextureOptions};
 use nes_core::nes::RunState;
 use nes_core::prelude::*;
+use crate::controller::ControllerState;
 
 pub struct SharedInput {
     buttons: AtomicU8,
 }
-pub static CONTROLLER1: SharedInput = SharedInput {
-    buttons: AtomicU8::new(0),
-};
 
 enum State {
     // NeedUserInteraction,
@@ -35,6 +34,9 @@ pub struct App<E: AppEventSource> {
     state: State,
     show_debug: bool,
     user_interacted: bool,
+
+    controller1: Arc<ControllerState>,
+    controller2: Arc<ControllerState>,
 
     log_callback: Option<Box<dyn Fn(String) + 'static>>,
     events: E,
@@ -107,6 +109,9 @@ impl<E: AppEventSource> App<E> {
             events,
             log_callback: None,
 
+            controller1: Arc::new(ControllerState::default()),
+            controller2: Arc::new(ControllerState::default()),
+
             control: AppControl::new(cmd_tx),
             frame_rx,
             debug_rx,
@@ -174,6 +179,8 @@ impl<E: AppEventSource> App<E> {
         }
 
         let nes = NES::new();
+        let controller1 = Arc::clone(&self.controller1);
+        let controller2 = Arc::clone(&self.controller2);
 
         let cmd_rx = self.cmd_rx.take().expect("audio already initialized");
         let frame_tx = self.frame_tx.take().expect("audio already initialized");
@@ -191,6 +198,8 @@ impl<E: AppEventSource> App<E> {
                 &device,
                 &config.into(),
                 nes,
+                controller1,
+                controller2,
                 cmd_rx,
                 frame_tx,
                 debug_tx,
@@ -200,6 +209,8 @@ impl<E: AppEventSource> App<E> {
                 &device,
                 &config.into(),
                 nes,
+                controller1,
+                controller2,
                 cmd_rx,
                 frame_tx,
                 debug_tx,
@@ -209,6 +220,8 @@ impl<E: AppEventSource> App<E> {
                 &device,
                 &config.into(),
                 nes,
+                controller1,
+                controller2,
                 cmd_rx,
                 frame_tx,
                 debug_tx,
@@ -227,6 +240,8 @@ impl<E: AppEventSource> App<E> {
         device: &cpal::Device,
         config: &cpal::StreamConfig,
         mut nes: NES,
+        controller1: Arc<ControllerState>,
+        controller2: Arc<ControllerState>,
         cmd_rx: Receiver<AppCommand>,
         frame_tx: Sender<FrameSnapshot>,
         debug_tx: Sender<DebugSnapshot>,
@@ -267,11 +282,9 @@ impl<E: AppEventSource> App<E> {
                     }
                 }
 
-                // log_tx.try_send("Audio callback!".to_string()).ok();
                 // Handle run state audio
                 match nes.run_state {
                     RunState::Paused => {
-                        // log_tx.try_send("PAUSED".to_string()).ok();
                         for sample in data.iter_mut() {
                             *sample = T::from_sample(0.0f32);
                         }
@@ -282,6 +295,11 @@ impl<E: AppEventSource> App<E> {
                         let mut frame_ready = false;
                         let ppu_cycles_per_sample = 5369318.0 / sample_rate;
                         let mut cycle_acc = nes.cycle_acc;
+
+                        let p1 = controller1.load();
+                        let p2 = controller2.load();
+                        nes.bus.joypads[0].set_buttons(p1);
+                        nes.bus.joypads[1].set_buttons(p2);
 
                         for frame in data.chunks_mut(channels) {
                             cycle_acc += ppu_cycles_per_sample;
@@ -329,17 +347,14 @@ impl<E: AppEventSource> App<E> {
 
     fn handle_input(&mut self, ctx: &egui::Context) {
         // Handle controller input
+        let mut p1 = 0u8;
         for (key, button) in self.key_map.iter() {
             if ctx.input(|i| i.key_down(*key)) {
-                CONTROLLER1
-                    .buttons
-                    .fetch_or(button.bits(), Ordering::SeqCst);
-            } else {
-                CONTROLLER1
-                    .buttons
-                    .fetch_and(!button.bits(), Ordering::SeqCst);
+                p1 |= button.bits();
             }
         }
+        self.controller1.set(p1);
+        // TODO: Add support for controller 2
 
         // Handle other keys
         ctx.input(|i| {
@@ -384,8 +399,6 @@ impl<E: AppEventSource> App<E> {
     }
 
     fn render_display(&mut self, ui: &mut egui::Ui) {
-        // let nes = unsafe { self.nes_arc.get_ref() };
-        // let frame = nes.get_frame_buffer();
         if let Ok(frame) = self.frame_rx.try_recv() {
             self.latest_frame = Some(frame);
         }
@@ -608,7 +621,6 @@ impl<E: AppEventSource> App<E> {
 impl<E: AppEventSource> eframe::App for App<E> {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_events();
-        // self.handle_commands();
         self.handle_input(ctx);
         self.render_ui(ctx);
 
