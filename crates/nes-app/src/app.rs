@@ -1,93 +1,22 @@
 pub use crate::event::AppEvent;
-use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
-
-use cpal::Stream;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use egui::{ColorImage, TextureHandle, TextureOptions};
+use std::sync::atomic::{AtomicU8, Ordering};
 
 pub use crate::command::{AppCommand, AppControl};
 pub use crate::event::AppEventSource;
+use crate::snapshot::{CpuSnapshot, DebugSnapshot, FrameSnapshot};
+use cpal::Stream;
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use crossbeam_channel::{Receiver, Sender};
+use egui::{ColorImage, TextureHandle, TextureOptions};
+use nes_core::nes::RunState;
 use nes_core::prelude::*;
-
-/// Wrapper around NES that allows shared access across threads.
-///
-/// The NES is driven primarily by the audio thread during emulation.
-/// The Main thread may temporarily take mutable access while emulation is paused.
-/// When emulation is running the Main thread only reads immutable state.
-///
-/// Synchronization is coordinated via atomic flags:
-/// - PAUSE_EMULATION gates audio-thread execution
-/// - Reset/load only occur while paused
-pub struct NesCell(UnsafeCell<NES>);
-
-/// SAFETY:
-/// - NES is not thread-safe by itself.
-/// - At most one thread mutates NES at a time.
-/// - Audio thread mutates NES only while PAUSE_EMULATION == false.
-/// - UI thread mutates NES only while PAUSE_EMULATION == true.
-/// - Framebuffer reads may race with PPU writes (visual tearing allowed).
-///
-/// This makes Send + Sync sound under the documented execution model.
-unsafe impl Send for NesCell {}
-unsafe impl Sync for NesCell {}
-
-impl NesCell {
-    pub fn new(nes: NES) -> Arc<Self> {
-        Arc::new(Self(UnsafeCell::new(nes)))
-    }
-
-    /// Get mutable access to NES.
-    ///
-    /// # SAFETY
-    /// Caller must guarantee:
-    /// - Emulation is paused OR this is the audio thread
-    /// - No other mutable access is active
-    #[inline(always)]
-    pub unsafe fn get_mut(&self) -> *mut NES {
-        self.0.get()
-    }
-
-    /// Get immutable access to NES.
-    ///
-    /// # SAFETY
-    /// Caller must guarantee:
-    /// - This is only used for read-only inspection (rendering, error display)
-    #[inline(always)]
-    pub unsafe fn get_ref(&self) -> &NES {
-        unsafe { &*self.0.get() }
-    }
-}
+use crate::controller::ControllerState;
 
 pub struct SharedInput {
     buttons: AtomicU8,
-}
-pub static CONTROLLER1: SharedInput = SharedInput {
-    buttons: AtomicU8::new(0),
-};
-
-#[derive(Clone)]
-pub struct AppRunState {
-    paused: Arc<AtomicBool>,
-}
-
-impl AppRunState {
-    pub fn new() -> Self {
-        Self {
-            paused: Arc::new(AtomicBool::new(true)),
-        }
-    }
-
-    pub fn is_paused(&self) -> bool {
-        self.paused.load(Ordering::SeqCst)
-    }
-
-    pub fn set_paused(&self, paused: bool) {
-        self.paused.store(paused, Ordering::SeqCst);
-    }
 }
 
 enum State {
@@ -99,7 +28,6 @@ enum State {
 }
 
 pub struct App<E: AppEventSource> {
-    nes_arc: Arc<NesCell>,
     key_map: HashMap<egui::Key, JoypadButton>,
     texture: Option<TextureHandle>,
     audio_stream: Option<Stream>,
@@ -107,10 +35,29 @@ pub struct App<E: AppEventSource> {
     show_debug: bool,
     user_interacted: bool,
 
+    controller1: Arc<ControllerState>,
+    controller2: Arc<ControllerState>,
+
     log_callback: Option<Box<dyn Fn(String) + 'static>>,
-    run_state: AppRunState,
-    control: AppControl<AppCommand>,
     events: E,
+
+    // UI -> audio
+    control: AppControl<AppCommand>,
+
+    // audio -> UI
+    frame_rx: Receiver<FrameSnapshot>,
+    debug_rx: Receiver<DebugSnapshot>,
+    log_rx: Receiver<String>,
+
+    // stored until audio init
+    cmd_rx: Option<Receiver<AppCommand>>,
+    frame_tx: Option<Sender<FrameSnapshot>>,
+    debug_tx: Option<Sender<DebugSnapshot>>,
+    log_tx: Option<Sender<String>>,
+
+    // received state
+    latest_frame: Option<FrameSnapshot>,
+    latest_debug: Option<DebugSnapshot>,
 }
 
 impl<E: AppEventSource> App<E> {
@@ -123,9 +70,10 @@ impl<E: AppEventSource> App<E> {
         skip_user_interaction: bool,
         initial_commands: impl IntoIterator<Item = AppCommand>,
     ) -> Self {
-        let nes = NES::new();
-        let nes_arc = NesCell::new(nes);
-        let (tx, rx) = crossbeam_channel::unbounded();
+        let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
+        let (frame_tx, frame_rx) = crossbeam_channel::bounded(1);
+        let (debug_tx, debug_rx) = crossbeam_channel::bounded(1);
+        let (log_tx, log_rx) = crossbeam_channel::unbounded();
 
         let key_map_data: &[(egui::Key, JoypadButton)] = &[
             (egui::Key::K, JoypadButton::BUTTON_A),
@@ -152,17 +100,29 @@ impl<E: AppEventSource> App<E> {
         let initial_state = State::Waiting;
 
         let app = Self {
-            nes_arc,
             key_map,
             texture: None,
             audio_stream: None,
             state: initial_state,
             show_debug: false,
             user_interacted: skip_user_interaction,
-            run_state: AppRunState::new(),
             events,
-            control: AppControl::new(tx, rx),
             log_callback: None,
+
+            controller1: Arc::new(ControllerState::default()),
+            controller2: Arc::new(ControllerState::default()),
+
+            control: AppControl::new(cmd_tx),
+            frame_rx,
+            debug_rx,
+            log_rx,
+            cmd_rx: Some(cmd_rx),
+            frame_tx: Some(frame_tx),
+            debug_tx: Some(debug_tx),
+            log_tx: Some(log_tx),
+
+            latest_frame: None,
+            latest_debug: None,
         };
 
         for cmd in initial_commands {
@@ -188,46 +148,29 @@ impl<E: AppEventSource> App<E> {
     fn handle_event(&mut self, event: AppEvent) {
         self.log(format!("[App received event]: {:?}", event));
         match event {
-            AppEvent::LoadRom(rom) => {
-                self.control.send(AppCommand::LoadRom(rom)).ok();
+            AppEvent::RequestLoadRom(rom) => {
+                self.init_audio().ok();
+                self.state = State::Running;
+                self.control.load_rom(rom);
             }
-            AppEvent::Reset => {
-                self.control.send(AppCommand::Reset).ok();
+            AppEvent::RequestReset => {
+                self.control.reset();
+                self.state = State::Waiting;
             }
-            AppEvent::Pause => {
-                self.control.send(AppCommand::Pause(true)).ok();
-            }
-        }
-    }
-
-    pub fn handle_commands(&mut self) {
-        while let Ok(cmd) = self.control.receive() {
-            match cmd {
-                AppCommand::LoadRom(rom) => {
-                    self.init_audio().ok();
-                    let nes: &mut NES = unsafe { &mut *self.nes_arc.get_mut() };
-
-                    match Rom::new(&rom).and_then(|r| r.into_cartridge()) {
-                        Ok(cart) => {
-                            nes.insert_cartridge(cart);
-                            self.state = State::Running;
-                            self.set_paused(false);
-                        }
-                        Err(e) => self.state = State::Error(e.to_string()),
-                    }
-                }
-                AppCommand::Reset => self.reset(),
-                AppCommand::Pause(p) => self.set_paused(p),
+            AppEvent::RequestPause => {
+                let paused = !matches!(self.state, State::Paused);
+                self.control.pause(paused);
+                self.state = if paused {
+                    State::Paused
+                } else {
+                    State::Running
+                };
             }
         }
     }
 
     pub fn set_paused(&mut self, paused: bool) {
-        self.run_state.set_paused(paused);
-        self.state = match paused {
-            true => State::Paused,
-            false => State::Running,
-        }
+        self.control.pause(paused);
     }
 
     pub fn init_audio(&mut self) -> Result<(), Box<dyn Error>> {
@@ -235,25 +178,55 @@ impl<E: AppEventSource> App<E> {
             return Ok(());
         }
 
+        let nes = NES::new();
+        let controller1 = Arc::clone(&self.controller1);
+        let controller2 = Arc::clone(&self.controller2);
+
+        let cmd_rx = self.cmd_rx.take().expect("audio already initialized");
+        let frame_tx = self.frame_tx.take().expect("audio already initialized");
+        let debug_tx = self.debug_tx.take().expect("audio already initialized");
+        let log_tx = self.log_tx.take().expect("audio already initialized");
+
         let host = cpal::default_host();
         let device = host
             .default_output_device()
             .ok_or("No output device available")?;
-
         let config = device.default_output_config()?;
-        let nes_clone = self.nes_arc.clone();
-        let run_state = self.run_state.clone();
 
         let stream = match config.sample_format() {
-            cpal::SampleFormat::F32 => {
-                self.build_stream::<f32>(&device, &config.into(), nes_clone, run_state)?
-            }
-            cpal::SampleFormat::I16 => {
-                self.build_stream::<i16>(&device, &config.into(), nes_clone, run_state)?
-            }
-            cpal::SampleFormat::U16 => {
-                self.build_stream::<u16>(&device, &config.into(), nes_clone, run_state)?
-            }
+            cpal::SampleFormat::F32 => self.build_stream::<f32>(
+                &device,
+                &config.into(),
+                nes,
+                controller1,
+                controller2,
+                cmd_rx,
+                frame_tx,
+                debug_tx,
+                log_tx,
+            )?,
+            cpal::SampleFormat::I16 => self.build_stream::<i16>(
+                &device,
+                &config.into(),
+                nes,
+                controller1,
+                controller2,
+                cmd_rx,
+                frame_tx,
+                debug_tx,
+                log_tx,
+            )?,
+            cpal::SampleFormat::U16 => self.build_stream::<u16>(
+                &device,
+                &config.into(),
+                nes,
+                controller1,
+                controller2,
+                cmd_rx,
+                frame_tx,
+                debug_tx,
+                log_tx,
+            )?,
             _ => return Err("Unsupported sample format".into()),
         };
 
@@ -266,8 +239,13 @@ impl<E: AppEventSource> App<E> {
         &self,
         device: &cpal::Device,
         config: &cpal::StreamConfig,
-        nes_arc: Arc<NesCell>,
-        run_state: AppRunState,
+        mut nes: NES,
+        controller1: Arc<ControllerState>,
+        controller2: Arc<ControllerState>,
+        cmd_rx: Receiver<AppCommand>,
+        frame_tx: Sender<FrameSnapshot>,
+        debug_tx: Sender<DebugSnapshot>,
+        log_tx: Sender<String>,
     ) -> Result<Stream, Box<dyn Error>>
     where
         T: cpal::Sample + cpal::SizedSample + cpal::FromSample<f32>,
@@ -278,44 +256,88 @@ impl<E: AppEventSource> App<E> {
         let stream = device.build_output_stream(
             config,
             move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-                // if paused, send silence and don't tick NES
-                // if PAUSE_EMULATION.load(Ordering::SeqCst) {
-                if run_state.is_paused() {
-                    for sample in data.iter_mut() {
-                        *sample = T::from_sample(0.0f32);
-                    }
-                    return;
-                }
-
-                // SAFETY:
-                // This closure is executed exclusively on the audio thread.
-                // No other thread mutates NES while audio is running.
-                // The render thread only performs immutable reads.
-                let nes: &mut NES = unsafe { &mut *nes_arc.get_mut() };
-                nes.bus
-                    .controller1
-                    .set_buttons(CONTROLLER1.buttons.load(Ordering::SeqCst));
-
-                // PPU cycles per audio sample (5.369318 MHz / 44.1 kHz)
-                let ppu_cycles_per_sample = 5369318.0 / sample_rate;
-                let mut cycle_acc = nes.cycle_acc;
-
-                for frame in data.chunks_mut(channels) {
-                    cycle_acc += ppu_cycles_per_sample;
-
-                    while cycle_acc >= 1.0 {
-                        nes.tick();
-                        cycle_acc -= 1.0;
-                    }
-
-                    let raw = nes.bus.apu.sample();
-                    let sample = T::from_sample(raw);
-
-                    for out in frame.iter_mut() {
-                        *out = sample;
+                // Handle commands
+                while let Ok(cmd) = cmd_rx.try_recv() {
+                    match cmd {
+                        AppCommand::LoadRom(rom) => {
+                            log_tx
+                                .try_send(format!("[Audio] LoadRom received ({} bytes)", rom.len()))
+                                .ok();
+                            if let Ok(cart) = Rom::new(&rom).and_then(|r| r.into_cartridge()) {
+                                nes.insert_cartridge(cart);
+                                nes.run_state = RunState::Running;
+                            }
+                        }
+                        AppCommand::Reset => {
+                            nes.bus.reset_components();
+                        }
+                        AppCommand::Pause(paused) => {
+                            nes.run_state = if paused {
+                                RunState::Paused
+                            } else {
+                                RunState::Running
+                            };
+                        }
+                        AppCommand::SetApuMute { .. } => {}
                     }
                 }
-                nes.cycle_acc = cycle_acc;
+
+                // Handle run state audio
+                match nes.run_state {
+                    RunState::Paused => {
+                        for sample in data.iter_mut() {
+                            *sample = T::from_sample(0.0f32);
+                        }
+                    }
+                    RunState::Running => {
+                        log_tx.try_send("RUNNING".to_string()).ok();
+                        // PPU cycles per audio sample (5.369318 MHz / 44.1 kHz)
+                        let mut frame_ready = false;
+                        let ppu_cycles_per_sample = 5369318.0 / sample_rate;
+                        let mut cycle_acc = nes.cycle_acc;
+
+                        let p1 = controller1.load();
+                        let p2 = controller2.load();
+                        nes.bus.joypads[0].set_buttons(p1);
+                        nes.bus.joypads[1].set_buttons(p2);
+
+                        for frame in data.chunks_mut(channels) {
+                            cycle_acc += ppu_cycles_per_sample;
+
+                            while cycle_acc >= 1.0 {
+                                if nes.tick() {
+                                    frame_ready = true;
+                                }
+                                cycle_acc -= 1.0;
+                            }
+
+                            let raw = nes.bus.apu.sample();
+                            let sample = T::from_sample(raw);
+
+                            for out in frame.iter_mut() {
+                                *out = sample;
+                            }
+                        }
+                        nes.cycle_acc = cycle_acc;
+
+                        // Send snapshots
+                        if frame_ready {
+                            let _ = frame_tx.try_send(FrameSnapshot {
+                                pixels: nes.get_frame_buffer().to_vec(),
+                            });
+                            let _ = debug_tx.try_send(DebugSnapshot {
+                                cpu: CpuSnapshot {
+                                    program_counter: nes.bus.cpu.program_counter,
+                                    register_a: nes.bus.cpu.register_a,
+                                    register_x: nes.bus.cpu.register_x,
+                                    register_y: nes.bus.cpu.register_y,
+                                    stack_pointer: nes.bus.cpu.stack_pointer,
+                                    status: nes.bus.cpu.status.bits(),
+                                },
+                            });
+                        }
+                    }
+                }
             },
             |err| eprintln!("Audio stream error: {}", err),
             None,
@@ -325,17 +347,14 @@ impl<E: AppEventSource> App<E> {
 
     fn handle_input(&mut self, ctx: &egui::Context) {
         // Handle controller input
+        let mut p1 = 0u8;
         for (key, button) in self.key_map.iter() {
             if ctx.input(|i| i.key_down(*key)) {
-                CONTROLLER1
-                    .buttons
-                    .fetch_or(button.bits(), Ordering::SeqCst);
-            } else {
-                CONTROLLER1
-                    .buttons
-                    .fetch_and(!button.bits(), Ordering::SeqCst);
+                p1 |= button.bits();
             }
         }
+        self.controller1.set(p1);
+        // TODO: Add support for controller 2
 
         // Handle other keys
         ctx.input(|i| {
@@ -360,67 +379,73 @@ impl<E: AppEventSource> App<E> {
             }
 
             // Mute channels
-            let nes: &mut NES = unsafe { &mut *self.nes_arc.get_mut() };
-            if i.key_pressed(egui::Key::Num1) {
-                nes.bus.apu.mute_pulse1 = !nes.bus.apu.mute_pulse1;
-            }
-            if i.key_pressed(egui::Key::Num2) {
-                nes.bus.apu.mute_pulse2 = !nes.bus.apu.mute_pulse2;
-            }
-            if i.key_pressed(egui::Key::Num3) {
-                nes.bus.apu.mute_triangle = !nes.bus.apu.mute_triangle;
-            }
-            if i.key_pressed(egui::Key::Num4) {
-                nes.bus.apu.mute_noise = !nes.bus.apu.mute_noise;
-            }
-            if i.key_pressed(egui::Key::Num5) {
-                nes.bus.apu.mute_dmc = !nes.bus.apu.mute_dmc;
-            }
+            // let nes: &mut NES = unsafe { &mut *self.nes_arc.get_mut() };
+            // if i.key_pressed(egui::Key::Num1) {
+            //     nes.bus.apu.mute_pulse1 = !nes.bus.apu.mute_pulse1;
+            // }
+            // if i.key_pressed(egui::Key::Num2) {
+            //     nes.bus.apu.mute_pulse2 = !nes.bus.apu.mute_pulse2;
+            // }
+            // if i.key_pressed(egui::Key::Num3) {
+            //     nes.bus.apu.mute_triangle = !nes.bus.apu.mute_triangle;
+            // }
+            // if i.key_pressed(egui::Key::Num4) {
+            //     nes.bus.apu.mute_noise = !nes.bus.apu.mute_noise;
+            // }
+            // if i.key_pressed(egui::Key::Num5) {
+            //     nes.bus.apu.mute_dmc = !nes.bus.apu.mute_dmc;
+            // }
         });
     }
 
     fn render_display(&mut self, ui: &mut egui::Ui) {
-        let nes = unsafe { self.nes_arc.get_ref() };
-        let frame = nes.get_frame_buffer();
-
-        // Convert NES framebuffer to egui's ColorImage
-        let mut pixels = Vec::with_capacity(256 * 240 * 4);
-        for &palette_idx in frame.iter() {
-            let color = NES_SYSTEM_PALETTE[palette_idx as usize];
-            pixels.push(color.0); // R
-            pixels.push(color.1); // G
-            pixels.push(color.2); // B
-            pixels.push(255); // A
+        if let Ok(frame) = self.frame_rx.try_recv() {
+            self.latest_frame = Some(frame);
+        }
+        if let Ok(debug) = self.debug_rx.try_recv() {
+            self.latest_debug = Some(debug);
         }
 
-        let color_image = ColorImage::from_rgba_unmultiplied([256, 240], &pixels);
+        // Convert NES framebuffer to egui's ColorImage
+        if let Some(frame) = &self.latest_frame {
+            let mut pixels = Vec::with_capacity(256 * 240 * 4);
+            for &palette_idx in frame.pixels.iter() {
+                let color = NES_SYSTEM_PALETTE[palette_idx as usize];
+                pixels.push(color.0); // R
+                pixels.push(color.1); // G
+                pixels.push(color.2); // B
+                pixels.push(255); // A
+            }
 
-        // Create or update texture
-        let texture = self.texture.get_or_insert_with(|| {
-            ui.ctx().load_texture(
-                "nes_frame",
-                color_image.clone(),
-                // TextureOptions::NEAREST, // Pixel-perfect scaling
-                TextureOptions::LINEAR,
-            )
-        });
+            let color_image = ColorImage::from_rgba_unmultiplied([256, 240], &pixels);
 
-        // texture.set(color_image, TextureOptions::NEAREST);
-        texture.set(color_image, TextureOptions::LINEAR);
+            // Create or update texture
+            let texture = self.texture.get_or_insert_with(|| {
+                ui.ctx().load_texture(
+                    "nes_frame",
+                    color_image.clone(),
+                    // TextureOptions::NEAREST, // Pixel-perfect scaling
+                    TextureOptions::LINEAR,
+                )
+            });
 
-        // Display the texture, scaled to fill available space
-        let available_size = ui.available_size();
-        let aspect_ratio = 256.0 / 240.0;
+            // texture.set(color_image, TextureOptions::NEAREST);
+            texture.set(color_image, TextureOptions::LINEAR);
 
-        let (width, height) = if available_size.x / available_size.y > aspect_ratio {
-            // limit by height
-            (available_size.y * aspect_ratio, available_size.y)
-        } else {
-            // limit by width
-            (available_size.x, available_size.x / aspect_ratio)
-        };
+            // Display the texture, scaled to fill available space
+            let available_size = ui.available_size();
+            let aspect_ratio = 256.0 / 240.0;
 
-        ui.image((texture.id(), egui::vec2(width, height)));
+            let (width, height) = if available_size.x / available_size.y > aspect_ratio {
+                // limit by height
+                (available_size.y * aspect_ratio, available_size.y)
+            } else {
+                // limit by width
+                (available_size.x, available_size.x / aspect_ratio)
+            };
+
+            ui.image((texture.id(), egui::vec2(width, height)));
+        }
     }
 
     fn render_ui(&mut self, ctx: &egui::Context) {
@@ -523,9 +548,11 @@ impl<E: AppEventSource> App<E> {
                     if let Some(path) = &file.path
                         && let Ok(rom_data) = std::fs::read(path)
                     {
-                        self.state = State::Waiting;
-                        let load_event = AppEvent::LoadRom(rom_data);
-                        self.handle_event(load_event);
+                        let msg = format!("Received drop file event. ({} bytes)", rom_data.len());
+                        self.log(msg);
+                        self.init_audio().ok();
+                        self.control.load_rom(rom_data);
+                        self.state = State::Running;
                     }
                 }
 
@@ -533,7 +560,7 @@ impl<E: AppEventSource> App<E> {
                 {
                     if let Some(bytes) = &file.bytes {
                         self.state = State::Waiting;
-                        let load_event = AppEvent::LoadRom(bytes.to_vec());
+                        let load_event = AppEvent::RequestLoadRom(bytes.to_vec());
                         self.handle_event(load_event);
                     }
                 }
@@ -545,46 +572,43 @@ impl<E: AppEventSource> App<E> {
         egui::Window::new("Debug Info")
             .default_width(300.0)
             .show(ctx, |ui| {
-                let nes: &NES = unsafe { &*self.nes_arc.get_ref() };
-                ui.label(format!("PC: ${:04X}", nes.bus.cpu.program_counter));
-                ui.label(format!("A: ${:02X}", nes.bus.cpu.register_a));
-                ui.label(format!("X: ${:02X}", nes.bus.cpu.register_x));
-                ui.label(format!("Y: ${:02X}", nes.bus.cpu.register_y));
-                ui.label(format!("SP: ${:02X}", nes.bus.cpu.stack_pointer));
-
-                ui.separator();
-
-                ui.label("Mute Audio Channels:");
-                ui.checkbox(
-                    &mut unsafe { &mut *self.nes_arc.get_mut() }.bus.apu.mute_pulse1,
-                    "Pulse 1",
-                );
-                ui.checkbox(
-                    &mut unsafe { &mut *self.nes_arc.get_mut() }.bus.apu.mute_pulse2,
-                    "Pulse 2",
-                );
-                ui.checkbox(
-                    &mut unsafe { &mut *self.nes_arc.get_mut() }
-                        .bus
-                        .apu
-                        .mute_triangle,
-                    "Triangle",
-                );
-                ui.checkbox(
-                    &mut unsafe { &mut *self.nes_arc.get_mut() }.bus.apu.mute_noise,
-                    "Noise",
-                );
-                ui.checkbox(
-                    &mut unsafe { &mut *self.nes_arc.get_mut() }.bus.apu.mute_dmc,
-                    "DMC",
-                );
+                // let nes: &NES = unsafe { &*self.nes_arc.get_ref() };
+                // ui.label(format!("PC: ${:04X}", nes.bus.cpu.program_counter));
+                // ui.label(format!("A: ${:02X}", nes.bus.cpu.register_a));
+                // ui.label(format!("X: ${:02X}", nes.bus.cpu.register_x));
+                // ui.label(format!("Y: ${:02X}", nes.bus.cpu.register_y));
+                // ui.label(format!("SP: ${:02X}", nes.bus.cpu.stack_pointer));
+                //
+                // ui.separator();
+                //
+                // ui.label("Mute Audio Channels:");
+                // ui.checkbox(
+                //     &mut unsafe { &mut *self.nes_arc.get_mut() }.bus.apu.mute_pulse1,
+                //     "Pulse 1",
+                // );
+                // ui.checkbox(
+                //     &mut unsafe { &mut *self.nes_arc.get_mut() }.bus.apu.mute_pulse2,
+                //     "Pulse 2",
+                // );
+                // ui.checkbox(
+                //     &mut unsafe { &mut *self.nes_arc.get_mut() }
+                //         .bus
+                //         .apu
+                //         .mute_triangle,
+                //     "Triangle",
+                // );
+                // ui.checkbox(
+                //     &mut unsafe { &mut *self.nes_arc.get_mut() }.bus.apu.mute_noise,
+                //     "Noise",
+                // );
+                // ui.checkbox(
+                //     &mut unsafe { &mut *self.nes_arc.get_mut() }.bus.apu.mute_dmc,
+                //     "DMC",
+                // );
             });
     }
     fn reset(&mut self) {
-        let nes: &mut NES = unsafe { &mut *self.nes_arc.get_mut() };
-        nes.bus.reset_components();
-
-        self.state = State::Waiting;
+        self.control.reset();
     }
 
     fn log(&self, msg: impl Into<String>) {
@@ -597,9 +621,12 @@ impl<E: AppEventSource> App<E> {
 impl<E: AppEventSource> eframe::App for App<E> {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_events();
-        self.handle_commands();
         self.handle_input(ctx);
         self.render_ui(ctx);
+
+        while let Ok(msg) = self.log_rx.try_recv() {
+            self.log(msg);
+        }
 
         ctx.request_repaint();
     }

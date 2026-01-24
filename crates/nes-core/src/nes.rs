@@ -23,9 +23,23 @@ enum DmaMode {
     Oam,
     None,
 }
+
+pub enum RunState {
+    Running,
+    Paused
+}
+
+// SAFETY:
+// NES is strictly single-threaded.
+// It is created on the main thread and moved exactly once
+// into the audio thread, which owns it exclusively.
+// No other thread ever accesses NES or its internal raw pointers.
+unsafe impl Send for NES {}
+
 pub struct NES {
-    master_clock: u64,
+    pub run_state: RunState,
     pub bus: &'static mut NesBus,
+    master_clock: u64,
     dma_mode: DmaMode,
 
     pub oam_transfer_cycles: usize,
@@ -45,6 +59,7 @@ impl NES {
     pub fn new() -> Self {
         let bus = NesBus::new();
         Self {
+            run_state: RunState::Running,
             bus,
             master_clock: 0,
             dma_mode: DmaMode::None,

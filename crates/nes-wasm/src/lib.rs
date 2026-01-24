@@ -5,6 +5,7 @@ use nes_app::app::{App, AppEvent, AppEventSource};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use wasm_bindgen::prelude::*;
 
 mod messenger;
@@ -29,7 +30,7 @@ impl Default for WasmEventSource {
 
 impl WasmEventSource {
     pub fn new() -> Self {
-        let messenger = Messenger::new();
+        let messenger: Messenger<EmulatorMessage> = Messenger::new();
         messenger.init_message_listener();
         Self { messenger }
     }
@@ -38,9 +39,9 @@ impl WasmEventSource {
 impl AppEventSource for WasmEventSource {
     fn poll_event(&mut self) -> Option<AppEvent> {
         self.messenger.receive().map(|cmd| match cmd {
-            EmulatorMessage::LoadRom(rom) => AppEvent::LoadRom(rom),
-            EmulatorMessage::Reset => AppEvent::Reset,
-            EmulatorMessage::Pause => AppEvent::Pause,
+            EmulatorMessage::LoadRom(rom) => AppEvent::RequestLoadRom(rom),
+            EmulatorMessage::Reset => AppEvent::RequestReset,
+            EmulatorMessage::Pause => AppEvent::RequestPause,
         })
     }
 }
@@ -71,9 +72,9 @@ pub fn start() {
 
 fn spawn_eframe() {
     // Prevent multiple initializations
-    static INITIALIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
-    if INITIALIZED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+    if INITIALIZED.swap(true, Ordering::SeqCst) {
         web_sys::console::log_1(&"Already initialized, skipping".into());
         return;
     }
