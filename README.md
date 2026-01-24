@@ -19,7 +19,7 @@ A Nintendo Entertainment System (NES) emulator written in Rust, supporting both 
 This project uses Cargo workspaces:
 
 - `nes-core` - Core emulation library
-- `nes-app` - The emulator application
+- `nes-app` - The emulator application (Uses [Eframe](https://github.com/emilk/egui/tree/main/crates/eframe) & [Cpal](https://github.com/RustAudio/cpal))
 - `nes-native` - Native application build
 - `nes-wasm` - WebAssembly browser build
 - `nes-romtest` - Headless ROM testing utility
