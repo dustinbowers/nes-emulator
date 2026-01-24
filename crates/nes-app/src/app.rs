@@ -1,3 +1,4 @@
+pub use crate::event::AppEvent;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::error::Error;
@@ -8,6 +9,8 @@ use cpal::Stream;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use egui::{ColorImage, TextureHandle, TextureOptions};
 
+pub use crate::command::{AppCommand, AppControl};
+pub use crate::event::AppEventSource;
 use nes_core::prelude::*;
 
 /// Wrapper around NES that allows shared access across threads.
@@ -69,11 +72,7 @@ pub static CONTROLLER1: SharedInput = SharedInput {
     buttons: AtomicU8::new(0),
 };
 
-// TODO: Potentially rename these to better reflect the "done-ness" of the respective states
-pub static TRIGGER_LOAD: AtomicBool = AtomicBool::new(false);
-pub static TRIGGER_RESET: AtomicBool = AtomicBool::new(false);
 pub static PAUSE_EMULATION: AtomicBool = AtomicBool::new(true);
-pub static ROM_DATA: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 
 enum State {
     // NeedUserInteraction,
@@ -81,17 +80,6 @@ enum State {
     Running,
     Paused,
     Error(String),
-}
-
-#[derive(Debug)]
-pub enum AppEvent {
-    LoadRom(Vec<u8>),
-    Reset,
-    Pause,
-}
-
-pub trait AppEventSource {
-    fn poll_event(&mut self) -> Option<AppEvent>;
 }
 
 pub struct App<E: AppEventSource> {
@@ -104,17 +92,23 @@ pub struct App<E: AppEventSource> {
     user_interacted: bool,
 
     log_callback: Option<Box<dyn Fn(String) + 'static>>,
+    control: AppControl<AppCommand>,
     events: E,
 }
 
 impl<E: AppEventSource> App<E> {
     pub fn new(events: E) -> Self {
-        Self::new_with_autostart(events, false)
+        Self::new_with_autostart(events, false, [])
     }
 
-    pub fn new_with_autostart(events: E, skip_user_interaction: bool) -> Self {
+    pub fn new_with_autostart(
+        events: E,
+        skip_user_interaction: bool,
+        initial_commands: impl IntoIterator<Item = AppCommand>,
+    ) -> Self {
         let nes = NES::new();
         let nes_arc = NesCell::new(nes);
+        let (tx, rx) = crossbeam_channel::unbounded();
 
         let key_map_data: &[(egui::Key, JoypadButton)] = &[
             (egui::Key::K, JoypadButton::BUTTON_A),
@@ -140,7 +134,7 @@ impl<E: AppEventSource> App<E> {
         // };
         let initial_state = State::Waiting;
 
-        Self {
+        let app = Self {
             nes_arc,
             key_map,
             texture: None,
@@ -149,8 +143,14 @@ impl<E: AppEventSource> App<E> {
             show_debug: false,
             user_interacted: skip_user_interaction,
             events,
+            control: AppControl::new(tx, rx),
             log_callback: None,
+        };
+
+        for cmd in initial_commands {
+            app.control.send(cmd).ok();
         }
+        app
     }
 
     pub fn with_logger<F>(mut self, f: F) -> Self
@@ -161,24 +161,52 @@ impl<E: AppEventSource> App<E> {
         self
     }
 
+    fn handle_events(&mut self) {
+        while let Some(event) = self.events.poll_event() {
+            self.handle_event(event);
+        }
+    }
+
     fn handle_event(&mut self, event: AppEvent) {
         self.log(format!("[App received event]: {:?}", event));
         match event {
             AppEvent::LoadRom(rom) => {
-                TRIGGER_RESET.store(true, Ordering::SeqCst);
-                *ROM_DATA.lock().unwrap() = rom;
-                TRIGGER_LOAD.store(true, Ordering::SeqCst);
+                self.control.send(AppCommand::LoadRom(rom)).ok();
             }
             AppEvent::Reset => {
-                TRIGGER_RESET.store(true, Ordering::SeqCst);
-                TRIGGER_LOAD.store(false, Ordering::SeqCst);
-                self.state = State::Waiting
+                self.control.send(AppCommand::Reset).ok();
             }
             AppEvent::Pause => {
                 PAUSE_EMULATION.store(true, Ordering::SeqCst);
                 self.state = State::Paused;
             }
         }
+    }
+
+    pub fn handle_commands(&mut self) {
+        while let Ok(cmd) = self.control.receive() {
+            match cmd {
+                AppCommand::LoadRom(rom) => {
+                    self.init_audio().ok();
+                    let nes: &mut NES = unsafe { &mut *self.nes_arc.get_mut() };
+
+                    match Rom::new(&rom).and_then(|r| r.into_cartridge()) {
+                        Ok(cart) => {
+                            nes.insert_cartridge(cart);
+                            self.state = State::Running;
+                            self.set_paused(false);
+                        }
+                        Err(e) => self.state = State::Error(e.to_string()),
+                    }
+                }
+                AppCommand::Reset => self.reset(),
+                AppCommand::Pause(p) => self.set_paused(p),
+            }
+        }
+    }
+
+    pub fn set_paused(&mut self, paused: bool) {
+        PAUSE_EMULATION.store(paused, Ordering::SeqCst);
     }
 
     pub fn init_audio(&mut self) -> Result<(), Box<dyn Error>> {
@@ -329,52 +357,6 @@ impl<E: AppEventSource> App<E> {
         });
     }
 
-    fn update_state(&mut self) {
-        match &self.state {
-            // State::NeedUserInteraction => {}
-            State::Paused => {}
-            State::Error(msg) => {}
-            State::Waiting => {
-                if TRIGGER_LOAD.swap(false, Ordering::SeqCst) {
-                    if let Err(e) = self.init_audio() {
-                        self.state = State::Error(format!("Audio init failed: {}", e));
-                        return;
-                    }
-
-                    let nes: &mut NES = unsafe { &mut *self.nes_arc.get_mut() };
-                    let rom_data = ROM_DATA.lock().unwrap();
-
-                    match Rom::new(&rom_data) {
-                        Ok(rom) => match rom.into_cartridge() {
-                            Ok(cart) => {
-                                nes.insert_cartridge(cart);
-                                self.state = State::Running;
-                                TRIGGER_RESET.store(false, Ordering::SeqCst);
-                                PAUSE_EMULATION.store(false, Ordering::SeqCst);
-                            }
-                            Err(err) => {
-                                self.state = State::Error(err.to_string());
-                            }
-                        },
-                        Err(err) => {
-                            self.state = State::Error(err.to_string());
-                        }
-                    }
-                }
-            }
-            State::Running => {
-                if TRIGGER_RESET.swap(false, Ordering::SeqCst) {
-                    self.reset();
-                }
-
-                let nes: &NES = unsafe { self.nes_arc.get_ref() };
-                if let Some(err) = &nes.bus.cpu.error {
-                    self.state = State::Error(err.to_string());
-                }
-            }
-        }
-    }
-
     fn render_display(&mut self, ui: &mut egui::Ui) {
         let nes = unsafe { self.nes_arc.get_ref() };
         let frame = nes.get_frame_buffer();
@@ -434,8 +416,9 @@ impl<E: AppEventSource> App<E> {
                                         .pick_file()
                                     && let Ok(rom_data) = std::fs::read(path)
                                 {
-                                    *ROM_DATA.lock().unwrap() = rom_data;
-                                    TRIGGER_LOAD.store(true, Ordering::SeqCst);
+                                    // *ROM_DATA.lock().unwrap() = rom_data;
+                                    // TRIGGER_LOAD.store(true, Ordering::SeqCst);
+                                    self.control.send(AppCommand::LoadRom(rom_data)).ok();
                                 }
                                 ui.add_space(10.0);
                             }
@@ -576,10 +559,6 @@ impl<E: AppEventSource> App<E> {
     }
     fn reset(&mut self) {
         PAUSE_EMULATION.store(true, Ordering::SeqCst);
-        let mut rom_data = ROM_DATA.lock().unwrap();
-        *rom_data = vec![];
-        TRIGGER_LOAD.store(false, Ordering::SeqCst);
-        TRIGGER_RESET.store(false, Ordering::SeqCst);
         self.state = State::Waiting;
 
         let nes: &mut NES = unsafe { &mut *self.nes_arc.get_mut() };
@@ -595,12 +574,9 @@ impl<E: AppEventSource> App<E> {
 
 impl<E: AppEventSource> eframe::App for App<E> {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        while let Some(event) = self.events.poll_event() {
-            self.handle_event(event);
-        }
-
+        self.handle_events();
+        self.handle_commands();
         self.handle_input(ctx);
-        self.update_state();
         self.render_ui(ctx);
 
         ctx.request_repaint();

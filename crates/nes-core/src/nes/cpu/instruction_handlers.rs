@@ -1,6 +1,6 @@
 use super::{
     AccessType, AddrResult, AddressingMode, CPU, CPU_STACK_BASE, CpuError, ExecPhase, Flags,
-    Interrupt
+    Interrupt,
 };
 
 impl CPU {
@@ -983,20 +983,18 @@ impl CPU {
                     _ => {}
                 }
             }
-            AddressingMode::Absolute => {
-                match self.current_op.micro_cycle {
-                    0 => {
-                        let lo = self.consume_program_counter();
-                        self.current_op.tmp_addr = lo as u16;
-                    }
-                    1 => {
-                        let hi = self.consume_program_counter();
-                        self.current_op.tmp_addr |= (hi as u16) << 8;
-                        self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
-                    }
-                    _ => {}
+            AddressingMode::Absolute => match self.current_op.micro_cycle {
+                0 => {
+                    let lo = self.consume_program_counter();
+                    self.current_op.tmp_addr = lo as u16;
                 }
-            }
+                1 => {
+                    let hi = self.consume_program_counter();
+                    self.current_op.tmp_addr |= (hi as u16) << 8;
+                    self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
+                }
+                _ => {}
+            },
             AddressingMode::AbsoluteX | AddressingMode::AbsoluteY => {
                 let index = if mode == AddressingMode::AbsoluteX {
                     self.register_x
@@ -1065,41 +1063,38 @@ impl CPU {
                     _ => {}
                 }
             }
-            AddressingMode::IndirectY => {
-                match self.current_op.micro_cycle {
-                    0 => {
-                        let zero_page = self.consume_program_counter();
-                        self.current_op.tmp_addr = zero_page as u16;
-                    }
-                    1 => {
-                        let lo = self.bus_read(self.current_op.tmp_addr & 0x00FF);
-                        self.current_op.tmp_data = lo;
-                    }
-                    2 => {
-                        let hi = self.bus_read((self.current_op.tmp_addr + 1) & 0x00FF);
-                        let base = (hi as u16) << 8 | self.current_op.tmp_data as u16;
-                        let addr = base.wrapping_add(self.register_y as u16);
+            AddressingMode::IndirectY => match self.current_op.micro_cycle {
+                0 => {
+                    let zero_page = self.consume_program_counter();
+                    self.current_op.tmp_addr = zero_page as u16;
+                }
+                1 => {
+                    let lo = self.bus_read(self.current_op.tmp_addr & 0x00FF);
+                    self.current_op.tmp_data = lo;
+                }
+                2 => {
+                    let hi = self.bus_read((self.current_op.tmp_addr + 1) & 0x00FF);
+                    let base = (hi as u16) << 8 | self.current_op.tmp_data as u16;
+                    let addr = base.wrapping_add(self.register_y as u16);
 
-                        self.current_op.page_crossed = (base & 0xFF00) != (addr & 0xFF00);
-                        self.current_op.base_addr = base;
-                        self.current_op.tmp_addr = addr;
+                    self.current_op.page_crossed = (base & 0xFF00) != (addr & 0xFF00);
+                    self.current_op.base_addr = base;
+                    self.current_op.tmp_addr = addr;
 
-                        if !self.needs_dummy_cycle() {
-                            self.current_op.addr_result =
-                                AddrResult::Ready(self.current_op.tmp_addr);
-                        }
-                    }
-                    3 => {
-                        if self.needs_dummy_cycle() {
-                            let dummy = (self.current_op.base_addr & 0xFF00)
-                                | (self.current_op.tmp_addr & 0x00FF);
-                            let _ = self.bus_read(dummy);
-                        }
+                    if !self.needs_dummy_cycle() {
                         self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
                     }
-                    _ => {}
                 }
-            }
+                3 => {
+                    if self.needs_dummy_cycle() {
+                        let dummy = (self.current_op.base_addr & 0xFF00)
+                            | (self.current_op.tmp_addr & 0x00FF);
+                        let _ = self.bus_read(dummy);
+                    }
+                    self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
+                }
+                _ => {}
+            },
             AddressingMode::Indirect => {
                 match self.current_op.micro_cycle {
                     0 => {
