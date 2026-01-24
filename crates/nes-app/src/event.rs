@@ -1,8 +1,8 @@
 #[derive(Debug)]
 pub enum AppEvent {
-    LoadRom(Vec<u8>),
-    Reset,
-    Pause,
+    RequestLoadRom(Vec<u8>),
+    RequestReset,
+    RequestPause,
 }
 
 pub trait AppEventSource {

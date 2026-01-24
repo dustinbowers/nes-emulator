@@ -51,7 +51,7 @@ fn main() -> Result<(), eframe::Error> {
                 events,
                 true,
                 initial_commands,
-            )))
+            ).with_logger(|msg| println!("{}", msg))))
         }),
     )
 }
