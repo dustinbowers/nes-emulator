@@ -1,4 +1,4 @@
-pub use app::{CONTROLLER1, PAUSE_EMULATION};
+pub use app::CONTROLLER1;
 
 pub mod app;
 mod command;

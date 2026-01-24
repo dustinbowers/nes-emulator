@@ -3,7 +3,7 @@ use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use cpal::Stream;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -29,9 +29,7 @@ pub struct NesCell(UnsafeCell<NES>);
 /// - At most one thread mutates NES at a time.
 /// - Audio thread mutates NES only while PAUSE_EMULATION == false.
 /// - UI thread mutates NES only while PAUSE_EMULATION == true.
-/// - Render thread only performs immutable reads.
 /// - Framebuffer reads may race with PPU writes (visual tearing allowed).
-/// - Atomic flags coordinate mutation phases.
 ///
 /// This makes Send + Sync sound under the documented execution model.
 unsafe impl Send for NesCell {}
@@ -48,7 +46,6 @@ impl NesCell {
     /// Caller must guarantee:
     /// - Emulation is paused OR this is the audio thread
     /// - No other mutable access is active
-    /// - No immutable access is active during mutation (except for rendering purposes)
     #[inline(always)]
     pub unsafe fn get_mut(&self) -> *mut NES {
         self.0.get()
@@ -72,7 +69,26 @@ pub static CONTROLLER1: SharedInput = SharedInput {
     buttons: AtomicU8::new(0),
 };
 
-pub static PAUSE_EMULATION: AtomicBool = AtomicBool::new(true);
+#[derive(Clone)]
+pub struct AppRunState {
+    paused: Arc<AtomicBool>,
+}
+
+impl AppRunState {
+    pub fn new() -> Self {
+        Self {
+            paused: Arc::new(AtomicBool::new(true)),
+        }
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::SeqCst)
+    }
+
+    pub fn set_paused(&self, paused: bool) {
+        self.paused.store(paused, Ordering::SeqCst);
+    }
+}
 
 enum State {
     // NeedUserInteraction,
@@ -92,6 +108,7 @@ pub struct App<E: AppEventSource> {
     user_interacted: bool,
 
     log_callback: Option<Box<dyn Fn(String) + 'static>>,
+    run_state: AppRunState,
     control: AppControl<AppCommand>,
     events: E,
 }
@@ -142,6 +159,7 @@ impl<E: AppEventSource> App<E> {
             state: initial_state,
             show_debug: false,
             user_interacted: skip_user_interaction,
+            run_state: AppRunState::new(),
             events,
             control: AppControl::new(tx, rx),
             log_callback: None,
@@ -177,8 +195,7 @@ impl<E: AppEventSource> App<E> {
                 self.control.send(AppCommand::Reset).ok();
             }
             AppEvent::Pause => {
-                PAUSE_EMULATION.store(true, Ordering::SeqCst);
-                self.state = State::Paused;
+                self.control.send(AppCommand::Pause(true)).ok();
             }
         }
     }
@@ -206,7 +223,11 @@ impl<E: AppEventSource> App<E> {
     }
 
     pub fn set_paused(&mut self, paused: bool) {
-        PAUSE_EMULATION.store(paused, Ordering::SeqCst);
+        self.run_state.set_paused(paused);
+        self.state = match paused {
+            true => State::Paused,
+            false => State::Running,
+        }
     }
 
     pub fn init_audio(&mut self) -> Result<(), Box<dyn Error>> {
@@ -221,16 +242,17 @@ impl<E: AppEventSource> App<E> {
 
         let config = device.default_output_config()?;
         let nes_clone = self.nes_arc.clone();
+        let run_state = self.run_state.clone();
 
         let stream = match config.sample_format() {
             cpal::SampleFormat::F32 => {
-                self.build_stream::<f32>(&device, &config.into(), nes_clone)?
+                self.build_stream::<f32>(&device, &config.into(), nes_clone, run_state)?
             }
             cpal::SampleFormat::I16 => {
-                self.build_stream::<i16>(&device, &config.into(), nes_clone)?
+                self.build_stream::<i16>(&device, &config.into(), nes_clone, run_state)?
             }
             cpal::SampleFormat::U16 => {
-                self.build_stream::<u16>(&device, &config.into(), nes_clone)?
+                self.build_stream::<u16>(&device, &config.into(), nes_clone, run_state)?
             }
             _ => return Err("Unsupported sample format".into()),
         };
@@ -245,6 +267,7 @@ impl<E: AppEventSource> App<E> {
         device: &cpal::Device,
         config: &cpal::StreamConfig,
         nes_arc: Arc<NesCell>,
+        run_state: AppRunState,
     ) -> Result<Stream, Box<dyn Error>>
     where
         T: cpal::Sample + cpal::SizedSample + cpal::FromSample<f32>,
@@ -256,7 +279,8 @@ impl<E: AppEventSource> App<E> {
             config,
             move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
                 // if paused, send silence and don't tick NES
-                if PAUSE_EMULATION.load(Ordering::SeqCst) {
+                // if PAUSE_EMULATION.load(Ordering::SeqCst) {
+                if run_state.is_paused() {
                     for sample in data.iter_mut() {
                         *sample = T::from_sample(0.0f32);
                     }
@@ -318,12 +342,10 @@ impl<E: AppEventSource> App<E> {
             if i.key_pressed(egui::Key::P) {
                 match self.state {
                     State::Running => {
-                        PAUSE_EMULATION.store(true, Ordering::SeqCst);
-                        self.state = State::Paused;
+                        self.set_paused(true);
                     }
                     State::Paused => {
-                        PAUSE_EMULATION.store(false, Ordering::SeqCst);
-                        self.state = State::Running;
+                        self.set_paused(false);
                     }
                     _ => {}
                 }
@@ -378,11 +400,13 @@ impl<E: AppEventSource> App<E> {
             ui.ctx().load_texture(
                 "nes_frame",
                 color_image.clone(),
-                TextureOptions::NEAREST, // Pixel-perfect scaling
+                // TextureOptions::NEAREST, // Pixel-perfect scaling
+                TextureOptions::LINEAR,
             )
         });
 
-        texture.set(color_image, TextureOptions::NEAREST);
+        // texture.set(color_image, TextureOptions::NEAREST);
+        texture.set(color_image, TextureOptions::LINEAR);
 
         // Display the texture, scaled to fill available space
         let available_size = ui.available_size();
@@ -416,8 +440,6 @@ impl<E: AppEventSource> App<E> {
                                         .pick_file()
                                     && let Ok(rom_data) = std::fs::read(path)
                                 {
-                                    // *ROM_DATA.lock().unwrap() = rom_data;
-                                    // TRIGGER_LOAD.store(true, Ordering::SeqCst);
                                     self.control.send(AppCommand::LoadRom(rom_data)).ok();
                                 }
                                 ui.add_space(10.0);
@@ -523,15 +545,16 @@ impl<E: AppEventSource> App<E> {
         egui::Window::new("Debug Info")
             .default_width(300.0)
             .show(ctx, |ui| {
-                // ui.label(format!("PC: ${:04X}", nes.bus.cpu.pc));
-                // ui.label(format!("A: ${:02X}", nes.bus.cpu.a));
-                // ui.label(format!("X: ${:02X}", nes.bus.cpu.x));
-                // ui.label(format!("Y: ${:02X}", nes.bus.cpu.y));
-                // ui.label(format!("SP: ${:02X}", nes.bus.cpu.sp));
+                let nes: &NES = unsafe { &*self.nes_arc.get_ref() };
+                ui.label(format!("PC: ${:04X}", nes.bus.cpu.program_counter));
+                ui.label(format!("A: ${:02X}", nes.bus.cpu.register_a));
+                ui.label(format!("X: ${:02X}", nes.bus.cpu.register_x));
+                ui.label(format!("Y: ${:02X}", nes.bus.cpu.register_y));
+                ui.label(format!("SP: ${:02X}", nes.bus.cpu.stack_pointer));
 
                 ui.separator();
 
-                ui.label("Audio Channels:");
+                ui.label("Mute Audio Channels:");
                 ui.checkbox(
                     &mut unsafe { &mut *self.nes_arc.get_mut() }.bus.apu.mute_pulse1,
                     "Pulse 1",
@@ -558,11 +581,10 @@ impl<E: AppEventSource> App<E> {
             });
     }
     fn reset(&mut self) {
-        PAUSE_EMULATION.store(true, Ordering::SeqCst);
-        self.state = State::Waiting;
-
         let nes: &mut NES = unsafe { &mut *self.nes_arc.get_mut() };
         nes.bus.reset_components();
+
+        self.state = State::Waiting;
     }
 
     fn log(&self, msg: impl Into<String>) {
