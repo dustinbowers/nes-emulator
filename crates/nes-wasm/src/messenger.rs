@@ -1,9 +1,9 @@
-use std::cell::RefCell;
-use std::collections::VecDeque;
-use std::rc::Rc;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_wasm_bindgen::{from_value, to_value};
+use std::cell::RefCell;
+use std::collections::VecDeque;
+use std::rc::Rc;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use web_sys::MessageEvent;
