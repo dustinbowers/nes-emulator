@@ -55,7 +55,7 @@ logs:
 # Test specific opcode again single-step tests
 singlestep-op: # Usage: make singlestep-op op=a9
 	@echo "Running tests for operation: $(op)"
-	cargo run --quiet --package nes-step -- "nes6502-tests/" "$(op)"
+	cargo run --quiet --package nes-step -- "external/nes6502-single-step-tests/v1/" "$(op)"
 
 # Run all opcode tests ranging from 00 to FF
 singlestep-all: | logs

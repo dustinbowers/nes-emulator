@@ -1,3 +1,6 @@
-[submodule "nes-test-roms"]
-	path = nes-test-roms
-	url = https://github.com/christopherpow/nes-test-roms
+[submodule "external/nes6502-single-step-tests"]
+	path = external/nes6502-single-step-tests
+	url = https://github.com/dustinbowers/nes6502-single-step-tests
+[submodule "external/nes-test-roms"]
+	path = external/nes-test-roms
+	url = https://github.com/dustinbowers/nes-test-roms

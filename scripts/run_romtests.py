@@ -12,7 +12,7 @@ def parse_args():
     )
     parser.add_argument(
         "--xml",
-        default="nes-test-roms/test_roms.xml",
+        default="external/nes-test-roms/test_roms.xml",
         help="Path to test_roms.xml",
     )
     parser.add_argument(
