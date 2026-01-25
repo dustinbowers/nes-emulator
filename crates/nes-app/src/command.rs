@@ -5,10 +5,14 @@ pub enum AppCommand {
     Reset,
     Pause(bool),
 
-    // Debug / control
-    SetApuMute { channel: ApuChannel, muted: bool },
+    Apu(ApuCommand),
+    // Debug
     // StepCpu, // TODO
     // StepFrame, // TODO
+}
+
+pub enum ApuCommand {
+    SetMute { channel: ApuChannel, muted: bool },
 }
 
 pub enum ApuChannel {
@@ -42,5 +46,11 @@ impl AppControl<AppCommand> {
     }
     pub fn pause(&self, paused: bool) {
         let _ = self.tx.send(AppCommand::Pause(paused));
+    }
+
+    pub fn mute_channel(&self, channel: ApuChannel, muted: bool) {
+        let _ = self
+            .tx
+            .send(AppCommand::Apu(ApuCommand::SetMute { channel, muted }));
     }
 }

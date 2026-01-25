@@ -5,9 +5,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 pub use crate::command::{AppCommand, AppControl};
+use crate::command::{ApuChannel, ApuCommand};
 use crate::controller::ControllerState;
 pub use crate::event::AppEventSource;
-use crate::snapshot::{CpuSnapshot, DebugSnapshot, FrameSnapshot};
+use crate::snapshot::{ApuSnapshot, CpuSnapshot, DebugSnapshot, FrameSnapshot};
 use cpal::Stream;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_channel::{Receiver, Sender};
@@ -46,17 +47,20 @@ pub struct App<E: AppEventSource> {
 
     // audio -> UI
     frame_rx: Receiver<FrameSnapshot>,
+    apu_rx: Receiver<ApuSnapshot>,
     debug_rx: Receiver<DebugSnapshot>,
     log_rx: Receiver<String>,
 
     // stored until audio init
     cmd_rx: Option<Receiver<AppCommand>>,
     frame_tx: Option<Sender<FrameSnapshot>>,
+    apu_tx: Option<Sender<ApuSnapshot>>,
     debug_tx: Option<Sender<DebugSnapshot>>,
     log_tx: Option<Sender<String>>,
 
     // received state
     latest_frame: Option<FrameSnapshot>,
+    latest_apu_snapshot: ApuSnapshot,
     latest_debug: Option<DebugSnapshot>,
 }
 
@@ -72,6 +76,7 @@ impl<E: AppEventSource> App<E> {
     ) -> Self {
         let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
         let (frame_tx, frame_rx) = crossbeam_channel::bounded(1);
+        let (apu_tx, apu_rx) = crossbeam_channel::bounded(1);
         let (debug_tx, debug_rx) = crossbeam_channel::bounded(1);
         let (log_tx, log_rx) = crossbeam_channel::unbounded();
 
@@ -114,14 +119,17 @@ impl<E: AppEventSource> App<E> {
 
             control: AppControl::new(cmd_tx),
             frame_rx,
+            apu_rx,
             debug_rx,
             log_rx,
             cmd_rx: Some(cmd_rx),
             frame_tx: Some(frame_tx),
+            apu_tx: Some(apu_tx),
             debug_tx: Some(debug_tx),
             log_tx: Some(log_tx),
 
             latest_frame: None,
+            latest_apu_snapshot: ApuSnapshot::default(),
             latest_debug: None,
         };
 
@@ -191,6 +199,7 @@ impl<E: AppEventSource> App<E> {
 
         let cmd_rx = self.cmd_rx.take().expect("audio already initialized");
         let frame_tx = self.frame_tx.take().expect("audio already initialized");
+        let apu_tx = self.apu_tx.take().expect("audio already initialized");
         let debug_tx = self.debug_tx.take().expect("audio already initialized");
         let log_tx = self.log_tx.take().expect("audio already initialized");
 
@@ -209,6 +218,7 @@ impl<E: AppEventSource> App<E> {
                 controller2,
                 cmd_rx,
                 frame_tx,
+                apu_tx,
                 debug_tx,
                 log_tx,
             )?,
@@ -220,6 +230,7 @@ impl<E: AppEventSource> App<E> {
                 controller2,
                 cmd_rx,
                 frame_tx,
+                apu_tx,
                 debug_tx,
                 log_tx,
             )?,
@@ -231,6 +242,7 @@ impl<E: AppEventSource> App<E> {
                 controller2,
                 cmd_rx,
                 frame_tx,
+                apu_tx,
                 debug_tx,
                 log_tx,
             )?,
@@ -251,6 +263,7 @@ impl<E: AppEventSource> App<E> {
         controller2: Arc<ControllerState>,
         cmd_rx: Receiver<AppCommand>,
         frame_tx: Sender<FrameSnapshot>,
+        apu_tx: Sender<ApuSnapshot>,
         debug_tx: Sender<DebugSnapshot>,
         log_tx: Sender<String>,
     ) -> Result<Stream, Box<dyn Error>>
@@ -285,7 +298,15 @@ impl<E: AppEventSource> App<E> {
                                 RunState::Running
                             };
                         }
-                        AppCommand::SetApuMute { .. } => {}
+                        AppCommand::Apu(apu_cmd) => match apu_cmd {
+                            ApuCommand::SetMute { channel, muted } => match channel {
+                                ApuChannel::Pulse1 => nes.bus.apu.mute_pulse1 = muted,
+                                ApuChannel::Pulse2 => nes.bus.apu.mute_pulse2 = muted,
+                                ApuChannel::Triangle => nes.bus.apu.mute_triangle = muted,
+                                ApuChannel::Noise => nes.bus.apu.mute_noise = muted,
+                                ApuChannel::DMC => nes.bus.apu.mute_dmc = muted,
+                            },
+                        },
                     }
                 }
 
@@ -340,6 +361,15 @@ impl<E: AppEventSource> App<E> {
                                     stack_pointer: nes.bus.cpu.stack_pointer,
                                     status: nes.bus.cpu.status.bits(),
                                 },
+                            });
+
+                            // TODO: slow down this snapshot frequency
+                            let _ = apu_tx.try_send(ApuSnapshot {
+                                mute_pulse1: nes.bus.apu.mute_pulse1,
+                                mute_pulse2: nes.bus.apu.mute_pulse2,
+                                mute_triangle: nes.bus.apu.mute_triangle,
+                                mute_noise: nes.bus.apu.mute_noise,
+                                mute_dmc: nes.bus.apu.mute_dmc,
                             });
                         }
                     }
@@ -412,6 +442,9 @@ impl<E: AppEventSource> App<E> {
     fn render_display(&mut self, ui: &mut egui::Ui) {
         if let Ok(frame) = self.frame_rx.try_recv() {
             self.latest_frame = Some(frame);
+        }
+        if let Ok(apu_snapshot) = self.apu_rx.try_recv() {
+            self.latest_apu_snapshot = apu_snapshot;
         }
         if let Ok(debug) = self.debug_rx.try_recv() {
             self.latest_debug = Some(debug);
@@ -618,39 +651,35 @@ impl<E: AppEventSource> App<E> {
         egui::Window::new("Debug Info")
             .default_width(300.0)
             .show(ctx, |ui| {
-                // let nes: &NES = unsafe { &*self.nes_arc.get_ref() };
                 // ui.label(format!("PC: ${:04X}", nes.bus.cpu.program_counter));
                 // ui.label(format!("A: ${:02X}", nes.bus.cpu.register_a));
                 // ui.label(format!("X: ${:02X}", nes.bus.cpu.register_x));
                 // ui.label(format!("Y: ${:02X}", nes.bus.cpu.register_y));
                 // ui.label(format!("SP: ${:02X}", nes.bus.cpu.stack_pointer));
-                //
+
                 // ui.separator();
-                //
-                // ui.label("Mute Audio Channels:");
-                // ui.checkbox(
-                //     &mut unsafe { &mut *self.nes_arc.get_mut() }.bus.apu.mute_pulse1,
-                //     "Pulse 1",
-                // );
-                // ui.checkbox(
-                //     &mut unsafe { &mut *self.nes_arc.get_mut() }.bus.apu.mute_pulse2,
-                //     "Pulse 2",
-                // );
-                // ui.checkbox(
-                //     &mut unsafe { &mut *self.nes_arc.get_mut() }
-                //         .bus
-                //         .apu
-                //         .mute_triangle,
-                //     "Triangle",
-                // );
-                // ui.checkbox(
-                //     &mut unsafe { &mut *self.nes_arc.get_mut() }.bus.apu.mute_noise,
-                //     "Noise",
-                // );
-                // ui.checkbox(
-                //     &mut unsafe { &mut *self.nes_arc.get_mut() }.bus.apu.mute_dmc,
-                //     "DMC",
-                // );
+
+                let mut apu = self.latest_apu_snapshot.clone();
+                ui.label("Audio Channels:");
+                if ui.checkbox(&mut !apu.mute_pulse1, "Pulse 1").changed() {
+                    self.control
+                        .mute_channel(ApuChannel::Pulse1, !apu.mute_pulse1);
+                }
+                if ui.checkbox(&mut !apu.mute_pulse2, "Pulse 2").changed() {
+                    self.control
+                        .mute_channel(ApuChannel::Pulse2, !apu.mute_pulse2);
+                }
+                if ui.checkbox(&mut !apu.mute_triangle, "Triangle").changed() {
+                    self.control
+                        .mute_channel(ApuChannel::Triangle, !apu.mute_triangle);
+                }
+                if ui.checkbox(&mut !apu.mute_noise, "Noise").changed() {
+                    self.control
+                        .mute_channel(ApuChannel::Noise, !apu.mute_noise);
+                }
+                if ui.checkbox(&mut !apu.mute_dmc, "DMC").changed() {
+                    self.control.mute_channel(ApuChannel::DMC, !apu.mute_dmc);
+                }
             });
     }
     fn reset(&mut self) {

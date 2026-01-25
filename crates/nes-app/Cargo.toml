@@ -9,7 +9,7 @@ path = "src/lib.rs"
 # Feature forwarding for nes-core
 [features]
 runtime-ppu-schedule = ["nes-core/runtime-ppu-schedule"]
-fast-apu-approximation = ["nes-core/fast-apu-approximation"]
+linear-apu-approximation = ["nes-core/linear-apu-approximation"]
 
 
 [dependencies]

@@ -61,6 +61,10 @@ pub struct APU {
     pub dmc_interrupt: bool,
     pub frame_interrupt: bool,
 
+    // DC blocking / high-pass filter
+    prev_sample: f32,
+    prev_hp: f32,
+
     pub error: Option<ApuError>,
 }
 
@@ -100,6 +104,9 @@ impl APU {
             irq_disable: false,
             dmc_interrupt: false,
             frame_interrupt: false,
+
+            prev_sample: 0.0,
+            prev_hp: 0.0,
 
             error: None,
         }
@@ -270,7 +277,7 @@ impl APU {
                         11186 => {
                             quarter_frame_clock = true;
                         }
-                        14915 => {
+                        14913 => {
                             quarter_frame_clock = true;
                             half_frame_clock = true;
                             self.clock_counter = 0;
@@ -318,7 +325,7 @@ impl APU {
         self.half_clock = !self.half_clock;
     }
 
-    pub fn sample(&self) -> f32 {
+    pub fn sample(&mut self) -> f32 {
         let pulse1 = if self.mute_pulse1 {
             0.0
         } else {
@@ -341,24 +348,41 @@ impl APU {
         };
         let dmc = if self.mute_dmc { 0.0 } else { 0.0 }; // TODO
 
-        #[cfg(feature = "fast-apu-approximation")]
+        let mut sample = 0.0;
+        #[cfg(feature = "linear-apu-approximation")]
         {
             let pulse = (pulse1 + pulse2) as f32;
-            let tnd = triangle * 0.008 + noise * 0.004;
-            let out = pulse * 0.00752 + tnd;
-            out
+            let tnd = 0.00851 * triangle + 0.00494 * noise + 0.00335 * dmc;
+            sample = 0.00752 * pulse + tnd;
         }
-        #[cfg(not(feature = "fast-apu-approximation"))]
+        #[cfg(not(feature = "linear-apu-approximation"))]
         {
+            // See: https://www.nesdev.org/wiki/APU_Mixer
             // pulse_out = 95.88 / (8128.0 / (pulse1 + pulse2) + 100.0);
             // tnd_out   = 159.79 / (1.0 / (triangle/8227.0 + noise/12241.0 + dmc/22638.0) + 100.0);
             // output    = pulse_out + tnd_out;
-            let pulse_out = 95.88 / (8128.0 / (pulse1 + pulse2) + 100.0);
-            let tnd_out =
-                159.79 / (1.0 / (triangle / 8227.0 + noise / 12241.0 + dmc / 22638.0) + 100.0);
-            let out = pulse_out + tnd_out;
-            out
+            let pulse_sum = pulse1 + pulse2;
+            let pulse_out = if pulse_sum > 0.0 {
+                95.88 / (8128.0 / (pulse1 + pulse2) + 100.0)
+            } else {
+                0.0
+            };
+
+            let tnd_sum = (triangle / 8227.0 + noise / 12241.0 + dmc / 22638.0);
+            let tnd_out = if tnd_sum > 0.0 {
+                159.79 / (1.0 / tnd_sum + 100.0)
+            } else {
+                0.0
+            };
+            sample = pulse_out + tnd_out;
         }
+
+        // DC blocking via high-pass filter
+        let high_pass = sample - self.prev_sample + 0.995 * self.prev_hp;
+        self.prev_sample = sample;
+        self.prev_hp = high_pass;
+
+        high_pass
     }
 
     fn clock_irq(&mut self) {}

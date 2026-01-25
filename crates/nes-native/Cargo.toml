@@ -5,7 +5,8 @@ edition = "2024"
 
 [dependencies]
 nes-app = { path = "../nes-app", default-features = false, features = [
-    "fast-apu-approximation"
+    "linear-apu-approximation", # Approximate APU sample values
+    "runtime-ppu-schedule" # Faster compiles / smaller WASM bundle
 ] }
 egui = "0.33.3"
 eframe = { version = "0.33.3", default-features = false, features = [

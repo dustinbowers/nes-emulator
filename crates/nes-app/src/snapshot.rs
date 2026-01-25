@@ -8,6 +8,15 @@ pub struct CpuSnapshot {
     pub status: u8,
 }
 
+#[derive(Default, Clone)]
+pub struct ApuSnapshot {
+    pub mute_pulse1: bool,
+    pub mute_pulse2: bool,
+    pub mute_triangle: bool,
+    pub mute_noise: bool,
+    pub mute_dmc: bool,
+}
+
 #[derive(Clone)]
 pub struct DebugSnapshot {
     pub cpu: CpuSnapshot,
@@ -16,6 +25,7 @@ pub struct DebugSnapshot {
 #[derive(Clone)]
 pub struct NesSnapshot {
     pub cpu: CpuSnapshot,
+    pub apu: ApuSnapshot,
 }
 
 #[derive(Clone)]
