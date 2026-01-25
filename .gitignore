@@ -1,13 +1,18 @@
 .DS_Store
+
+# Artifacts
 .idea
 target/
-nes6502-tests/
+dist/
+
+# Misc
 mapper_docs/
 misc_docs/
 roms/
 logs/
+img/
+
+# Noise
 *.log
 *.sh
 *.skip
-dist/
-img/

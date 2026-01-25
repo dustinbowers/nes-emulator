@@ -47,11 +47,10 @@ fn main() -> Result<(), eframe::Error> {
         "NES Emulator",
         options,
         Box::new(move |_cc| {
-            Ok(Box::new(App::new_with_autostart(
-                events,
-                true,
-                initial_commands,
-            ).with_logger(|msg| println!("{}", msg))))
+            Ok(Box::new(
+                App::new_with_autostart(events, true, initial_commands)
+                    .with_logger(|msg| println!("{}", msg)),
+            ))
         }),
     )
 }

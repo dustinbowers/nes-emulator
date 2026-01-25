@@ -16,7 +16,7 @@ pub enum ApuChannel {
     Pulse2,
     Triangle,
     Noise,
-    DMC
+    DMC,
 }
 
 pub struct AppControl<C> {

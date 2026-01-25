@@ -12,3 +12,4 @@ thiserror = "2.0.17"
 default = []
 tracing = []
 testing-utils = []
+runtime-ppu-schedule = []

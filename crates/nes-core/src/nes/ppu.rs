@@ -1,14 +1,15 @@
 use crate::nes::cartridge::rom::Mirroring;
 use crate::nes::ppu::consts::{NAME_TABLE_SIZE, PRIMARY_OAM_SIZE, SECONDARY_OAM_SIZE};
+use crate::nes::ppu::scheduler::{DOTS, DotOperations, SCAN_LINES, ppu_schedule};
 use crate::nes::tracer::traceable::Traceable;
-use crate::{trace, trace_obj, trace_ppu_event};
+use crate::{trace, trace_ppu_event};
 use consts::{PALETTE_SIZE, RAM_SIZE};
 use registers::control_register::ControlRegister;
 use registers::decay_register::DecayRegister;
 use registers::mask_register::MaskRegister;
 use registers::scroll_register::ScrollRegister;
 use registers::status_register::StatusRegister;
-use scheduler::{PPU_SCHEDULE, PpuOperation};
+use scheduler::PpuOperation;
 
 mod background;
 mod registers;
@@ -31,6 +32,7 @@ enum PaletteKind {
 }
 
 pub struct PPU {
+    schedule: &'static [[DotOperations; DOTS]; SCAN_LINES],
     pub cycles: usize,
     pub scanline: usize,
     suppress_vblank: bool,
@@ -86,6 +88,7 @@ pub struct PPU {
 impl PPU {
     pub fn new() -> Self {
         PPU {
+            schedule: ppu_schedule(),
             bus: None,
             v_ram: [0; RAM_SIZE],
             cycles: 0,
@@ -208,7 +211,7 @@ impl PPU {
 impl PPU {
     /// Advance the PPU by 1 dot
     pub fn tick(&mut self) -> bool {
-        let dot_ops = &PPU_SCHEDULE[self.scanline][self.cycles];
+        let dot_ops = &self.schedule[self.scanline][self.cycles];
 
         for i in 0..dot_ops.len as usize {
             let op = dot_ops.ops[i];

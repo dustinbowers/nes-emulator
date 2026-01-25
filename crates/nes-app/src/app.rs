@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 pub use crate::command::{AppCommand, AppControl};
+use crate::controller::ControllerState;
 pub use crate::event::AppEventSource;
 use crate::snapshot::{CpuSnapshot, DebugSnapshot, FrameSnapshot};
 use cpal::Stream;
@@ -13,7 +14,6 @@ use crossbeam_channel::{Receiver, Sender};
 use egui::{ColorImage, TextureHandle, TextureOptions};
 use nes_core::nes::RunState;
 use nes_core::prelude::*;
-use crate::controller::ControllerState;
 
 pub struct SharedInput {
     buttons: AtomicU8,
@@ -139,6 +139,12 @@ impl<E: AppEventSource> App<E> {
         self
     }
 
+    pub fn play_rom(&mut self, rom: Vec<u8>) {
+        self.init_audio().ok();
+        self.control.load_rom(rom);
+        self.state = State::Running;
+    }
+
     fn handle_events(&mut self) {
         while let Some(event) = self.events.poll_event() {
             self.handle_event(event);
@@ -149,9 +155,7 @@ impl<E: AppEventSource> App<E> {
         self.log(format!("[App received event]: {:?}", event));
         match event {
             AppEvent::RequestLoadRom(rom) => {
-                self.init_audio().ok();
-                self.state = State::Running;
-                self.control.load_rom(rom);
+                self.play_rom(rom);
             }
             AppEvent::RequestReset => {
                 self.control.reset();
@@ -290,7 +294,6 @@ impl<E: AppEventSource> App<E> {
                         }
                     }
                     RunState::Running => {
-                        log_tx.try_send("RUNNING".to_string()).ok();
                         // PPU cycles per audio sample (5.369318 MHz / 44.1 kHz)
                         let mut frame_ready = false;
                         let ppu_cycles_per_sample = 5369318.0 / sample_rate;
@@ -346,7 +349,7 @@ impl<E: AppEventSource> App<E> {
     }
 
     fn handle_input(&mut self, ctx: &egui::Context) {
-        // Handle controller input
+        // Handle controller1 input
         let mut p1 = 0u8;
         for (key, button) in self.key_map.iter() {
             if ctx.input(|i| i.key_down(*key)) {
@@ -354,17 +357,22 @@ impl<E: AppEventSource> App<E> {
             }
         }
         self.controller1.set(p1);
-        // TODO: Add support for controller 2
+
+        let p2 = 0u8;
+        // TODO: Add keymapping for controller 2
+        self.controller2.set(p2);
 
         // Handle other keys
         ctx.input(|i| {
             if i.key_pressed(egui::Key::P) {
                 match self.state {
-                    State::Running => {
-                        self.set_paused(true);
-                    }
                     State::Paused => {
-                        self.set_paused(false);
+                        self.control.pause(false);
+                        self.state = State::Running;
+                    }
+                    State::Running => {
+                        self.control.pause(true);
+                        self.state = State::Paused;
                     }
                     _ => {}
                 }
@@ -424,8 +432,8 @@ impl<E: AppEventSource> App<E> {
                 ui.ctx().load_texture(
                     "nes_frame",
                     color_image.clone(),
-                    // TextureOptions::NEAREST, // Pixel-perfect scaling
-                    TextureOptions::LINEAR,
+                    // TextureOptions::NEAREST, // pixel-perfect scaling
+                    TextureOptions::LINEAR, // fuzzier retro look
                 )
             });
 
@@ -452,26 +460,64 @@ impl<E: AppEventSource> App<E> {
         match &self.state {
             State::Waiting => {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    ui.centered_and_justified(|ui| {
-                        ui.vertical_centered(|ui| {
-                            ui.heading("Insert a Cartridge");
-                            ui.add_space(10.0);
+                    let available = ui.available_size();
+                    let panel_width = 420.0;
+                    let panel_height = 240.0; // approximate height frame
 
-                            #[cfg(not(target_arch = "wasm32"))]
-                            {
-                                if ui.button("Browse for ROM...").clicked()
-                                    && let Some(path) = rfd::FileDialog::new()
-                                        .add_filter("NES ROM", &["nes"])
-                                        .pick_file()
-                                    && let Ok(rom_data) = std::fs::read(path)
-                                {
-                                    self.control.send(AppCommand::LoadRom(rom_data)).ok();
-                                }
-                                ui.add_space(10.0);
-                            }
+                    // Compute the top-left of the centered rect
+                    let top_left = egui::pos2(
+                        (available.x - panel_width) / 2.0,
+                        (available.y - panel_height) / 2.0,
+                    );
 
-                            ui.label("Or drag and drop a ROM file");
-                        });
+                    let rect =
+                        egui::Rect::from_min_size(top_left, egui::vec2(panel_width, panel_height));
+
+                    ui.allocate_ui_at_rect(rect, |ui| {
+                        egui::Frame::group(ui.style())
+                            .inner_margin(egui::Margin::symmetric(32, 32))
+                            .rounding(egui::Rounding::same(12))
+                            .show(ui, |ui| {
+                                ui.vertical_centered(|ui| {
+                                    ui.heading("Insert a Cartridge");
+                                    ui.add_space(12.0);
+
+                                    ui.label(
+                                        egui::RichText::new("Load a NES ROM to begin playing")
+                                            .color(ui.visuals().weak_text_color()),
+                                    );
+
+                                    ui.add_space(24.0);
+
+                                    #[cfg(not(target_arch = "wasm32"))]
+                                    {
+                                        if ui
+                                            .add_sized(
+                                                [200.0, 36.0],
+                                                egui::Button::new("Browse for ROM…"),
+                                            )
+                                            .clicked()
+                                            && let Some(path) = rfd::FileDialog::new()
+                                                .add_filter("NES ROM", &["nes"])
+                                                .pick_file()
+                                            && let Ok(rom_data) = std::fs::read(path)
+                                        {
+                                            self.log(format!(
+                                                "Rom Selected! ({} bytes)",
+                                                rom_data.len()
+                                            ));
+                                            self.play_rom(rom_data);
+                                        }
+
+                                        ui.add_space(16.0);
+                                    }
+
+                                    ui.label(
+                                        egui::RichText::new("Or drag & drop a .nes file")
+                                            .size(16.0),
+                                    );
+                                });
+                            });
                     });
                 });
             }
@@ -515,7 +561,6 @@ impl<E: AppEventSource> App<E> {
                 });
             }
         }
-
         self.handle_file_drop(ctx);
     }
 
@@ -550,9 +595,7 @@ impl<E: AppEventSource> App<E> {
                     {
                         let msg = format!("Received drop file event. ({} bytes)", rom_data.len());
                         self.log(msg);
-                        self.init_audio().ok();
-                        self.control.load_rom(rom_data);
-                        self.state = State::Running;
+                        self.play_rom(rom_data);
                     }
                 }
 

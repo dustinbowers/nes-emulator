@@ -1,61 +1,59 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="utf-8">
+    <meta charset="utf-8" />
     <title>NES Emulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body {
-            margin: 0;
-            padding: 20px;
-            font-family: sans-serif;
-        }
-        .controls {
-            margin: 10px 0;
-        }
-        button {
-            margin-right: 10px;
-            padding: 8px 16px;
-            font-size: 14px;
-            cursor: pointer;
-        }
-        #rom-input {
-            display: none;
-        }
-        #nes_canvas {
-            display: block;
-            margin-top: 10px;
-            border: 1px solid #ccc;
-            width: 512px;
-            height: 512px;
+        canvas {
+            image-rendering: pixelated;
         }
     </style>
 </head>
-<body>
-<h1>NES Emulator</h1>
-<div class="controls">
-    <button id="load-rom-btn">Load ROM</button>
-    <button id="pause-btn">Pause</button>
-    <input type="file" id="rom-input" accept=".nes">
+<body class="min-h-screen bg-neutral-900 text-neutral-100 flex items-center justify-center">
+    <!-- GitHub Corner -->
+    <a href="https://github.com/dustinbowers/nes-emulator" class="github-corner" aria-label="View source on GitHub"><svg width="80" height="80" viewBox="0 0 250 250" style="fill:#70B7FD; color:#fff; position: absolute; top: 0; border: 0; right: 0;" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"/><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"/><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"/></svg></a><style>.github-corner:hover .octo-arm{animation:octocat-wave 560ms ease-in-out}@keyframes octocat-wave{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(-25deg)}40%,80%{transform:rotate(10deg)}}@media (max-width:500px){.github-corner:hover .octo-arm{animation:none}.github-corner .octo-arm{animation:octocat-wave 560ms ease-in-out}}</style>
+    <div class="flex flex-col items-center gap-6">
+
+    <!-- Title -->
+    <h1 class="text-3xl font-bold tracking-wide">
+        NES Emulator
+    </h1>
+
+    <!-- Emulator frame -->
+    <div class="bg-neutral-800 p-4 rounded-xl shadow-2xl">
+        <canvas id="nes_canvas" width="256" height="240" class="w-[512px] h-[480px] border border-neutral-700 rounded-md"></canvas>
+    </div>
+
+    <!-- Controls -->
+    <div class="flex gap-4">
+        <button id="load-rom-btn" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 transition font-medium">Load ROM</button>
+        <button id="pause-btn" class="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 active:bg-amber-700 transition font-medium">Pause</button>
+        <input type="file" id="rom-input" accept=".nes" class="hidden"/>
+    </div>
+
+    <!-- Hint -->
+    <p class="text-sm text-neutral-400">
+        Supports standard .nes ROMs - Audio starts on user interaction
+    </p>
 </div>
-<canvas id="nes_canvas"></canvas>
 
 <script type="module">
     import init, { start_audio } from './nes-emulator.js';
-
-    console.log("Starting WASM init...");
     await init();
     console.log("WASM initialized");
 
     const loadRomBtn = document.getElementById("load-rom-btn");
     const romInput = document.getElementById("rom-input");
+    const pauseBtn = document.getElementById("pause-btn");
 
-    // load rom button
+    // Load ROM button
     loadRomBtn.addEventListener("click", () => {
         start_audio();
         romInput.click();
     });
 
-    // file selection
+    // File selection
     romInput.addEventListener("change", async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -64,10 +62,13 @@
             const arrayBuffer = await file.arrayBuffer();
             const romData = new Uint8Array(arrayBuffer);
 
-            window.postMessage({
-                type: "LoadRom",
-                rom: Array.from(romData)
-            }, "*");
+            window.postMessage(
+                {
+                    type: "LoadRom",
+                    rom: Array.from(romData),
+                },
+                "*"
+            );
 
             console.log(`Loaded ROM: ${file.name} (${romData.length} bytes)`);
         } catch (error) {
@@ -75,12 +76,9 @@
         }
     });
 
-    // pause button
-    const pauseBtn = document.getElementById("pause-btn");
+    // Pause button
     pauseBtn.addEventListener("click", () => {
-        window.postMessage({
-            type: "Pause"
-        }, "*");
+        window.postMessage({ type: "Pause" }, "*");
         console.log("Sent Pause message");
     });
 </script>

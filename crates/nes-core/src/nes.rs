@@ -26,12 +26,12 @@ enum DmaMode {
 
 pub enum RunState {
     Running,
-    Paused
+    Paused,
 }
 
 // SAFETY:
 // NES is strictly single-threaded.
-// It is created on the main thread and moved exactly once
+// Expected use is created on the main thread and moved exactly once
 // into the audio thread, which owns it exclusively.
 // No other thread ever accesses NES or its internal raw pointers.
 unsafe impl Send for NES {}

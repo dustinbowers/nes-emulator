@@ -1,7 +1,25 @@
 pub const DOTS: usize = 341;
 pub const SCAN_LINES: usize = 262;
 
-pub static PPU_SCHEDULE: [[DotOperations; DOTS]; SCAN_LINES] = build_schedule();
+#[cfg(not(feature = "runtime-ppu-schedule"))]
+static PPU_SCHEDULE: [[DotOperations; DOTS]; SCAN_LINES] = build_schedule();
+
+#[cfg(feature = "runtime-ppu-schedule")]
+use std::sync::OnceLock;
+#[cfg(feature = "runtime-ppu-schedule")]
+pub static PPU_SCHEDULE: OnceLock<[[DotOperations; DOTS]; SCAN_LINES]> = OnceLock::new();
+
+#[inline(always)]
+pub fn get_ppu_schedule() -> &'static [[DotOperations; DOTS]; SCAN_LINES] {
+    #[cfg(feature = "runtime-ppu-schedule")]
+    {
+        PPU_SCHEDULE.get_or_init(build_schedule)
+    }
+    #[cfg(not(feature = "runtime-ppu-schedule"))]
+    {
+        &PPU_SCHEDULE
+    }
+}
 
 /// Mask for operations that require rendering enabled
 pub const RENDER_OPS: u64 = bit(PpuOperation::ShiftRegisters)
@@ -71,6 +89,11 @@ impl DotOperations {
         self.len += 1;
         self
     }
+}
+
+#[inline(always)]
+pub fn ppu_schedule() -> &'static [[DotOperations; DOTS]; SCAN_LINES] {
+    get_ppu_schedule()
 }
 
 const fn build_schedule() -> [[DotOperations; DOTS]; SCAN_LINES] {
