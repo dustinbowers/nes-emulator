@@ -199,7 +199,7 @@ mod test {
     }
 
     fn assert_has(scanline: usize, dot: usize, op: PpuOperation) {
-        let ops = &PPU_SCHEDULE[scanline][dot];
+        let ops = &get_ppu_schedule()[scanline][dot];
         assert!(
             has_op(ops, op),
             "Expected {:?} at scanline {}, dot {} but got {:?}",
@@ -211,7 +211,7 @@ mod test {
     }
 
     fn assert_not(scanline: usize, dot: usize, op: PpuOperation) {
-        let ops = &PPU_SCHEDULE[scanline][dot];
+        let ops = &get_ppu_schedule()[scanline][dot];
         assert!(
             !has_op(ops, op),
             "Did not expect {:?} at scanline {}, dot {} but got {:?}",
@@ -227,7 +227,7 @@ mod test {
         let scanline = 0;
 
         for dot in 1..=256 {
-            let ops = &PPU_SCHEDULE[scanline][dot];
+            let ops = &get_ppu_schedule()[scanline][dot];
 
             // Always shifts during fetch cycles
             assert!(has_op(ops, PpuOperation::ShiftRegisters));
@@ -299,18 +299,18 @@ mod test {
     #[test]
     fn trace_inc_y_timing() {
         // Visible
-        let ops = PPU_SCHEDULE[0][256];
+        let ops = get_ppu_schedule()[0][256];
         assert!(ops.ops[..ops.len as usize].contains(&PpuOperation::IncFineY));
 
         // Pre-render
-        let ops = PPU_SCHEDULE[261][256];
+        let ops = get_ppu_schedule()[261][256];
         assert!(ops.ops[..ops.len as usize].contains(&PpuOperation::IncFineY));
     }
 
     #[test]
     fn trace_vertical_reload_window() {
         for dot in 280..=304 {
-            let ops = &PPU_SCHEDULE[261][dot];
+            let ops = &get_ppu_schedule()[261][dot];
             assert!(
                 ops.ops[..ops.len as usize].contains(&PpuOperation::CopyVertV),
                 "Missing CopyVertV at prerender dot {}",
@@ -366,7 +366,7 @@ mod test {
     fn test_no_fetches_during_vblank() {
         for scanline in 241..261 {
             for dot in 0..341 {
-                let ops = &PPU_SCHEDULE[scanline][dot];
+                let ops = &get_ppu_schedule()[scanline][dot];
                 assert!(!has_op(ops, PpuOperation::FetchNameTable));
                 assert!(!has_op(ops, PpuOperation::FetchAttribute));
                 assert!(!has_op(ops, PpuOperation::FetchTileLow));

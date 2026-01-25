@@ -162,6 +162,9 @@ impl<E: AppEventSource> App<E> {
                 self.state = State::Waiting;
             }
             AppEvent::RequestPause => {
+                if !matches!(self.state, State::Paused | State::Running) {
+                    return
+                }
                 let paused = !matches!(self.state, State::Paused);
                 self.control.pause(paused);
                 self.state = if paused {

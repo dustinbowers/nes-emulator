@@ -14,7 +14,7 @@ fn run_test_program(bus: &mut SimpleBus) -> usize {
     println!("running program...");
     let mut total_cycles = 0;
     loop {
-        let (done, is_breaking) = bus.cpu.tick();
+        let (_, is_breaking) = bus.cpu.tick();
         total_cycles += 1;
         println!("tick cycles: {total_cycles}");
         if is_breaking {
@@ -34,7 +34,7 @@ fn test_0xaa_tax_0xa8_tay() {
         0x02, // JAM
     ];
     let mut bus = init_cpu_and_bus(program);
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     assert_eq!(bus.cpu.register_x, 0x42);
     assert_eq!(bus.cpu.register_y, 0x42);
     assert_eq!(bus.cpu.status.contains(Flags::ZERO), false);
@@ -49,7 +49,7 @@ fn test_0xa9_lda_immediate_load_data() {
         0x02, // JAM
     ];
     let mut bus = init_cpu_and_bus(program);
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     assert_eq!(bus.cpu.register_a, 0x05);
     assert_eq!(bus.cpu.status.contains(Flags::ZERO), false);
     assert_eq!(bus.cpu.status.contains(Flags::NEGATIVE), false);
@@ -63,7 +63,7 @@ fn test_0xa9_lda_zero_flag() {
         0x02, // JAM
     ];
     let mut bus = init_cpu_and_bus(program);
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     assert_eq!(bus.cpu.status.contains(Flags::ZERO), true);
 }
 
@@ -76,7 +76,7 @@ fn test_0xa5_lda_zero_page_load_data() {
     ];
     let mut bus = init_cpu_and_bus(program);
     bus.cpu.bus_write(0x05, 0x42);
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     assert_eq!(bus.cpu.register_a, 0x42);
     assert_eq!(bus.cpu.status.contains(Flags::ZERO), false);
     assert_eq!(bus.cpu.status.contains(Flags::NEGATIVE), false);
@@ -94,7 +94,7 @@ fn test_0xa5_lda_zero_page_x_load_data() {
     ];
     let mut bus = init_cpu_and_bus(program);
     bus.cpu.bus_write(0x8F, 0x42);
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     assert_eq!(bus.cpu.register_a, 0x42);
     assert_eq!(bus.cpu.register_x, 0x0F);
     assert_eq!(bus.cpu.status.contains(Flags::ZERO), false);
@@ -128,7 +128,7 @@ fn test_set_flags() {
         0x02, // JAM
     ];
     let mut bus = init_cpu_and_bus(program);
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     assert_eq!(bus.cpu.status.contains(Flags::CARRY), true);
     assert_eq!(bus.cpu.status.contains(Flags::INTERRUPT_DISABLE), true);
     assert_eq!(bus.cpu.status.contains(Flags::DECIMAL_MODE), true);
@@ -146,7 +146,7 @@ fn test_set_and_clear_flags() {
         0x02, // JAM
     ];
     let mut bus = init_cpu_and_bus(program);
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     assert_eq!(bus.cpu.status.contains(Flags::CARRY), false);
     assert_eq!(bus.cpu.status.contains(Flags::INTERRUPT_DISABLE), false);
     assert_eq!(bus.cpu.status.contains(Flags::DECIMAL_MODE), false);
@@ -162,7 +162,7 @@ fn test_adc_without_carry() {
         0x02, // JAM
     ];
     let mut bus = init_cpu_and_bus(program);
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     assert_eq!(bus.cpu.register_a, 0x17);
     assert_eq!(bus.cpu.status.contains(Flags::CARRY), false);
     assert_eq!(bus.cpu.status.contains(Flags::OVERFLOW), false);
@@ -178,7 +178,7 @@ fn test_adc_with_overflow() {
         0x02, // JAM
     ];
     let mut bus = init_cpu_and_bus(program);
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     assert_eq!(bus.cpu.status.contains(Flags::CARRY), false);
     assert_eq!(bus.cpu.status.contains(Flags::OVERFLOW), true);
     assert_eq!(bus.cpu.register_a, 0x8E);
@@ -194,7 +194,7 @@ fn test_adc_with_carry() {
         0x02, // JAM
     ];
     let mut bus = init_cpu_and_bus(program);
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     assert_eq!(bus.cpu.status.contains(Flags::CARRY), true);
     assert_eq!(bus.cpu.status.contains(Flags::OVERFLOW), false);
     assert_eq!(bus.cpu.register_a, 0x0E);
@@ -211,7 +211,7 @@ fn test_sbc_without_borrow() {
         0x02, // JAM
     ];
     let mut bus = init_cpu_and_bus(program);
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     // Note: In SBC, the "CARRY" flag becomes a "BORROW" flag which is complement
     assert_eq!(bus.cpu.status.contains(Flags::CARRY), true);
     assert_eq!(bus.cpu.status.contains(Flags::OVERFLOW), false);
@@ -229,7 +229,7 @@ fn test_sbc_with_borrow() {
         0x02, // JAM
     ];
     let mut bus = init_cpu_and_bus(program);
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     assert_eq!(bus.cpu.status.contains(Flags::CARRY), false);
     assert_eq!(bus.cpu.status.contains(Flags::OVERFLOW), false);
     assert_eq!(bus.cpu.register_a, 0xFF);
@@ -261,7 +261,7 @@ fn test_0x8a_txa() {
     ];
     let mut bus = init_cpu_and_bus(program);
     bus.cpu.set_register_x(0x42);
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     assert_eq!(bus.cpu.register_a, 0x42);
 }
 
@@ -273,7 +273,7 @@ fn test_0x98_tya() {
     ];
     let mut bus = init_cpu_and_bus(program);
     bus.cpu.set_register_y(0x88);
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     assert_eq!(bus.cpu.register_a, 0x88);
 }
 
@@ -285,7 +285,7 @@ fn test_0xba_tsx() {
     ];
     let mut bus = init_cpu_and_bus(program);
     bus.cpu.stack_pointer = 0x37;
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     assert_eq!(bus.cpu.register_x, 0x37);
 }
 
@@ -297,7 +297,7 @@ fn test_0x9a_txs() {
     ];
     let mut bus = init_cpu_and_bus(program);
     bus.cpu.register_x = 0x33;
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     assert_eq!(bus.cpu.stack_pointer, 0x33);
 }
 
@@ -311,7 +311,7 @@ fn test_0xd0_bne_success() {
     let mut bus = init_cpu_and_bus(program);
     bus.cpu.status.set(Flags::ZERO, false);
     bus.cpu.bus_write(0x0011, 0x02); // Write BRK to branch target
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     let want = 0x12;
     assert_eq!(
         bus.cpu.program_counter,
@@ -333,7 +333,7 @@ fn test_0xd0_bne_failed() {
     ];
     let mut bus = init_cpu_and_bus(program);
     bus.cpu.status.set(Flags::ZERO, true);
-    let cycles = run_test_program(&mut bus);
+    let _ = run_test_program(&mut bus);
     let want = 0x03;
     assert_eq!(
         bus.cpu.program_counter,
@@ -373,7 +373,7 @@ fn test_0xd0_bne_failed() {
 //     let bus = Bus::new(cart, |_, _| {});
 //     let mut cpu = CPU::new(bus);
 //     bus.cpu.program_counter = 0x8000;
-//     let cycles = run_test_program(&mut bus);
+//     let _ = run_test_program(&mut bus);
 //
 //     let oam = &bus.cpu.bus.ppu.oam_data;
 //

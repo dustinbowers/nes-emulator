@@ -167,8 +167,14 @@ impl CPU {
             self.current_op.opcode = Some(opcode);
             self.current_op.access_type = opcode.access_type;
 
-            // trace_obj!(&*self);
-            return (false, false);
+            // NOTE: I've assigned the 0x02 opcode (normally a JAM/KIL) to break out of the CPU run loop for testing purposes
+            let is_breaking: bool = if opcode.code == 0x02 {
+                self.error = Some(CpuError::JamOpcode(opcode.code));
+                true
+            } else {
+                false
+            };
+            return (false, is_breaking);
         }
 
         // Execute current instruction
