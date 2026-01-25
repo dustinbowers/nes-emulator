@@ -4,6 +4,12 @@ A Nintendo Entertainment System (NES) emulator written in Rust, supporting both 
 
 > **Note**: This project is currently under active development. (There's still quite a few timing bugs to squash)
 
+## Live Demo
+
+A Live Demo of the current progress is available here (Note there's limited mapper support):  
+
+https://dustinbowers.com/demos/nes-emulator
+
 ## Features
 
 - 6502 CPU emulation with memory-cycle-accurate timing
