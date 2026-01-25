@@ -138,7 +138,7 @@ impl NES {
             }
 
             // APU Runs at CPU speed
-            self.bus.apu.clock(self.bus.cpu.cycles);
+            self.bus.apu.clock();
         }
         frame_ready
     }

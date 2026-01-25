@@ -11,69 +11,6 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 impl CPU {
-    pub fn new() -> CPU {
-        CPU {
-            bus: None,
-            cycles: 0,
-            cpu_mode: CpuMode::Read,
-            halt_scheduled: false,
-            rdy: true,
-            register_a: 0,
-            register_x: 0,
-            register_y: 0,
-            stack_pointer: CPU_STACK_RESET,
-            status: Flags::from_bits_truncate(0b0010_0010),
-            program_counter: 0,
-            current_op: CpuCycleState::default(),
-            active_interrupt: None,
-            nmi_pending: false,
-            irq_pending: false,
-            last_opcode_desc: "".to_string(),
-            error: None,
-            stop: false,
-        }
-    }
-
-    pub fn reset(&mut self) {
-        let pcl = self.bus_read(0xFFFC) as u16;
-        let pch = self.bus_read(0xFFFD) as u16;
-        self.program_counter = (pch << 8) | pcl;
-        self.current_op = CpuCycleState::default();
-        self.last_opcode_desc = "".to_string();
-        self.cycles = 0;
-        self.halt_scheduled = false;
-        self.rdy = true;
-        self.register_a = 0;
-        self.register_x = 0;
-        self.register_y = 0;
-        self.stack_pointer = CPU_STACK_RESET;
-        self.status = Flags::from_bits_truncate(0b0010_0010);
-        self.active_interrupt = None;
-        self.nmi_pending = false; // PPU will notify CPU when NMI needs handling
-        self.irq_pending = false;
-        self.error = None;
-    }
-
-    /// `connect_bus` MUST be called after constructing CPU
-    pub fn connect_bus(&mut self, bus: *mut dyn CpuBusInterface) {
-        self.bus = Some(bus);
-        let pcl = self.bus_read(0xFFFC) as u16;
-        let pch = self.bus_read(0xFFFD) as u16;
-        self.program_counter = (pch << 8) | pcl;
-    }
-
-    /// `bus_read` is safe because Bus owns CPU
-    pub fn bus_read(&self, addr: u16) -> u8 {
-        unsafe { (*self.bus.unwrap()).cpu_bus_read(addr) }
-    }
-
-    /// `bus_write` is safe because Bus owns CPU
-    pub fn bus_write(&self, addr: u16, data: u8) {
-        unsafe {
-            (*self.bus.unwrap()).cpu_bus_write(addr, data);
-        }
-    }
-
     #[allow(dead_code)]
     pub fn run(&mut self) {
         loop {
@@ -109,6 +46,13 @@ impl CPU {
         byte
     }
 
+    /// Runs one CPU cycle
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(bool, bool)`:
+    /// * The first element is true if current instruction is complete
+    /// * The second element is true if CPU is breaking (due to JAM/KIL instruction)
     pub fn tick(&mut self) -> (bool, bool) {
         if self.nmi_pending {
             self.nmi_pending = false;
@@ -170,6 +114,7 @@ impl CPU {
             // NOTE: I've assigned the 0x02 opcode (normally a JAM/KIL) to break out of the CPU run loop for testing purposes
             let is_breaking: bool = if opcode.code == 0x02 {
                 self.error = Some(CpuError::JamOpcode(opcode.code));
+                self.set_program_counter(self.program_counter - 1); // Loop on the same opcode
                 true
             } else {
                 false
@@ -180,7 +125,6 @@ impl CPU {
         // Execute current instruction
         let opcode = self.current_op.opcode.unwrap();
         let done = (opcode.exec)(self);
-        // trace_obj!(&*self);
 
         // Prepare for next opcode
         if done {

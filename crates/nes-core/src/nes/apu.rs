@@ -33,6 +33,7 @@ pub enum ApuError {
 */
 pub struct APU {
     bus: Option<*mut dyn ApuBusInterface>,
+    half_clock: bool,
 
     pub pulse1: PulseChannel,
     pub pulse2: PulseChannel,
@@ -73,6 +74,7 @@ impl APU {
     pub fn new() -> APU {
         APU {
             bus: None,
+            half_clock: false,
             pulse1: PulseChannel::new(true),
             pulse2: PulseChannel::new(false),
             triangle: TriangleChannel::new(),
@@ -247,11 +249,12 @@ impl APU {
         }
     }
 
-    pub fn clock(&mut self, cpu_cycles: usize) {
+    /// Clocks every CPU cycle
+    pub fn clock(&mut self) {
         let mut quarter_frame_clock = false;
         let mut half_frame_clock = false;
 
-        if cpu_cycles.is_multiple_of(2) {
+        if !self.half_clock {
             self.clock_counter += 1;
             match self.master_sequence_mode {
                 false => {
@@ -310,7 +313,9 @@ impl APU {
             self.pulse2.clock(quarter_frame_clock, half_frame_clock);
             self.noise.clock(quarter_frame_clock, half_frame_clock);
         }
+
         self.triangle.clock(quarter_frame_clock);
+        self.half_clock = !self.half_clock;
     }
 
     pub fn sample(&self) -> f32 {
@@ -336,14 +341,24 @@ impl APU {
         };
         let dmc = if self.mute_dmc { 0.0 } else { 0.0 }; // TODO
 
-        // pulse_out = 95.88 / (8128.0 / (pulse1 + pulse2) + 100.0);
-        // tnd_out   = 159.79 / (1.0 / (triangle/8227.0 + noise/12241.0 + dmc/22638.0) + 100.0);
-        // output    = pulse_out + tnd_out;
-        let pulse_out = 95.88 / (8128.0 / (pulse1 + pulse2) + 100.0);
-        let tnd_out =
-            159.79 / (1.0 / (triangle / 8227.0 + noise / 12241.0 + dmc / 22638.0) + 100.0);
-
-        pulse_out + tnd_out
+        #[cfg(feature = "fast-apu-approximation")]
+        {
+            let pulse = (pulse1 + pulse2) as f32;
+            let tnd = triangle * 0.008 + noise * 0.004;
+            let out = pulse * 0.00752 + tnd;
+            out
+        }
+        #[cfg(not(feature = "fast-apu-approximation"))]
+        {
+            // pulse_out = 95.88 / (8128.0 / (pulse1 + pulse2) + 100.0);
+            // tnd_out   = 159.79 / (1.0 / (triangle/8227.0 + noise/12241.0 + dmc/22638.0) + 100.0);
+            // output    = pulse_out + tnd_out;
+            let pulse_out = 95.88 / (8128.0 / (pulse1 + pulse2) + 100.0);
+            let tnd_out =
+                159.79 / (1.0 / (triangle / 8227.0 + noise / 12241.0 + dmc / 22638.0) + 100.0);
+            let out = pulse_out + tnd_out;
+            out
+        }
     }
 
     fn clock_irq(&mut self) {}

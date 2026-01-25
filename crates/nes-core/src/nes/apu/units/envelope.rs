@@ -27,7 +27,8 @@ impl Envelope {
         }
     }
 
-    pub fn start(&mut self) {
+    // private for testing
+    fn start(&mut self) {
         self.start = false;
         self.decay = 15;
         self.divider = self.period;
@@ -214,5 +215,69 @@ mod tests {
             first_zero_index < next_fifteen_index,
             "Envelope did not loop back to 15 after hitting 0"
         );
+    }
+
+    #[test]
+    fn test_start_flag_consumed_on_clock() {
+        let mut env = Envelope::new();
+        env.set(0b0000_0011); // period = 3
+        env.set_start_flag(true);
+
+        // Before clock
+        assert_eq!(env.decay, 0);
+
+        // First quarter-frame clock
+        env.clock();
+
+        assert_eq!(env.decay, 15);
+        assert_eq!(env.divider, 3);
+        assert!(!env.get_start_flag());
+    }
+
+    #[test]
+    fn test_envelope_period_zero() {
+        let mut env = Envelope::new();
+        env.set(0b0000_0000); // period = 0
+        env.set_start_flag(true);
+        env.clock();
+
+        // Divider reloads to 0 every time → decay changes every clock
+        let outputs = clock_envelope(&mut env, 20);
+
+        // Should monotonically decrease every clock
+        for i in 1..outputs.len() {
+            assert!(
+                outputs[i] <= outputs[i - 1],
+                "Decay did not decrement every clock with period=0"
+            );
+        }
+    }
+
+    #[test]
+    fn test_output_sampled_before_clock() {
+        let mut env = Envelope::new();
+        env.set(0b0000_0001); // period = 1
+        env.set_start_flag(true);
+
+        // First output before any clock
+        let o0 = env.output();
+        env.clock();
+        let o1 = env.output();
+
+        assert_eq!(o0, 0);
+        assert_eq!(o1, 15);
+    }
+
+    #[test]
+    fn test_constant_volume_ignores_decay() {
+        let mut env = Envelope::new();
+        env.set(0b0001_1111); // constant volume = 15
+        env.set_start_flag(true);
+        env.clock();
+
+        let outputs = clock_envelope(&mut env, 40);
+
+        assert!(outputs.iter().all(|&o| o == 15));
+        assert!(env.decay < 15); // decay still ran internally
     }
 }

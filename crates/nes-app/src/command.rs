@@ -21,7 +21,6 @@ pub enum ApuChannel {
 
 pub struct AppControl<C> {
     tx: Sender<C>,
-    // rx: Receiver<C>,
 }
 
 impl<C> AppControl<C> {
@@ -32,10 +31,6 @@ impl<C> AppControl<C> {
     pub fn send(&self, cmd: C) -> Result<(), SendError<C>> {
         self.tx.send(cmd)
     }
-
-    // pub fn receive(&self) -> Result<C, TryRecvError> {
-    //     self.rx.try_recv()
-    // }
 }
 
 impl AppControl<AppCommand> {

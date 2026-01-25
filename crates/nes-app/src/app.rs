@@ -163,7 +163,7 @@ impl<E: AppEventSource> App<E> {
             }
             AppEvent::RequestPause => {
                 if !matches!(self.state, State::Paused | State::Running) {
-                    return
+                    return;
                 }
                 let paused = !matches!(self.state, State::Paused);
                 self.control.pause(paused);

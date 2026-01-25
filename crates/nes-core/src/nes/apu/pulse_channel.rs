@@ -44,10 +44,10 @@ impl PulseChannel {
     pub fn write_4000(&mut self, value: u8) {
         self.duty_cycle = (value & 0b1100_0000) >> 6;
         self.sequence = match self.duty_cycle {
-            0 => 0b0100_0000,
-            1 => 0b0110_0000,
-            2 => 0b1111_0000,
-            3 => 0b1001_1111,
+            0 => 0b0000_0001,
+            1 => 0b0000_0011,
+            2 => 0b0000_1111,
+            3 => 0b1111_1100,
             _ => 0b0100_0000,
         };
 
@@ -114,7 +114,6 @@ impl PulseChannel {
         if advance_waveform {
             // Advance duty cycle
             self.sequence = (self.sequence << 1) | (self.sequence >> 7);
-            // println!("sequence: {:08b}", self.sequence);
         }
 
         // Clock envelope
@@ -265,6 +264,31 @@ mod tests {
 
         // Also, envelope is started
         assert_eq!(channel.envelope.get_start_flag(), true);
+    }
+
+    #[test]
+    fn test_pulse_frequency_divide_by_two() {
+        let mut ch = PulseChannel::new(true);
+
+        ch.write_4000(0b0000_1111); // constant volume
+        ch.write_4002(0x00);
+        ch.write_4003(0x01); // timer = 256
+        ch.sequence = 0b1000_0000;
+
+        let mut transitions = 0;
+        let mut last = ch.sequence & 0x80;
+
+        for _ in 0..1024 {
+            ch.clock(false, false);
+            let now = ch.sequence & 0x80;
+            if now != last {
+                transitions += 1;
+                last = now;
+            }
+        }
+
+        // With correct divide-by-2 behavior, this should be ~half
+        assert!(transitions < 10, "Waveform advancing too fast");
     }
 
     #[test]

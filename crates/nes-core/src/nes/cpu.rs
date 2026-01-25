@@ -131,7 +131,6 @@ struct CpuCycleState {
 
 pub struct CPU {
     pub bus: Option<*mut dyn CpuBusInterface>,
-    pub cycles: usize,
     pub cpu_mode: CpuMode,
     pub rdy: bool,
     pub halt_scheduled: bool,
@@ -152,6 +151,69 @@ pub struct CPU {
     pub last_opcode_desc: String,
     pub error: Option<CpuError>,
     pub stop: bool,
+}
+
+impl CPU {
+    pub fn new() -> CPU {
+        CPU {
+            bus: None,
+            cpu_mode: CpuMode::Read,
+            halt_scheduled: false,
+            rdy: true,
+            register_a: 0,
+            register_x: 0,
+            register_y: 0,
+            stack_pointer: CPU_STACK_RESET,
+            status: Flags::from_bits_truncate(0b0010_0010),
+            program_counter: 0,
+            current_op: CpuCycleState::default(),
+            active_interrupt: None,
+            nmi_pending: false,
+            irq_pending: false,
+            last_opcode_desc: "".to_string(),
+            error: None,
+            stop: false,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        let pcl = self.bus_read(0xFFFC) as u16;
+        let pch = self.bus_read(0xFFFD) as u16;
+        self.program_counter = (pch << 8) | pcl;
+        self.current_op = CpuCycleState::default();
+        self.last_opcode_desc = "".to_string();
+        self.halt_scheduled = false;
+        self.rdy = true;
+        self.register_a = 0;
+        self.register_x = 0;
+        self.register_y = 0;
+        self.stack_pointer = CPU_STACK_RESET;
+        self.status = Flags::from_bits_truncate(0b0010_0010);
+        self.active_interrupt = None;
+        self.nmi_pending = false; // PPU will notify CPU when NMI needs handling
+        self.irq_pending = false;
+        self.error = None;
+    }
+
+    /// `connect_bus` MUST be called after constructing CPU
+    pub fn connect_bus(&mut self, bus: *mut dyn CpuBusInterface) {
+        self.bus = Some(bus);
+        let pcl = self.bus_read(0xFFFC) as u16;
+        let pch = self.bus_read(0xFFFD) as u16;
+        self.program_counter = (pch << 8) | pcl;
+    }
+
+    /// `bus_read` is safe because Bus owns CPU
+    pub fn bus_read(&self, addr: u16) -> u8 {
+        unsafe { (*self.bus.unwrap()).cpu_bus_read(addr) }
+    }
+
+    /// `bus_write` is safe because Bus owns CPU
+    pub fn bus_write(&self, addr: u16, data: u8) {
+        unsafe {
+            (*self.bus.unwrap()).cpu_bus_write(addr, data);
+        }
+    }
 }
 
 pub trait CpuBusInterface {
