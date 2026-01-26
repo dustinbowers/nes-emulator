@@ -124,7 +124,7 @@ impl APU {
             prev_sample: 0.0,
             prev_hp: 0.0,
 
-            sample_rate: 0.0,
+            sample_rate: 44100.0, // A safe default
             high_pass_90: OnePole::default(),
             high_pass_440: OnePole::default(),
             low_pass_14k: OnePole::default(),
@@ -164,7 +164,7 @@ impl APU {
         self.dmc_interrupt = false;
         self.frame_interrupt = false;
 
-        self.sample_rate = 0.0;
+        // self.sample_rate = 0.0; // Preserve through resets
         self.high_pass_90 = OnePole::default();
         self.high_pass_440 = OnePole::default();
         self.low_pass_14k = OnePole::default();
