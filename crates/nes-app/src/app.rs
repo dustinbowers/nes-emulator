@@ -273,6 +273,8 @@ impl<E: AppEventSource> App<E> {
         let sample_rate = config.sample_rate as f64;
         let channels = config.channels as usize;
 
+        nes.bus.apu.set_sample_rate(sample_rate);
+
         let stream = device.build_output_stream(
             config,
             move |data: &mut [T], _: &cpal::OutputCallbackInfo| {

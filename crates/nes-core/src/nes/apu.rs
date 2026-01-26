@@ -1,14 +1,17 @@
+use std::cmp::PartialEq;
 use dmc_channel::DmcChannel;
 use noise_channel::NoiseChannel;
 use pulse_channel::PulseChannel;
 use thiserror::Error;
 use triangle_channel::TriangleChannel;
+use crate::nes::apu::filter::OnePole;
 
 mod dmc_channel;
 mod noise_channel;
 mod pulse_channel;
 mod triangle_channel;
 mod units;
+mod filter;
 
 pub trait ApuBusInterface {
     fn apu_bus_read(&mut self, addr: u16) -> u8;
@@ -31,6 +34,13 @@ pub enum ApuError {
     - l - l    - l - - l    Length counter and sweep
     e e e e    e e e - e    Envelope and linear counter
 */
+
+#[derive(PartialEq)]
+enum SequenceMode {
+    Mode0,
+    Mode1
+}
+
 pub struct APU {
     bus: Option<*mut dyn ApuBusInterface>,
     half_clock: bool,
@@ -53,7 +63,7 @@ pub struct APU {
     pub enable_pulse2: bool,
     pub enable_pulse1: bool,
 
-    pub master_sequence_mode: bool,
+    pub master_sequence_mode: SequenceMode,
     pub frame_clock_counter: u8,
     pub clock_counter: u32,
 
@@ -65,6 +75,11 @@ pub struct APU {
     prev_sample: f32,
     prev_hp: f32,
 
+    sample_rate: f64,
+    high_pass_90: OnePole,
+    high_pass_440: OnePole,
+    low_pass_14k: OnePole,
+
     pub error: Option<ApuError>,
 }
 
@@ -73,6 +88,7 @@ impl Default for APU {
         Self::new()
     }
 }
+
 
 impl APU {
     pub fn new() -> APU {
@@ -97,7 +113,7 @@ impl APU {
             enable_pulse2: false,
             enable_pulse1: false,
 
-            master_sequence_mode: false,
+            master_sequence_mode: SequenceMode::Mode0,
             frame_clock_counter: 0,
             clock_counter: 0,
 
@@ -108,8 +124,17 @@ impl APU {
             prev_sample: 0.0,
             prev_hp: 0.0,
 
+            sample_rate: 0.0,
+            high_pass_90: OnePole::default(),
+            high_pass_440: OnePole::default(),
+            low_pass_14k: OnePole::default(),
+
             error: None,
         }
+    }
+
+    pub fn set_sample_rate(&mut self, sample_rate: f64) {
+        self.sample_rate = sample_rate;
     }
 
     pub fn reset(&mut self) {
@@ -131,13 +156,18 @@ impl APU {
         self.enable_pulse2 = false;
         self.enable_pulse1 = false;
 
-        self.master_sequence_mode = false;
+        self.master_sequence_mode = SequenceMode::Mode0;
         self.frame_clock_counter = 0;
         self.clock_counter = 0;
 
         self.irq_disable = false;
         self.dmc_interrupt = false;
         self.frame_interrupt = false;
+
+        self.sample_rate = 0.0;
+        self.high_pass_90 = OnePole::default();
+        self.high_pass_440 = OnePole::default();
+        self.low_pass_14k = OnePole::default();
 
         self.error = None;
     }
@@ -239,12 +269,15 @@ impl APU {
                        M: Mode.- bit 7
                        I: IRQ Off - bit 6
                 */
-                self.master_sequence_mode = value & 0b1000_0000 != 0;
+                self.master_sequence_mode = match value & 0b1000_0000 != 0 {
+                    false => SequenceMode::Mode0,
+                    true => SequenceMode::Mode1
+                };
                 self.irq_disable = value & 0b0100_0000 != 0;
                 self.frame_clock_counter = 0;
 
                 // When bit 7 is set, reset frameclock counter and clock all channels
-                if self.master_sequence_mode == true {
+                if self.master_sequence_mode == SequenceMode::Mode1 {
                     self.pulse1.clock(true, true);
                     self.pulse2.clock(true, true);
                     self.triangle.clock(true);
@@ -264,7 +297,7 @@ impl APU {
         if !self.half_clock {
             self.clock_counter += 1;
             match self.master_sequence_mode {
-                false => {
+                SequenceMode::Mode0 => {
                     // 4-step
                     match self.clock_counter {
                         3729 => {
@@ -293,7 +326,7 @@ impl APU {
                         _ => {}
                     };
                 }
-                true => {
+                SequenceMode::Mode1 => {
                     // 5-step
                     match self.clock_counter {
                         3729 => {
@@ -351,7 +384,8 @@ impl APU {
         let mut sample = 0.0;
         #[cfg(feature = "linear-apu-approximation")]
         {
-            let pulse = (pulse1 + pulse2) as f32;
+            // See linear approximation on: https://www.nesdev.org/wiki/APU_Mixer
+            let pulse = pulse1 + pulse2;
             let tnd = 0.00851 * triangle + 0.00494 * noise + 0.00335 * dmc;
             sample = 0.00752 * pulse + tnd;
         }
@@ -377,12 +411,10 @@ impl APU {
             sample = pulse_out + tnd_out;
         }
 
-        // DC blocking via high-pass filter
-        let high_pass = sample - self.prev_sample + 0.995 * self.prev_hp;
-        self.prev_sample = sample;
-        self.prev_hp = high_pass;
-
-        high_pass
+        sample = self.high_pass_90.high_pass(sample, 90.0, self.sample_rate as f32);
+        sample = self.high_pass_440.high_pass(sample, 440.0, self.sample_rate as f32);
+        sample = self.low_pass_14k.low_pass(sample, 14_000.0, self.sample_rate as f32);
+        sample
     }
 
     fn clock_irq(&mut self) {}
