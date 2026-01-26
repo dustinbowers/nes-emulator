@@ -32,7 +32,7 @@ impl Mapper002UxRom {
 }
 
 impl Cartridge for Mapper002UxRom {
-    fn chr_read(&mut self, addr: u16) -> u8 {
+    fn cpu_read(&mut self, addr: u16) -> u8 {
         let addr = addr as usize;
         if addr < self.chr.len() {
             self.chr[addr]
@@ -42,14 +42,14 @@ impl Cartridge for Mapper002UxRom {
         }
     }
 
-    fn chr_write(&mut self, addr: u16, data: u8) {
+    fn cpu_write(&mut self, addr: u16, data: u8) {
         if self.chr_is_ram {
             let addr = addr as usize % self.chr.len();
             self.chr[addr] = data;
         }
     }
 
-    fn prg_read(&mut self, addr: u16) -> u8 {
+    fn ppu_read(&mut self, addr: u16) -> u8 {
         let addr = addr as usize;
         let bank_size = 0x4000;
         let bank_count = self.prg_bank_count();
@@ -72,7 +72,7 @@ impl Cartridge for Mapper002UxRom {
         }
     }
 
-    fn prg_write(&mut self, addr: u16, data: u8) {
+    fn ppu_write(&mut self, addr: u16, data: u8) {
         /*
            7  bit  0
            ---- ----

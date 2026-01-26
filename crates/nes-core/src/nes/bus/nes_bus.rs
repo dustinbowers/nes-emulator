@@ -124,7 +124,7 @@ impl CpuBusInterface for NesBus {
                 self.last_cpu_read
             }
             CART_START..=CART_END => match &mut self.cart {
-                Some(cart) => cart.prg_read(addr),
+                Some(cart) => cart.cpu_read(addr),
                 None => 0,
             },
             _ => self.last_cpu_read,
@@ -147,7 +147,7 @@ impl CpuBusInterface for NesBus {
                 self.oam_dma_addr = value;
             }
             0x4016 => {
-                // Used strobing via bit 0
+                // Used to reset strobing via bit 0
                 self.joypads[0].write(value);
                 self.joypads[1].write(value);
             }
@@ -155,11 +155,10 @@ impl CpuBusInterface for NesBus {
                 // APU
                 self.apu.write(addr, value);
             }
-
             0x4018..=0x401F => { /* Open bus */ }
             CART_START..=CART_END => {
                 if let Some(cart) = &mut self.cart {
-                    cart.prg_write(addr, value);
+                    cart.cpu_write(addr, value);
                 }
             }
             _ => {}
@@ -170,13 +169,13 @@ impl CpuBusInterface for NesBus {
 impl PpuBusInterface for NesBus {
     fn chr_read(&mut self, addr: u16) -> u8 {
         match &mut self.cart {
-            Some(cart) => cart.chr_read(addr),
+            Some(cart) => cart.ppu_read(addr),
             _ => 0,
         }
     }
     fn chr_write(&mut self, addr: u16, value: u8) {
         if let Some(cart) = &mut self.cart {
-            cart.chr_write(addr, value);
+            cart.ppu_write(addr, value);
         }
     }
     fn mirroring(&mut self) -> Mirroring {

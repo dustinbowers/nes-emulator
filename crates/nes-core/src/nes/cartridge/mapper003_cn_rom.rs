@@ -33,7 +33,7 @@ impl Mapper003CnRom {
 }
 
 impl Cartridge for Mapper003CnRom {
-    fn chr_read(&mut self, addr: u16) -> u8 {
+    fn cpu_read(&mut self, addr: u16) -> u8 {
         let addr = addr as usize;
         let bank_size = 0x2000;
         let bank_count = self.chr_bank_count();
@@ -48,7 +48,7 @@ impl Cartridge for Mapper003CnRom {
         }
     }
 
-    fn chr_write(&mut self, addr: u16, data: u8) {
+    fn cpu_write(&mut self, addr: u16, data: u8) {
         // Only valid if using CHR RAM (rare for CNROM)
         let bank_size = 0x2000;
         if self.chr_bank_count() == 0 {
@@ -57,7 +57,7 @@ impl Cartridge for Mapper003CnRom {
         }
     }
 
-    fn prg_read(&mut self, addr: u16) -> u8 {
+    fn ppu_read(&mut self, addr: u16) -> u8 {
         let addr = addr as usize;
         let prg_size = self.prg_rom.len();
 
@@ -73,7 +73,7 @@ impl Cartridge for Mapper003CnRom {
         }
     }
 
-    fn prg_write(&mut self, addr: u16, data: u8) {
+    fn ppu_write(&mut self, addr: u16, data: u8) {
         /*
            7  bit  0
            ---- ----

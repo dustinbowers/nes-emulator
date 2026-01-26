@@ -7,7 +7,10 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-nes-app = { path = "../nes-app", features = ["runtime-ppu-schedule"] }
+nes-app = { path = "../nes-app", features = [
+    "linear-apu-approximation", # Approximate APU sample values
+    "runtime-ppu-schedule" # Faster compiles / smaller WASM bundle
+] }
 eframe = { version = "0.33.3", default-features = false, features = [
     "default_fonts",
     "glow",

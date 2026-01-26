@@ -21,7 +21,7 @@ pub enum RomError {
     UnsupportedMapper(u8),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum Mirroring {
     Vertical,
     Horizontal,

@@ -341,6 +341,7 @@ impl<E: AppEventSource> App<E> {
                             }
 
                             let raw = nes.bus.apu.sample();
+                            // let raw = 0.0;
                             let sample = T::from_sample(raw);
 
                             for out in frame.iter_mut() {
