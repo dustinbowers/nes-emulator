@@ -24,6 +24,7 @@ pub struct NesBus {
     // Some games expect an "open-bus":
     // i.e. invalid reads return last-read byte
     pub last_cpu_read: u8,
+    pub last_ppu_read: u8,
 
     pub joypads: [Joypad; 2],
     // pub controller1: Box<Joypad>,
@@ -43,6 +44,7 @@ impl NesBus {
             oam_dma_addr: 0,
 
             last_cpu_read: 0,
+            last_ppu_read: 0,
             joypads: [Joypad::new(), Joypad::new()],
             // controller1: Box::new(Joypad::new()),
             // controller2: Box::new(Joypad::new()),
@@ -124,7 +126,12 @@ impl CpuBusInterface for NesBus {
                 self.last_cpu_read
             }
             CART_START..=CART_END => match &mut self.cart {
-                Some(cart) => cart.cpu_read(addr),
+                Some(cart) => {
+                    match cart.cpu_read(addr) {
+                        (data, false) => data,
+                        (_, true) => self.last_cpu_read
+                    }
+                }
                 None => 0,
             },
             _ => self.last_cpu_read,
@@ -169,7 +176,15 @@ impl CpuBusInterface for NesBus {
 impl PpuBusInterface for NesBus {
     fn chr_read(&mut self, addr: u16) -> u8 {
         match &mut self.cart {
-            Some(cart) => cart.ppu_read(addr),
+            Some(cart) => {
+                match cart.ppu_read(addr) {
+                    (data, false) => {
+                        self.last_ppu_read = data;
+                        data
+                    },
+                    (_, true) => self.last_ppu_read
+                }
+            },
             _ => 0,
         }
     }

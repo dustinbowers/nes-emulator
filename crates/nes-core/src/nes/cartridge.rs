@@ -9,13 +9,21 @@ pub mod rom;
 
 pub trait Cartridge {
     /// CPU read ($4020–$FFFF)
-    fn cpu_read(&mut self, addr: u16) -> u8;
+    ///
+    /// # Returns
+    ///
+    /// A `(u8, bool)` tuple containing the data as `u8` and open bus as `bool`
+    fn cpu_read(&mut self, addr: u16) -> (u8, bool);
 
     /// CPU write ($4020–$FFFF)
     fn cpu_write(&mut self, addr: u16, data: u8);
 
     /// PPU read ($0000–$1FFF)
-    fn ppu_read(&mut self, addr: u16) -> u8;
+    ///
+    /// # Returns
+    ///
+    /// A `(u8, bool)` tuple containing the data as `u8` and open bus as `bool`
+    fn ppu_read(&mut self, addr: u16) -> (u8, bool);
 
     /// PPU write ($0000–$1FFF)
     fn ppu_write(&mut self, addr: u16, data: u8);

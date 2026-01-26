@@ -28,20 +28,20 @@ impl NromCart {
 }
 
 impl Cartridge for NromCart {
-    fn cpu_read(&mut self, addr: u16) -> u8 {
+    fn cpu_read(&mut self, addr: u16) -> (u8, bool) {
         match addr {
             0x6000..=0x7FFF => {
                 let index = (addr -0x6000) as usize;
-                self.prg_ram[index]
+                (self.prg_ram[index], false)
             },
             0x8000..=0xFFFF => {
                 let mut index = addr - 0x8000;
                 if self.prg_rom.len() == 0x4000 {
                     index %= 0x4000; // mirror 16kb
                 }
-                self.prg_rom[index as usize]
+                (self.prg_rom[index as usize], false)
             }
-            _ => 0
+            _ => (0, true)
         }
     }
 
@@ -55,20 +55,19 @@ impl Cartridge for NromCart {
         }
     }
 
-    fn ppu_read(&mut self, addr: u16) -> u8 {
+    fn ppu_read(&mut self, addr: u16) -> (u8, bool) {
         let addr = addr as usize;
         if addr < self.chr.len() {
-            self.chr[addr]
+            (self.chr[addr], false)
         } else {
             // TODO: this may not be exceptional?
             panic!("CHR read out of bounds: {:04X}", addr);
-            0
+            (0, true)
         }
     }
 
     fn ppu_write(&mut self, addr: u16, data: u8) {
         if self.chr_is_ram {
-            // TODO: this wrapping may not be necessary...
             let addr = addr as usize % self.chr.len();
             self.chr[addr] = data;
         }

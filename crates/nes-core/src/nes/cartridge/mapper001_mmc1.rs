@@ -51,7 +51,7 @@ impl Mmc1 {
         if data & 0x80 != 0 {
             self.shift_reg = 0x10;
             self.shift_count = 0;
-            self.control |= 0x0C; // set PRG mode = 3
+            self.control = (self.control & !0x0C) | 0x0C; // set PRG mode = 3
             return;
         }
 
@@ -63,10 +63,10 @@ impl Mmc1 {
         if self.shift_count == 5 {
             // Determine which register to update
             match addr {
-                0x8000..=0x9FFF => self.control = self.shift_reg,
-                0xA000..=0xBFFF => self.chr_bank0 = self.shift_reg,
-                0xC000..=0xDFFF => self.chr_bank1 = self.shift_reg,
-                0xE000..=0xFDFF => self.prg_bank = self.shift_reg,
+                0x8000..=0x9FFF => self.control = self.shift_reg & 0x1F,    // 5 bits
+                0xA000..=0xBFFF => self.chr_bank0 = self.shift_reg & 0x1F,  // 5 bits
+                0xC000..=0xDFFF => self.chr_bank1 = self.shift_reg & 0x1F,  // 5 bits
+                0xE000..=0xFFFF => self.prg_bank = self.shift_reg & 0x0F,   // 4 bits
                 _ => unreachable!()
 
             }
@@ -75,16 +75,40 @@ impl Mmc1 {
             self.shift_count = 0;
         }
     }
+
+    fn ppu_bank_addr(&self, addr: u16) -> u16 {
+        let mode_4k = self.control & 0x10 != 0;
+        let bank_addr = if mode_4k {
+            let bank_sel = if addr < 0x1000 {
+                self.chr_bank0
+            } else {
+                self.chr_bank1
+            };
+            let max_banks = (self.chr_rom.len() / 0x1000).max(1) as u8;
+            let bank_sel = bank_sel % max_banks;
+            (bank_sel as u16) * 0x1000 + (addr & 0x0FFF)
+        } else {
+            let bank_sel = (self.chr_bank0 & 0x1E) as u16;
+            bank_sel * 0x2000 + addr
+        };
+        bank_addr
+    }
 }
 
 impl Cartridge for Mmc1 {
-    fn cpu_read(&mut self, addr: u16) -> u8 {
+    fn cpu_read(&mut self, addr: u16) -> (u8, bool) {
         let addr = addr as usize;
         match addr {
             0x6000..=0x7FFF => {
                 // 8KB PRG-RAM bank (optional)
-                let idx = (addr - 0x6000) as usize;
-                self.prg_ram[idx]
+                let prg_ram_enabled = self.prg_bank & 0x10 == 0;
+                if prg_ram_enabled {
+                    let idx = addr - 0x6000;
+                    let data = self.prg_ram[idx % 0x2000]; // Mirror if above 8KB
+                    (data, false)
+                } else {
+                    (0, true) // open bus
+                }
             }
             0x8000..=0xFFFF => {
                 let addr = (addr - 0x8000) as usize;
@@ -93,19 +117,22 @@ impl Cartridge for Mmc1 {
 
                 let bank_addr = match mode {
                     0 | 1 => {
-                        let bank_sel = (self.prg_bank & 0x0E) as usize;
-                        bank_sel * 0x4000 + addr
+                        let bank = (self.prg_bank & 0x0E) as usize;
+                        let base = bank * 0x4000; // 16KB units
+                        (base + addr) % prg_size
                     }
                     2 => {
                         if addr < 0x4000 {
                             addr
                         } else {
-                            (self.prg_bank as usize) * 0x4000 + (addr - 0x4000)
+                            let bank_sel = (self.prg_bank & 0x0F) as usize;
+                            (bank_sel * 0x4000 + (addr - 0x4000)) % prg_size
                         }
                     }
                     3 => {
                         if addr < 0x4000 {
-                            (self.prg_bank as usize) * 0x4000 + addr
+                            let bank_sel = (self.prg_bank & 0x0F) as usize;
+                            (bank_sel * 0x4000 + addr) % prg_size
                         } else {
                             let last = prg_size - 0x4000;
                             last + (addr - 0x4000)
@@ -114,55 +141,25 @@ impl Cartridge for Mmc1 {
                     _ => unreachable!(),
                 };
 
-                self.prg_rom[bank_addr % prg_size]
+                (self.prg_rom[bank_addr % prg_size], false)
 
-                // 16KB PRG-ROM bank, either switchable or fixed to the first bank
-
-                // 16KB PRG-ROM bank, either fixed to the last bank or switchable
             }
-            _ => 0 // open-bus
+            _ => (0, true) // open-bus
         }
-
-        // let addr = addr as usize - 0x8000;
-        // let prg_size = self.prg_rom.len();
-        // let bank_mode = (self.control >> 2) & 0x03;
-        // let bank = match bank_mode {
-        //     0 | 1 => {
-        //         // 32KB switch, ignore low bit of prg_bank
-        //         let bank_sel = (self.prg_bank & 0x0E) as usize;
-        //         (bank_sel * 0x4000 + addr) % prg_size
-        //     }
-        //     2 => {
-        //         // Fix first bank at $8000, switch at $C000
-        //         if addr < 0x4000 {
-        //             addr
-        //         } else {
-        //             let bank_sel = self.prg_bank as usize;
-        //             bank_sel * 0x4000 + (addr - 0x4000)
-        //         }
-        //     }
-        //     3 => {
-        //         // Switch at $8000, fix last bank at $C000
-        //         let last_bank = prg_size - 0x4000;
-        //         if addr < 0x4000 {
-        //             let bank_sel = self.prg_bank as usize;
-        //             bank_sel * 0x4000 + addr
-        //         } else {
-        //             last_bank + (addr - 0x4000)
-        //         }
-        //     }
-        //     _ => unreachable!(),
-        // };
-        // self.prg_rom[bank]
     }
 
     fn cpu_write(&mut self, addr: u16, data: u8) {
+        // Note: MMC1 requires one CPU cycle between writes on real hardware
+        //       This shouldn't be a problem given my CPU is memory-cycle accurate
         match addr {
             0x6000..=0x7FFF => {
-                // PRG RAM (if any)
-                let offset = (addr - 0x6000) as usize;
-                if offset < self.prg_ram.len() {
-                    self.prg_ram[offset] = data;
+                // write PRG RAM if enabled
+                let prg_ram_enabled = self.prg_bank & 0x10 == 0;
+                if prg_ram_enabled {
+                    let offset = (addr - 0x6000) as usize;
+                    if offset < self.prg_ram.len() {
+                        self.prg_ram[offset] = data;
+                    }
                 }
             }
             0x8000..=0xFFFF => {
@@ -173,37 +170,23 @@ impl Cartridge for Mmc1 {
         }
     }
 
-    fn ppu_read(&mut self, addr: u16) -> u8 {
-        let mode_4k = self.control & 0x10 != 0;
-        let addr = addr as usize;
-        let bank = if mode_4k {
-            // 4KB mode
-            let bank_sel = if addr < 0x1000 {
-                self.chr_bank0
-            } else {
-                self.chr_bank1
-            };
-            (bank_sel as usize) * 0x1000 + (addr & 0x0FFF)
-        } else {
-            // 8KB mode
-            let bank_sel = (self.chr_bank0 & 0x0E) as usize;
-            bank_sel * 0x1000 + addr
-        };
-
+    fn ppu_read(&mut self, addr: u16) -> (u8, bool) {
+        let bank_addr = self.ppu_bank_addr(addr) as usize;
+        let mut data = 0;
         if !self.chr_ram.is_empty() {
-            self.chr_ram[bank % self.chr_ram.len()]
+            data =self.chr_ram[bank_addr % self.chr_ram.len()];
         } else {
-            self.chr_rom[bank % self.chr_rom.len()]
+            data = self.chr_rom[bank_addr % self.chr_rom.len()];
         }
+        (data, false)
     }
 
     fn ppu_write(&mut self, addr: u16, data: u8) {
-        let chr_ram_len = self.chr_ram.len();
         if !self.chr_ram.is_empty() {
-            let addr = addr as usize;
-            self.chr_ram[addr % chr_ram_len] = data;
+            let bank_addr = self.ppu_bank_addr(addr) as usize;
+            let chr_ram_len = self.chr_ram.len();
+            self.chr_ram[bank_addr % chr_ram_len] = data;
         }
-        // else: CHR-ROM, ignore writes
     }
 
     fn mirroring(&self) -> Mirroring {
