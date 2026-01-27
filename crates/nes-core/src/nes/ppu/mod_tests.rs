@@ -20,10 +20,10 @@ mod test {
     }
 
     impl PpuBusInterface for MockPpuBus {
-        fn chr_read(&mut self, addr: u16) -> u8 {
+        fn ppu_bus_read(&mut self, addr: u16) -> u8 {
             self.chr[addr as usize % 0x2000]
         }
-        fn chr_write(&mut self, addr: u16, value: u8) {
+        fn ppu_bus_write(&mut self, addr: u16, value: u8) {
             self.chr[addr as usize % 0x2000] = value;
         }
         fn mirroring(&mut self) -> Mirroring {

@@ -54,6 +54,11 @@ impl CPU {
     /// * The first element is true if current instruction is complete
     /// * The second element is true if CPU is breaking (due to JAM/KIL instruction)
     pub fn tick(&mut self) -> (bool, bool) {
+        self.cycle += 1;
+        if self.cycle >= 1_000_000 {
+            self.cycle -= 1_000_000; // Prevent overflow
+        }
+
         if self.nmi_pending {
             self.nmi_pending = false;
             self.active_interrupt = Some(interrupts::NMI);

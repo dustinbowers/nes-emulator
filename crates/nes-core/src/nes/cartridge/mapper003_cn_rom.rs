@@ -33,7 +33,7 @@ impl Mapper003CnRom {
 }
 
 impl Cartridge for Mapper003CnRom {
-    fn chr_read(&mut self, addr: u16) -> u8 {
+    fn cpu_read(&mut self, addr: u16) -> (u8, bool) {
         let addr = addr as usize;
         let bank_size = 0x2000;
         let bank_count = self.chr_bank_count();
@@ -41,14 +41,14 @@ impl Cartridge for Mapper003CnRom {
         let base = bank * bank_size;
 
         if addr < bank_size {
-            self.chr[base + addr]
+            (self.chr[base + addr], false)
         } else {
             eprintln!("CHR read out of bounds: {:04X}", addr);
-            0
+            (0, true)
         }
     }
 
-    fn chr_write(&mut self, addr: u16, data: u8) {
+    fn cpu_write(&mut self, addr: u16, data: u8) {
         // Only valid if using CHR RAM (rare for CNROM)
         let bank_size = 0x2000;
         if self.chr_bank_count() == 0 {
@@ -57,23 +57,23 @@ impl Cartridge for Mapper003CnRom {
         }
     }
 
-    fn prg_read(&mut self, addr: u16) -> u8 {
+    fn ppu_read(&mut self, addr: u16) -> (u8, bool){
         let addr = addr as usize;
         let prg_size = self.prg_rom.len();
 
         match addr {
             0x8000..=0xFFFF => {
                 let mapped = (addr - 0x8000) % prg_size;
-                self.prg_rom[mapped]
+                (self.prg_rom[mapped], false)
             }
             _ => {
                 eprintln!("PRG read out of bounds: {:04X}", addr);
-                0
+                (0, true)
             }
         }
     }
 
-    fn prg_write(&mut self, addr: u16, data: u8) {
+    fn ppu_write(&mut self, addr: u16, data: u8) {
         /*
            7  bit  0
            ---- ----

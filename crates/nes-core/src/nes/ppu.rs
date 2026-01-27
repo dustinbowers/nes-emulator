@@ -20,8 +20,8 @@ pub mod consts;
 mod mod_tests;
 
 pub trait PpuBusInterface {
-    fn chr_read(&mut self, addr: u16) -> u8;
-    fn chr_write(&mut self, addr: u16, value: u8);
+    fn ppu_bus_read(&mut self, addr: u16) -> u8;
+    fn ppu_bus_write(&mut self, addr: u16, value: u8);
     fn mirroring(&mut self) -> Mirroring;
     fn nmi(&mut self);
 }
@@ -560,7 +560,7 @@ impl PPU {
 
     fn chr_read(&mut self, addr: u16) -> u8 {
         match self.bus {
-            Some(bus_ptr) => unsafe { (*bus_ptr).chr_read(addr) },
+            Some(bus_ptr) => unsafe { (*bus_ptr).ppu_bus_read(addr) },
             None => {
                 eprintln!("Invalid PPU::chr_read at address: {:04X}", addr);
                 0
@@ -570,7 +570,7 @@ impl PPU {
 
     fn chr_write(&mut self, addr: u16, value: u8) {
         match self.bus {
-            Some(bus_ptr) => unsafe { (*bus_ptr).chr_write(addr, value) },
+            Some(bus_ptr) => unsafe { (*bus_ptr).ppu_bus_write(addr, value) },
             None => {
                 eprintln!("Invalid PPU::chr_write at address: {:04X}", addr);
             }
