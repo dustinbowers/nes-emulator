@@ -43,7 +43,7 @@ impl Cartridge for Mapper003CnRom {
         if addr < bank_size {
             (self.chr[base + addr], false)
         } else {
-            eprintln!("CHR read out of bounds: {:04X}", addr);
+            // eprintln!("CHR read out of bounds: {:04X}", addr);
             (0, true)
         }
     }

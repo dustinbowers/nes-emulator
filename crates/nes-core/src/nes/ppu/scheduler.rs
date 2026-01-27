@@ -64,6 +64,7 @@ pub enum PpuOperation {
 
     SetVBlank,
     ClearVBlank,
+    ClearVBlank2,
 
     None,
 }
@@ -163,7 +164,7 @@ const fn schedule_for(scanline: usize, dot: usize) -> DotOperations {
     }
 
     // Reset sprite evaluation (dot 65)
-    if visible && dot == 64 {
+    if visible && dot == 65 {
         ops = ops.push(PpuOperation::ResetSpriteEvaluation);
     }
 
@@ -179,14 +180,23 @@ const fn schedule_for(scanline: usize, dot: usize) -> DotOperations {
     }
 
     // VBlank flag toggle
-    if dot == 1 {
-        if scanline == 241 {
+    if scanline == 241 {
+        if dot == 1 { // Passes 2.vbl_set_time.nes
+        // if dot == 1 {
             ops = ops.push(PpuOperation::SetVBlank);
         }
-        if prerender {
+    }
+
+    if prerender {
+        if dot == 0 { // Passes 3.vbl_clear_time.nes
+        // if dot == 1 {
             ops = ops.push(PpuOperation::ClearVBlank);
         }
+        if dot == 0 {
+            ops = ops.push(PpuOperation::ClearVBlank2);
+        }
     }
+
     ops
 }
 

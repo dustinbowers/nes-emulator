@@ -10,7 +10,7 @@ path = "src/lib.rs"
 [features]
 runtime-ppu-schedule = ["nes-core/runtime-ppu-schedule"]
 linear-apu-approximation = ["nes-core/linear-apu-approximation"]
-
+tracing = ["nes-core/tracing"]
 
 [dependencies]
 nes-core = { path = "../nes-core", default-features = false }

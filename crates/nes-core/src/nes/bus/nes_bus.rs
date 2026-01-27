@@ -207,7 +207,6 @@ impl PpuBusInterface for NesBus {
         }
     }
     fn nmi(&mut self) {
-        trace!("CPU Triggering NMI!");
         self.cpu.trigger_nmi();
     }
 }

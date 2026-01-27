@@ -7,6 +7,9 @@ pub mod traceable;
 
 pub use traceable::Traceable;
 
+#[cfg(feature = "tracing")]
+pub static TRACER: Lazy<Mutex<Tracer>> = Lazy::new(|| Mutex::new(Tracer::new(10_000)));
+
 /// Global tracer
 #[cfg(feature = "tracing")]
 pub struct Tracer {
