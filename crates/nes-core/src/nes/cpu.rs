@@ -131,6 +131,7 @@ struct CpuCycleState {
 
 pub struct CPU {
     pub bus: Option<*mut dyn CpuBusInterface>,
+    pub cycle: usize,
     pub cpu_mode: CpuMode,
     pub rdy: bool,
     pub halt_scheduled: bool,
@@ -157,6 +158,7 @@ impl CPU {
     pub fn new() -> CPU {
         CPU {
             bus: None,
+            cycle: 0,
             cpu_mode: CpuMode::Read,
             halt_scheduled: false,
             rdy: true,
@@ -180,6 +182,7 @@ impl CPU {
         let pcl = self.bus_read(0xFFFC) as u16;
         let pch = self.bus_read(0xFFFD) as u16;
         self.program_counter = (pch << 8) | pcl;
+        self.cycle = 0;
         self.current_op = CpuCycleState::default();
         self.last_opcode_desc = "".to_string();
         self.halt_scheduled = false;

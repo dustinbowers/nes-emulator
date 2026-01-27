@@ -7,6 +7,12 @@ pub mod mapper003_cn_rom;
 pub mod rom;
 // mod mapper004_mmc3;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapperTiming {
+    None,
+    Mmc1,
+}
+
 pub trait Cartridge {
     /// CPU read ($4020–$FFFF)
     ///
@@ -30,4 +36,9 @@ pub trait Cartridge {
 
     /// Nametable mirroring mode
     fn mirroring(&self) -> Mirroring;
+
+    /// Bus-visible timing quirks
+    fn timing(&self) -> MapperTiming {
+        MapperTiming::None
+    }
 }

@@ -117,14 +117,14 @@ impl NES {
                 DmaMode::Oam => {
                     // DMA transfers one byte per 2 CPU cycles
                     if self.oam_transfer_cycles < OAM_DMA_DONE_CYCLES {
-                        let byte_index = self.oam_transfer_cycles / 2;
                         if self.oam_transfer_cycles.is_multiple_of(2) {
+                            let byte_index = self.oam_transfer_cycles / 2;
+
                             // Read from CPU memory
                             let hi: u16 = (self.bus.oam_dma_addr as u16) << 8;
                             let addr = hi + byte_index as u16;
                             let value = self.bus.cpu_bus_read(addr);
-                            // trace!("[OAM TRANSFER] oam_transfer_cycles={} addr={} cpu_byte={:02X}",
-                            //     self.oam_transfer_cycles, addr, value);
+
                             self.bus.ppu.write_to_oam_data(value);
                         }
                         self.oam_transfer_cycles += 1;

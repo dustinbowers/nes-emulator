@@ -1,4 +1,4 @@
-use super::Cartridge;
+use super::{Cartridge, MapperTiming};
 use super::rom::Mirroring;
 
 // MMC1 mapper (iNES mapper #1)
@@ -80,15 +80,16 @@ impl Mmc1 {
         let mode_4k = self.control & 0x10 != 0;
         let bank_addr = if mode_4k {
             let bank_sel = if addr < 0x1000 {
-                self.chr_bank0
+                self.chr_bank0 as u16
             } else {
-                self.chr_bank1
+                self.chr_bank1 as u16
             };
-            let max_banks = (self.chr_rom.len() / 0x1000).max(1) as u8;
+            let max_banks = (self.chr_rom.len() / 0x1000).max(1) as u16;
             let bank_sel = bank_sel % max_banks;
-            (bank_sel as u16) * 0x1000 + (addr & 0x0FFF)
+            bank_sel * 0x1000 + (addr & 0x0FFF)
         } else {
-            let bank_sel = (self.chr_bank0 & 0x1E) as u16;
+            let max_banks = (self.chr_rom.len() / 0x2000).max(1) as u16;
+            let bank_sel = ((self.chr_bank0 & 0x1E) as u16) % max_banks;
             bank_sel * 0x2000 + addr
         };
         bank_addr
@@ -197,5 +198,66 @@ impl Cartridge for Mmc1 {
             3 => Mirroring::Horizontal,
             _ => unreachable!(),
         }
+    }
+
+    fn timing(&self) -> MapperTiming {
+        MapperTiming::Mmc1
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    #[test]
+    fn mmc1_reset_clears_shift_and_sets_prg_mode() {
+        let mut mmc1 = Mmc1::new(vec![0; 0x8000], vec![0; 0x2000], 0x2000);
+
+        mmc1.cpu_write(0x8000, 0x80);
+
+        assert_eq!(mmc1.shift_reg, 0x10);
+        assert_eq!(mmc1.shift_count, 0);
+        assert_eq!((mmc1.control >> 2) & 0b11, 3);
+    }
+
+    #[test]
+    fn mmc1_control_register_commit() {
+        let mut mmc1 = Mmc1::new(vec![0; 0x8000], vec![0; 0x2000], 0x2000);
+
+        // Write 0b10101 (LSB first)
+        for bit in [1, 0, 1, 0, 1] {
+            mmc1.cpu_write(0x8000, bit);
+        }
+
+        assert_eq!(mmc1.control & 0x1F, 0b10101);
+        assert_eq!(mmc1.shift_count, 0);
+    }
+
+    #[test]
+    fn mmc1_prg_mode_3_fixed_last_bank() {
+        let prg = (0..0x8000).map(|i| (i & 0xFF) as u8).collect::<Vec<_>>();
+        let mut mmc1 = Mmc1::new(prg.clone(), vec![], 0x2000);
+
+        mmc1.control = 0b11100; // mode 3
+        mmc1.prg_bank = 0;
+
+        let (lo, _) = mmc1.cpu_read(0x8000);
+        let (hi, _) = mmc1.cpu_read(0xC000);
+
+        assert_eq!(lo, prg[0]);
+        assert_eq!(hi, prg[prg.len() - 0x4000]);
+    }
+
+    #[test]
+    fn mmc1_chr_8k_bank_wraps() {
+        let chr = vec![0xAA; 0x2000]; // only 1 bank
+        let mut mmc1 = Mmc1::new(vec![0; 0x8000], chr.clone(), 0);
+
+        mmc1.control &= !0x10; // 8 KB mode
+        mmc1.chr_bank0 = 4;   // out of range
+
+        let (data, _) = mmc1.ppu_read(0x1234);
+        assert_eq!(data, 0xAA);
     }
 }

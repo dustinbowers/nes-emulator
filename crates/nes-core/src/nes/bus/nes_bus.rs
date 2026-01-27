@@ -1,6 +1,6 @@
 use crate::nes::apu::{APU, ApuBusInterface};
 use crate::nes::bus::consts::*;
-use crate::nes::cartridge::Cartridge;
+use crate::nes::cartridge::{Cartridge, MapperTiming};
 use crate::nes::cartridge::rom::Mirroring;
 use crate::nes::controller::NesController;
 use crate::nes::controller::joypad::Joypad;
@@ -21,14 +21,14 @@ pub struct NesBus {
 
     pub oam_dma_addr: u8,
 
+    pub last_mapper_write_cycle: Option<usize>,
+
     // Some games expect an "open-bus":
     // i.e. invalid reads return last-read byte
     pub last_cpu_read: u8,
     pub last_ppu_read: u8,
 
     pub joypads: [Joypad; 2],
-    // pub controller1: Box<Joypad>,
-    // pub controller2: Box<Joypad>,
 }
 
 impl NesBus {
@@ -43,11 +43,11 @@ impl NesBus {
             nmi_scheduled: None,
             oam_dma_addr: 0,
 
+            last_mapper_write_cycle: None,
+
             last_cpu_read: 0,
             last_ppu_read: 0,
             joypads: [Joypad::new(), Joypad::new()],
-            // controller1: Box::new(Joypad::new()),
-            // controller2: Box::new(Joypad::new()),
         });
 
         // Safety: This raw pointer should remain stable
@@ -66,7 +66,6 @@ impl NesBus {
         self.oam_dma_addr = 0;
         self.last_cpu_read = 0;
         self.joypads = [Joypad::new(), Joypad::new()];
-        // *self.controller1 = Joypad::new();
 
         self.cpu.reset();
         self.ppu.reset();
@@ -159,12 +158,20 @@ impl CpuBusInterface for NesBus {
                 self.joypads[1].write(value);
             }
             0x4000..=0x4013 | 0x4015 | 0x4017 => {
-                // APU
                 self.apu.write(addr, value);
             }
             0x4018..=0x401F => { /* Open bus */ }
             CART_START..=CART_END => {
                 if let Some(cart) = &mut self.cart {
+
+                    // MMC1 timing quirk
+                    if addr >= 0x8000 && cart.timing() == MapperTiming::Mmc1 {
+                        if self.last_mapper_write_cycle == Some(self.cpu.cycle - 1) {
+                            return;
+                        }
+                        self.last_mapper_write_cycle = Some(self.cpu.cycle);
+                    }
+
                     cart.cpu_write(addr, value);
                 }
             }
@@ -174,7 +181,7 @@ impl CpuBusInterface for NesBus {
 }
 
 impl PpuBusInterface for NesBus {
-    fn chr_read(&mut self, addr: u16) -> u8 {
+    fn ppu_bus_read(&mut self, addr: u16) -> u8 {
         match &mut self.cart {
             Some(cart) => {
                 match cart.ppu_read(addr) {
@@ -188,7 +195,7 @@ impl PpuBusInterface for NesBus {
             _ => 0,
         }
     }
-    fn chr_write(&mut self, addr: u16, value: u8) {
+    fn ppu_bus_write(&mut self, addr: u16, value: u8) {
         if let Some(cart) = &mut self.cart {
             cart.ppu_write(addr, value);
         }
