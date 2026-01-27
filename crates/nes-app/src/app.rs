@@ -104,7 +104,7 @@ impl<E: AppEventSource> App<E> {
         // };
         let initial_state = State::Waiting;
 
-        let app = Self {
+        let mut app = Self {
             key_map,
             texture: None,
             audio_stream: None,
@@ -134,7 +134,14 @@ impl<E: AppEventSource> App<E> {
         };
 
         for cmd in initial_commands {
-            app.control.send(cmd).ok();
+            match cmd {
+                AppCommand::LoadRom(rom) => {
+                    app.play_rom(rom);
+                }
+                _ => {
+                    app.control.send(cmd).ok();
+                }
+            };
         }
         app
     }
@@ -163,6 +170,7 @@ impl<E: AppEventSource> App<E> {
         self.log(format!("[App received event]: {:?}", event));
         match event {
             AppEvent::RequestLoadRom(rom) => {
+                self.log(format!("[EVENT] RequestLoadRom ({} bytes)", rom.len()));
                 self.play_rom(rom);
             }
             AppEvent::RequestReset => {
