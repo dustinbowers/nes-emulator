@@ -4,20 +4,16 @@ use std::sync::Mutex;
 
 mod macros;
 pub mod traceable;
-
 pub use traceable::Traceable;
 
-#[cfg(feature = "tracing")]
-pub static TRACER: Lazy<Mutex<Tracer>> = Lazy::new(|| Mutex::new(Tracer::new(10_000)));
+pub static TRACER: Lazy<Mutex<Tracer>> = Lazy::new(|| Mutex::new(Tracer::new(5_000_000)));
 
 /// Global tracer
-#[cfg(feature = "tracing")]
 pub struct Tracer {
     history: VecDeque<String>,
     capacity: usize,
 }
 
-#[cfg(feature = "tracing")]
 impl Tracer {
     pub fn new(capacity: usize) -> Self {
         Self {
@@ -49,19 +45,4 @@ impl Tracer {
     pub fn clear(&mut self) {
         self.history.clear();
     }
-}
-
-// No-op stub for when tracing is disabled
-#[cfg(not(feature = "tracing"))]
-pub struct Tracer;
-
-#[cfg(not(feature = "tracing"))]
-impl Tracer {
-    pub fn new(_: usize) -> Self {
-        Tracer
-    }
-    pub fn write(&mut self, _: String) {}
-    pub fn print(&self) {}
-    pub fn clear(&mut self) {}
-    pub fn log<T>(&mut self, _: &T) {}
 }

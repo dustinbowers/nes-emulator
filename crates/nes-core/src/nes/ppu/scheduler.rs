@@ -185,14 +185,12 @@ const fn schedule_for(scanline: usize, dot: usize) -> DotOperations {
     // VBlank flag toggle
     if scanline == 241 {
         if dot == 1 {
-            // Passes 2.vbl_set_time.nes
-            // if dot == 1 {
             ops = ops.push(PpuOperation::SetVBlank);
         }
     }
 
     if prerender {
-        // Clear VBL and sprite flags at dot 1 of pre-render
+        // Clear VBL and sprite flags at the start of pre-render
         if dot == 1 {
             ops = ops.push(PpuOperation::ClearVBlank);
             ops = ops.push(PpuOperation::ClearVBlank2);
@@ -356,7 +354,7 @@ mod test {
         assert_has(241, 1, PpuOperation::SetVBlank);
 
         // VBlank clear (pre-render)
-        assert_has(261, 1, PpuOperation::ClearVBlank);
+        assert_has(261, 0, PpuOperation::ClearVBlank);
 
         // Should not appear elsewhere
         for scanline in 0..262 {
@@ -364,7 +362,7 @@ mod test {
                 if !(scanline == 241 && dot == 1) {
                     assert_not(scanline, dot, PpuOperation::SetVBlank);
                 }
-                if !(scanline == 261 && dot == 1) {
+                if !(scanline == 261 && dot == 0) {
                     assert_not(scanline, dot, PpuOperation::ClearVBlank);
                 }
             }

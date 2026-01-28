@@ -5,7 +5,8 @@ use super::{
     CPU, CPU_STACK_RESET, CpuBusInterface, CpuCycleState, CpuError, CpuMode, DEBUG, Flags,
     interrupts, opcodes,
 };
-use crate::trace_obj;
+use crate::nes::tracer::Traceable;
+use crate::{trace_cpu_event, trace_obj};
 use bitflags::bitflags;
 use std::collections::HashMap;
 use thiserror::Error;
@@ -21,9 +22,10 @@ impl CPU {
         }
     }
 
-    pub fn trigger_nmi(&mut self) {
-        self.nmi_pending = true;
-    }
+    // pub fn trigger_nmi(&mut self, defer_one_instruction: bool) {
+    //     self.nmi_pending = true;
+    //     self.nmi_defer = if defer_one_instruction { 1 } else { 0 };
+    // }
 
     fn toggle_mode(&mut self) {
         self.cpu_mode = match &self.cpu_mode {
@@ -55,16 +57,8 @@ impl CPU {
     /// * The second element is true if CPU is breaking (due to JAM/KIL instruction)
     pub fn tick(&mut self) -> (bool, bool) {
         self.cycle += 1;
-        if self.cycle >= 1_000_000 {
-            self.cycle -= 1_000_000; // Prevent overflow
-        }
-
-        if self.nmi_pending {
-            self.nmi_pending = false;
-            self.active_interrupt = Some(interrupts::NMI);
-        } else if self.irq_pending && !self.status.contains(Flags::INTERRUPT_DISABLE) {
-            self.irq_pending = false;
-            self.active_interrupt = Some(interrupts::IRQ);
+        if self.cycle >= 3_000_000 {
+            self.cycle -= 3_000_000; // Prevent overflow
         }
 
         // Load next opcode if empty
@@ -83,6 +77,33 @@ impl CPU {
                     }
                 }
                 return (false, false);
+            }
+
+            // We're at instruction boundary with no active interrupts, so check for pending interrupts
+            if self.active_interrupt.is_none() {
+                let curr_nmi_line = self.nmi_line();
+                if !curr_nmi_line {
+                    self.nmi_armed = true;
+                }
+
+                if self.nmi_enable_holdoff > 0 {
+                    self.nmi_enable_holdoff -= 1;
+                } else if curr_nmi_line && self.nmi_armed {
+                    self.nmi_armed = false;
+                    self.active_interrupt = Some(interrupts::NMI);
+                    {
+                        let (scanline, dot) = unsafe { (*self.bus.unwrap()).ppu_timing() };
+                        trace_cpu_event!("[NMI SET] sl={} dot={}", scanline, dot);
+                    }
+                }
+            }
+
+            if self.active_interrupt.is_none() {
+                // Handle IRQ
+                if self.irq_pending && !self.status.contains(Flags::INTERRUPT_DISABLE) {
+                    self.irq_pending = false;
+                    self.active_interrupt = Some(interrupts::IRQ);
+                }
             }
 
             // Handle Interrupt if one is waiting
@@ -110,6 +131,13 @@ impl CPU {
             self.current_op.opcode = Some(opcode);
             self.current_op.access_type = opcode.access_type;
 
+            if opcode.code == 0xA2 {
+                if let Some(state) = self.trace_state() {
+                    let operand = self.bus_read(self.program_counter);
+                    trace_cpu_event!("{} OP={operand}", state);
+                }
+            }
+
             // NOTE: I've assigned the 0x02 opcode (normally a JAM/KIL) to break out of the CPU run loop for testing purposes
             let is_breaking: bool = if opcode.code == 0x02 {
                 self.error = Some(CpuError::JamOpcode(opcode.code));
@@ -127,6 +155,13 @@ impl CPU {
 
         // Prepare for next opcode
         if done {
+            let (sl, dot) = unsafe { (*self.bus.unwrap()).ppu_timing() };
+            if (sl == 240 && dot > 330) || (sl == 241 && dot < 10) {
+                trace!(
+                    "[CPU INSN DONE] PC={:04X} opcode=0x{:02X} name={} cycle={} PPU=({},{})",
+                    self.program_counter, opcode.code, self.last_opcode_desc, self.cycle, sl, dot
+                );
+            }
             self.current_op = CpuCycleState::default();
         }
 

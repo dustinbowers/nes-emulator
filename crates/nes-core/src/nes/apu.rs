@@ -401,7 +401,7 @@ impl APU {
                 0.0
             };
 
-            let tnd_sum = (triangle / 8227.0 + noise / 12241.0 + dmc / 22638.0);
+            let tnd_sum = triangle / 8227.0 + noise / 12241.0 + dmc / 22638.0;
             let tnd_out = if tnd_sum > 0.0 {
                 159.79 / (1.0 / tnd_sum + 100.0)
             } else {
