@@ -1,4 +1,5 @@
 use super::PPU;
+use crate::trace;
 
 impl PPU {
     /// get_sprite_pixel determines the sprite pixel.
@@ -8,14 +9,17 @@ impl PPU {
         let mut sprite_pixel = 0;
         let mut sprite_in_front = false; // true = behind background (OAM bit 5 = 1)
         let mut sprite_zero_rendered = false;
+        let left_clip_enabled = !self.mask_register.leftmost_8pxl_sprite();
 
         for i in 0..8 {
             if self.sprite_x_counter[i] == 0 {
+                let in_left_clip = left_clip_enabled
+                    && (self.cycles < 8 || (self.cycles == 8 && self.sprite_x_latch[i] == 0));
                 let low_bit = (self.sprite_pattern_low[i] >> 7) & 1;
                 let high_bit = (self.sprite_pattern_high[i] >> 7) & 1;
                 let pixel = (high_bit << 1) | low_bit;
 
-                if pixel != 0 {
+                if pixel != 0 && !in_left_clip {
                     // Record sprite-0 hit candidate regardless of priority
                     if i == 0 && self.sprite_zero_in_range {
                         sprite_zero_rendered = true;
@@ -54,10 +58,11 @@ impl PPU {
 
         let current_oam_y = self.oam_data[oam_base] as usize;
         let sprite_height = self.ctrl_register.sprite_size() as i16;
+        let render_scanline = scanline + 1;
 
         if current_oam_y < 0xFF
-            && scanline >= current_oam_y
-            && scanline < (current_oam_y + sprite_height as usize)
+            && render_scanline >= current_oam_y + 1
+            && render_scanline < (current_oam_y + 1 + sprite_height as usize)
         {
             if self.sprite_count < 8 {
                 self.secondary_oam[secondary_oam_base] = self.oam_data[oam_base];
@@ -67,10 +72,7 @@ impl PPU {
 
                 // Check if sprite0 is in range
                 if current_sprite_index == 0 {
-                    // TODO: The actual sprite_zero_hit isn't triggered until render time.
-                    // self.status_register.set_sprite_zero_hit(true);
-
-                    self.sprite_zero_in_range = true; // Look out for possible sprite0 hit
+                    self.sprite_zero_in_range_next = true; // Look out for possible sprite0 hit
                 }
 
                 self.sprite_count += 1;
@@ -91,7 +93,8 @@ impl PPU {
             let x = self.secondary_oam[base + 3];
 
             let sprite_height = self.ctrl_register.sprite_size() as i16;
-            let mut row = (scanline as i16) - (y as i16);
+            let render_scanline = scanline + 1;
+            let mut row = (render_scanline as i16) - (y as i16 + 1);
 
             // Vertical flip
             if attributes & 0x80 != 0 {
@@ -124,6 +127,7 @@ impl PPU {
             }
 
             self.sprite_x_counter[sprite_num] = x;
+            self.sprite_x_latch[sprite_num] = x;
             self.sprite_attributes[sprite_num] = attributes;
             self.sprite_pattern_low[sprite_num] = pattern_low;
             self.sprite_pattern_high[sprite_num] = pattern_high;
@@ -131,6 +135,7 @@ impl PPU {
             // TODO: First unused slot inherits Y from sprite #63 (quirk).
             // Clear unused sprite slots
             self.sprite_x_counter[sprite_num] = 0xFF; // Off-screen
+            self.sprite_x_latch[sprite_num] = 0xFF;
             self.sprite_attributes[sprite_num] = 0;
             self.sprite_pattern_low[sprite_num] = 0;
             self.sprite_pattern_high[sprite_num] = 0;
@@ -151,7 +156,7 @@ impl PPU {
 
     pub(super) fn reset_sprite_evaluation(&mut self) {
         self.sprite_count = 0;
-        self.sprite_zero_in_range = false;
+        self.sprite_zero_in_range_next = false;
 
         // Reset sprite overflow flag at the start of each scanline's sprite evaluation
         self.status_register.set_sprite_overflow(false);

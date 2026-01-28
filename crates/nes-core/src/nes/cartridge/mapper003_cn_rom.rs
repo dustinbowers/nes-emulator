@@ -57,7 +57,7 @@ impl Cartridge for Mapper003CnRom {
         }
     }
 
-    fn ppu_read(&mut self, addr: u16) -> (u8, bool){
+    fn ppu_read(&mut self, addr: u16) -> (u8, bool) {
         let addr = addr as usize;
         let prg_size = self.prg_rom.len();
 

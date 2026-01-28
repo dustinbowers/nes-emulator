@@ -1,5 +1,6 @@
 use crate::nes::cartridge::rom::Mirroring;
 use crate::nes::ppu::consts::{NAME_TABLE_SIZE, PRIMARY_OAM_SIZE, SECONDARY_OAM_SIZE};
+use crate::nes::ppu::nmi::{Nmi, NmiEvent};
 use crate::nes::ppu::scheduler::{DOTS, DotOperations, SCAN_LINES, ppu_schedule};
 use crate::nes::tracer::traceable::Traceable;
 use crate::{trace, trace_ppu_event};
@@ -10,7 +11,6 @@ use registers::mask_register::MaskRegister;
 use registers::scroll_register::ScrollRegister;
 use registers::status_register::StatusRegister;
 use scheduler::PpuOperation;
-use crate::nes::ppu::nmi::{Nmi, NmiEvent};
 
 mod background;
 mod registers;
@@ -72,8 +72,10 @@ pub struct PPU {
     pub sprite_pattern_high: [u8; 8], // pattern bits plane 1
     pub sprite_x_counter: [u8; 8],    // x delay counter for each sprite
     pub sprite_attributes: [u8; 8],   // palette + flipping + priority
+    pub sprite_x_latch: [u8; 8],
     pub sprite_count: usize,
     sprite_zero_in_range: bool,
+    sprite_zero_in_range_next: bool,
 
     // Background Registers & latches
     bg_pattern_shift_low: u16,
@@ -139,9 +141,11 @@ impl PPU {
             sprite_pattern_low: [0; 8],
             sprite_pattern_high: [0; 8],
             sprite_attributes: [0; 8],
+            sprite_x_latch: [0; 8],
             sprite_x_counter: [0; 8],
             sprite_count: 0,
             sprite_zero_in_range: false,
+            sprite_zero_in_range_next: false,
 
             bg_pattern_shift_low: 0,
             bg_pattern_shift_high: 0,
@@ -156,7 +160,7 @@ impl PPU {
             next_tile_lsb: 0,
             next_tile_msb: 0,
 
-            temp_counter: 0
+            temp_counter: 0,
         }
     }
 
@@ -202,9 +206,11 @@ impl PPU {
         self.sprite_pattern_low = [0; 8];
         self.sprite_pattern_high = [0; 8];
         self.sprite_attributes = [0; 8];
+        self.sprite_x_latch = [0; 8];
         self.sprite_x_counter = [0; 8];
         self.sprite_count = 0;
         self.sprite_zero_in_range = false;
+        self.sprite_zero_in_range_next = false;
 
         self.bg_pattern_shift_low = 0;
         self.bg_pattern_shift_high = 0;
@@ -225,7 +231,7 @@ impl PPU {
     /// Advance the PPU by 1 dot
     pub fn tick(&mut self) -> bool {
         // odd frame skips dot 0 of pre-render scanline
-        if self.scanline == 0
+        if self.scanline == 261
             && self.cycles == 0
             && self.frame_is_odd
             && self.prerender_rendering_enabled
@@ -251,12 +257,17 @@ impl PPU {
         // self.handle_instant_nmi();
         if self.nmi.poll() {
             if let Some(bus_ptr) = self.bus {
-                trace!("{}", format!("[NMI] scanline={} dot={} vblank={} ctrl_register=0b{:08b}, nmi: {:#?}",
-                self.scanline,
-                self.cycles,
-                self.status_register.vblank_active(),
-                self.ctrl_register.bits(),
-                self.nmi));
+                trace!(
+                    "{}",
+                    format!(
+                        "[NMI] scanline={} dot={} vblank={} ctrl_register=0b{:08b}, nmi: {:#?}",
+                        self.scanline,
+                        self.cycles,
+                        self.status_register.vblank_active(),
+                        self.ctrl_register.bits(),
+                        self.nmi
+                    )
+                );
                 unsafe {
                     (*bus_ptr).nmi();
                 }
@@ -326,13 +337,11 @@ impl PPU {
                 self.sprite_fill_register(sprite_num, self.scanline);
             }
             PpuOperation::SetVBlank => {
-
                 if !self.suppress_vblank {
                     self.vblank_ticks = 0;
                     self.status_register.set_vblank_started();
                     self.nmi.on_event(NmiEvent::VBlankSet);
                 }
-
 
                 // let dot = self.cycles;
                 // let scanline = self.scanline;
@@ -445,18 +454,8 @@ impl PPU {
         if self.cycles == 341 {
             self.cycles = 0;
             self.scanline += 1;
-
-            // // Odd-frame skip: skip dot 0 of pre-render scanline
-            // if self.scanline == 261 && self.frame_is_odd && self.prerender_rendering_enabled {
-            //     self.cycles = 1; // start at dot 1 instead of dot 0
-            //     trace_ppu_event!(
-            //         "ODD SKIP      frame={} scanline={} dot={} ppu_cycle={}",
-            //         self.frame_is_odd as u8,
-            //         self.scanline,
-            //         self.cycles,
-            //         self.global_ppu_ticks
-            //     );
-            // }
+            self.sprite_zero_in_range = self.sprite_zero_in_range_next;
+            self.sprite_zero_in_range_next = false;
 
             if self.scanline > 261 {
                 self.scanline = 0;
@@ -547,9 +546,7 @@ impl PPU {
         let reg = 0x2000 + (addr & 7); // mirror
 
         match reg {
-            0x2000 => {
-                self.write_to_ctrl(value);
-            }
+            0x2000 => self.write_to_ctrl(value),
             0x2001 => self.mask_register.update(value),
             0x2003 => self.oam_addr = value,
             0x2004 => self.write_to_oam_data(value),
@@ -592,20 +589,27 @@ impl PPU {
         let scanline = self.scanline;
 
         // Only check for sprite 0 hit on visible scanlines and dots 1-256
-        if show_bg && show_spr && scanline < 240 && (1..=256).contains(&dot) {
-            // Leftmost 8px masking: if in dots 1-8, require both leftmost bits enabled
-            if (dot > 8 || (left_bg && left_spr))
-                && (sprite_zero_rendered && bg_palette_index != 0)
-                && !self
-                    .status_register
-                    .contains(StatusRegister::SPRITE_ZERO_HIT)
-            {
-                trace!(
-                    "\tset_sprite_zero_hit TRUE @ scanline {} dot {}",
-                    scanline, dot
-                );
-                self.status_register.set_sprite_zero_hit(true);
-            }
+        let left_masked = dot < 8;
+        let check_sprite_0 = if left_masked {
+            left_bg && left_spr
+        } else {
+            true
+        };
+
+        if show_bg
+            && show_spr
+            && scanline < 240
+            && (1..255).contains(&dot)
+            && check_sprite_0
+            && sprite_zero_rendered
+            && self.sprite_x_latch[0] != 0xFF
+            && bg_pixel != 0
+            && sprite_pixel != 0
+            && !self
+                .status_register
+                .contains(StatusRegister::SPRITE_ZERO_HIT)
+        {
+            self.status_register.set_sprite_zero_hit(true);
         }
 
         // if both nonzero, sprite_in_front decides, but if sprite is behind and bg is 0, sprite shows

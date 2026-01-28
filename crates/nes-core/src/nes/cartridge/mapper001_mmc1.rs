@@ -1,5 +1,5 @@
-use super::{Cartridge, MapperTiming};
 use super::rom::Mirroring;
+use super::{Cartridge, MapperTiming};
 
 // MMC1 mapper (iNES mapper #1)
 pub struct Mmc1 {
@@ -63,12 +63,11 @@ impl Mmc1 {
         if self.shift_count == 5 {
             // Determine which register to update
             match addr {
-                0x8000..=0x9FFF => self.control = self.shift_reg & 0x1F,    // 5 bits
-                0xA000..=0xBFFF => self.chr_bank0 = self.shift_reg & 0x1F,  // 5 bits
-                0xC000..=0xDFFF => self.chr_bank1 = self.shift_reg & 0x1F,  // 5 bits
-                0xE000..=0xFFFF => self.prg_bank = self.shift_reg & 0x0F,   // 4 bits
-                _ => unreachable!()
-
+                0x8000..=0x9FFF => self.control = self.shift_reg & 0x1F, // 5 bits
+                0xA000..=0xBFFF => self.chr_bank0 = self.shift_reg & 0x1F, // 5 bits
+                0xC000..=0xDFFF => self.chr_bank1 = self.shift_reg & 0x1F, // 5 bits
+                0xE000..=0xFFFF => self.prg_bank = self.shift_reg & 0x0F, // 4 bits
+                _ => unreachable!(),
             }
             // Reset for next series of writes
             self.shift_reg = 0x10;
@@ -143,9 +142,8 @@ impl Cartridge for Mmc1 {
                 };
 
                 (self.prg_rom[bank_addr % prg_size], false)
-
             }
-            _ => (0, true) // open-bus
+            _ => (0, true), // open-bus
         }
     }
 
@@ -175,7 +173,7 @@ impl Cartridge for Mmc1 {
         let bank_addr = self.ppu_bank_addr(addr) as usize;
         let mut data = 0;
         if !self.chr_ram.is_empty() {
-            data =self.chr_ram[bank_addr % self.chr_ram.len()];
+            data = self.chr_ram[bank_addr % self.chr_ram.len()];
         } else {
             data = self.chr_rom[bank_addr % self.chr_rom.len()];
         }
@@ -204,7 +202,6 @@ impl Cartridge for Mmc1 {
         MapperTiming::Mmc1
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -255,7 +252,7 @@ mod tests {
         let mut mmc1 = Mmc1::new(vec![0; 0x8000], chr.clone(), 0);
 
         mmc1.control &= !0x10; // 8 KB mode
-        mmc1.chr_bank0 = 4;   // out of range
+        mmc1.chr_bank0 = 4; // out of range
 
         let (data, _) = mmc1.ppu_read(0x1234);
         assert_eq!(data, 0xAA);
