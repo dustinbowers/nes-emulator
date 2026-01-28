@@ -108,8 +108,6 @@ impl NES {
                         self.bus.cpu.tick();
                     } else {
                         // Start OAM DMA
-                        // println!("DMA START");
-                        trace!("PPU DMA START");
                         self.dma_mode = DmaMode::Oam;
                         self.oam_transfer_cycles = OAM_DMA_START_CYCLES; // counts 0..511 for 256 bytes
                     }
@@ -130,7 +128,6 @@ impl NES {
                         self.oam_transfer_cycles += 1;
                     } else {
                         // DMA complete
-                        trace!("PPU DMA COMPLETE");
                         self.dma_mode = DmaMode::None;
                         self.bus.cpu.rdy = true; // Carry on with regular CPU cycles
                     }

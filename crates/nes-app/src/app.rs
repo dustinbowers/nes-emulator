@@ -1,6 +1,7 @@
 pub use crate::event::AppEvent;
 use std::collections::HashMap;
 use std::error::Error;
+use std::process::exit;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -428,6 +429,14 @@ impl<E: AppEventSource> App<E> {
 
             if i.key_pressed(egui::Key::F1) {
                 self.show_debug = !self.show_debug;
+            }
+
+            #[cfg(feature = "tracing")]
+            {
+                if i.key_pressed(egui::Key::T) {
+                    trace_dump!();
+                    exit(0);
+                }
             }
 
             // Mute channels

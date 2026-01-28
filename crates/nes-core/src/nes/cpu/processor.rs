@@ -75,12 +75,10 @@ impl CPU {
             if self.halt_scheduled {
                 match self.cpu_mode {
                     CpuMode::Read => {
-                        trace!("Pausing CPU for DMA");
                         self.rdy = false; // This pauses CPU execution while DMA runs
                         self.halt_scheduled = false;
                     }
                     CpuMode::Write => {
-                        trace!("OAM DMA DUMMY READ");
                         self.toggle_mode();
                     }
                 }
@@ -89,10 +87,10 @@ impl CPU {
 
             // Handle Interrupt if one is waiting
             if let Some(interrupt) = self.active_interrupt {
-                trace!(
-                    "[INTERRUPT] micro_cycle={}, {:?}",
-                    self.current_op.micro_cycle, self.active_interrupt
-                );
+                // trace!(
+                //     "[INTERRUPT] micro_cycle={}, {:?}",
+                //     self.current_op.micro_cycle, self.active_interrupt
+                // );
                 let done = self.exec_interrupt_cycle(interrupt);
                 if done {
                     self.active_interrupt = None;
