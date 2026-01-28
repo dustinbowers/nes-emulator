@@ -31,9 +31,9 @@ impl Cartridge for NromCart {
     fn cpu_read(&mut self, addr: u16) -> (u8, bool) {
         match addr {
             0x6000..=0x7FFF => {
-                let index = (addr -0x6000) as usize;
+                let index = (addr - 0x6000) as usize;
                 (self.prg_ram[index], false)
-            },
+            }
             0x8000..=0xFFFF => {
                 let mut index = addr - 0x8000;
                 if self.prg_rom.len() == 0x4000 {
@@ -41,7 +41,7 @@ impl Cartridge for NromCart {
                 }
                 (self.prg_rom[index as usize], false)
             }
-            _ => (0, true)
+            _ => (0, true),
         }
     }
 

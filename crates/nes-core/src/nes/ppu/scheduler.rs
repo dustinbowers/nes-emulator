@@ -121,30 +121,33 @@ const fn schedule_for(scanline: usize, dot: usize) -> DotOperations {
     let fetch_cycle = render_cycle || (dot >= 321 && dot <= 336);
 
     // Background fetch pipeline
+    let load_bg = (visible || prerender) && fetch_cycle && dot % 8 == 0;
     if (visible || prerender) && fetch_cycle {
-        // shift registers every fetch
-        ops = ops.push(PpuOperation::ShiftRegisters);
-
         match dot % 8 {
             1 => ops = ops.push(PpuOperation::FetchNameTable),
             3 => ops = ops.push(PpuOperation::FetchAttribute),
             5 => ops = ops.push(PpuOperation::FetchTileLow),
             7 => ops = ops.push(PpuOperation::FetchTileHigh),
-            0 => {
-                ops = ops.push(PpuOperation::LoadBackgroundRegisters);
-                ops = ops.push(PpuOperation::IncCoarseX);
-            }
             _ => {}
         }
+
+        // shift registers every fetch
+        ops = ops.push(PpuOperation::ShiftRegisters);
     }
 
-    // Render a pixel (dots 1-256)
+    // Render a pixel (dots 1-256) after shift for this dot
     if visible && render_cycle {
         ops = ops.push(PpuOperation::RenderPixel);
     }
 
+    // Load new tile data after render so it applies to the next pixels
+    if load_bg {
+        ops = ops.push(PpuOperation::LoadBackgroundRegisters);
+        ops = ops.push(PpuOperation::IncCoarseX);
+    }
+
     // Fine Y increments
-    if (visible || prerender) && dot == 256 {
+    if (visible || prerender) && dot == 257 {
         ops = ops.push(PpuOperation::IncFineY);
     }
 
@@ -181,18 +184,17 @@ const fn schedule_for(scanline: usize, dot: usize) -> DotOperations {
 
     // VBlank flag toggle
     if scanline == 241 {
-        if dot == 1 { // Passes 2.vbl_set_time.nes
-        // if dot == 1 {
+        if dot == 1 {
+            // Passes 2.vbl_set_time.nes
+            // if dot == 1 {
             ops = ops.push(PpuOperation::SetVBlank);
         }
     }
 
     if prerender {
-        if dot == 0 { // Passes 3.vbl_clear_time.nes
-        // if dot == 1 {
+        // Clear VBL and sprite flags at dot 1 of pre-render
+        if dot == 1 {
             ops = ops.push(PpuOperation::ClearVBlank);
-        }
-        if dot == 0 {
             ops = ops.push(PpuOperation::ClearVBlank2);
         }
     }
@@ -262,7 +264,6 @@ mod test {
             for dot in 1..=256 {
                 assert_has(scanline, dot, PpuOperation::RenderPixel);
             }
-
             for dot in [0, 257, 320, 340] {
                 assert_not(scanline, dot, PpuOperation::RenderPixel);
             }
@@ -287,7 +288,6 @@ mod test {
                 assert_not(scanline, dot, PpuOperation::EvaluateSprites);
             }
         }
-
         for dot in 0..64 {
             assert_not(scanline, dot, PpuOperation::EvaluateSprites);
         }
@@ -300,7 +300,6 @@ mod test {
         for dot in 1..=64 {
             assert_has(scanline, dot, PpuOperation::ClearSecondaryOam);
         }
-
         for dot in 65..341 {
             assert_not(scanline, dot, PpuOperation::ClearSecondaryOam);
         }

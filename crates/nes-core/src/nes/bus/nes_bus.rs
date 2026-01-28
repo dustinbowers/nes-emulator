@@ -1,7 +1,7 @@
 use crate::nes::apu::{APU, ApuBusInterface};
 use crate::nes::bus::consts::*;
-use crate::nes::cartridge::{Cartridge, MapperTiming};
 use crate::nes::cartridge::rom::Mirroring;
+use crate::nes::cartridge::{Cartridge, MapperTiming};
 use crate::nes::controller::NesController;
 use crate::nes::controller::joypad::Joypad;
 use crate::nes::cpu::{CPU, CpuBusInterface};
@@ -125,12 +125,10 @@ impl CpuBusInterface for NesBus {
                 self.last_cpu_read
             }
             CART_START..=CART_END => match &mut self.cart {
-                Some(cart) => {
-                    match cart.cpu_read(addr) {
-                        (data, false) => data,
-                        (_, true) => self.last_cpu_read
-                    }
-                }
+                Some(cart) => match cart.cpu_read(addr) {
+                    (data, false) => data,
+                    (_, true) => self.last_cpu_read,
+                },
                 None => 0,
             },
             _ => self.last_cpu_read,
@@ -163,7 +161,6 @@ impl CpuBusInterface for NesBus {
             0x4018..=0x401F => { /* Open bus */ }
             CART_START..=CART_END => {
                 if let Some(cart) = &mut self.cart {
-
                     // MMC1 timing quirk
                     if addr >= 0x8000 && cart.timing() == MapperTiming::Mmc1 {
                         if self.last_mapper_write_cycle == Some(self.cpu.cycle - 1) {
@@ -183,14 +180,12 @@ impl CpuBusInterface for NesBus {
 impl PpuBusInterface for NesBus {
     fn ppu_bus_read(&mut self, addr: u16) -> u8 {
         match &mut self.cart {
-            Some(cart) => {
-                match cart.ppu_read(addr) {
-                    (data, false) => {
-                        self.last_ppu_read = data;
-                        data
-                    },
-                    (_, true) => self.last_ppu_read
+            Some(cart) => match cart.ppu_read(addr) {
+                (data, false) => {
+                    self.last_ppu_read = data;
+                    data
                 }
+                (_, true) => self.last_ppu_read,
             },
             _ => 0,
         }

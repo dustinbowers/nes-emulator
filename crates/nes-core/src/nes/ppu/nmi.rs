@@ -1,11 +1,9 @@
-
-
 pub enum NmiEvent {
-    VBlankSet,                  // SL 241, dot 1 (or 0?)
-    VBlankCleared,              // SL 261, dot 2 (or 0?)
-    NmiEnableSet,               // $2000 write sets bit 7
-    NmiEnableCleared,           // $2000 write clears bit 7
-    StatusReadDuringVBlankSet   // $2002 read on set edge
+    VBlankSet,                 // SL 241, dot 1 (or 0?)
+    VBlankCleared,             // SL 261, dot 2 (or 0?)
+    NmiEnableSet,              // $2000 write sets bit 7
+    NmiEnableCleared,          // $2000 write clears bit 7
+    StatusReadDuringVBlankSet, // $2002 read on set edge
 }
 
 #[derive(Debug, Default)]
@@ -17,29 +15,15 @@ pub struct Nmi {
     pending: bool,
 }
 
-// impl Default for Nmi {
-//     fn default() -> Self {
-//         Self {
-//             enabled: false,
-//             vblank: false,
-//             fired_this_vblank: false,
-//             suppress_next: false,
-//             pending: false
-//         }
-//     }
-// }
-
 impl Nmi {
     pub fn on_event(&mut self, ev: NmiEvent) {
         match ev {
             NmiEvent::VBlankSet => {
                 self.vblank = true;
-
                 if self.enabled && !self.suppress_next && !self.fired_this_vblank {
                     self.pending = true;
                     self.fired_this_vblank = true;
                 }
-
                 self.suppress_next = false;
             }
             NmiEvent::VBlankCleared => {
@@ -120,7 +104,10 @@ mod tests {
 
         // Now enable NMI
         nmi.on_event(NmiEvent::NmiEnableSet);
-        assert!(nmi.poll(), "Enabling NMI during VBlank should fire immediately");
+        assert!(
+            nmi.poll(),
+            "Enabling NMI during VBlank should fire immediately"
+        );
 
         // Should not fire twice
         assert!(!nmi.poll());

@@ -8,7 +8,7 @@ impl PPU {
         }
 
         // Handle left 8 pixels masking
-        if self.cycles <= 8 && !self.mask_register.leftmost_8pxl_background() {
+        if self.cycles < 8 && !self.mask_register.leftmost_8pxl_background() {
             return (0, 0);
         }
 

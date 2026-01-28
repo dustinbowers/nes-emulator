@@ -1,17 +1,17 @@
-use std::cmp::PartialEq;
+use crate::nes::apu::filter::OnePole;
 use dmc_channel::DmcChannel;
 use noise_channel::NoiseChannel;
 use pulse_channel::PulseChannel;
+use std::cmp::PartialEq;
 use thiserror::Error;
 use triangle_channel::TriangleChannel;
-use crate::nes::apu::filter::OnePole;
 
 mod dmc_channel;
+mod filter;
 mod noise_channel;
 mod pulse_channel;
 mod triangle_channel;
 mod units;
-mod filter;
 
 pub trait ApuBusInterface {
     fn apu_bus_read(&mut self, addr: u16) -> u8;
@@ -38,7 +38,7 @@ pub enum ApuError {
 #[derive(PartialEq)]
 enum SequenceMode {
     Mode0,
-    Mode1
+    Mode1,
 }
 
 pub struct APU {
@@ -88,7 +88,6 @@ impl Default for APU {
         Self::new()
     }
 }
-
 
 impl APU {
     pub fn new() -> APU {
@@ -271,7 +270,7 @@ impl APU {
                 */
                 self.master_sequence_mode = match value & 0b1000_0000 != 0 {
                     false => SequenceMode::Mode0,
-                    true => SequenceMode::Mode1
+                    true => SequenceMode::Mode1,
                 };
                 self.irq_disable = value & 0b0100_0000 != 0;
                 self.frame_clock_counter = 0;
@@ -411,9 +410,15 @@ impl APU {
             sample = pulse_out + tnd_out;
         }
 
-        sample = self.high_pass_90.high_pass(sample, 90.0, self.sample_rate as f32);
-        sample = self.high_pass_440.high_pass(sample, 440.0, self.sample_rate as f32);
-        sample = self.low_pass_14k.low_pass(sample, 14_000.0, self.sample_rate as f32);
+        sample = self
+            .high_pass_90
+            .high_pass(sample, 90.0, self.sample_rate as f32);
+        sample = self
+            .high_pass_440
+            .high_pass(sample, 440.0, self.sample_rate as f32);
+        sample = self
+            .low_pass_14k
+            .low_pass(sample, 14_000.0, self.sample_rate as f32);
         sample
     }
 
