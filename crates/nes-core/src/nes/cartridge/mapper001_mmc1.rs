@@ -66,7 +66,7 @@ impl Mmc1 {
                 0x8000..=0x9FFF => self.control = self.shift_reg & 0x1F, // 5 bits
                 0xA000..=0xBFFF => self.chr_bank0 = self.shift_reg & 0x1F, // 5 bits
                 0xC000..=0xDFFF => self.chr_bank1 = self.shift_reg & 0x1F, // 5 bits
-                0xE000..=0xFFFF => self.prg_bank = self.shift_reg & 0x0F, // 4 bits
+                0xE000..=0xFFFF => self.prg_bank = self.shift_reg & 0x1F, // keep PRG-RAM enable bit
                 _ => unreachable!(),
             }
             // Reset for next series of writes
@@ -102,7 +102,7 @@ impl Cartridge for Mmc1 {
             0x6000..=0x7FFF => {
                 // 8KB PRG-RAM bank (optional)
                 let prg_ram_enabled = self.prg_bank & 0x10 == 0;
-                if prg_ram_enabled {
+                if prg_ram_enabled && !self.prg_ram.is_empty() {
                     let idx = addr - 0x6000;
                     let data = self.prg_ram[idx % 0x2000]; // Mirror if above 8KB
                     (data, false)
@@ -154,7 +154,7 @@ impl Cartridge for Mmc1 {
             0x6000..=0x7FFF => {
                 // write PRG RAM if enabled
                 let prg_ram_enabled = self.prg_bank & 0x10 == 0;
-                if prg_ram_enabled {
+                if prg_ram_enabled && !self.prg_ram.is_empty() {
                     let offset = (addr - 0x6000) as usize;
                     if offset < self.prg_ram.len() {
                         self.prg_ram[offset] = data;
