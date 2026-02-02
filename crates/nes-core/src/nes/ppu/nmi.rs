@@ -1,60 +1,99 @@
+use crate::trace;
+use crate::trace_ppu_event;
+
 pub enum NmiEvent {
-    VBlankSet,                 // SL 241, dot 1 (or 0?)
-    VBlankCleared,             // SL 261, dot 2 (or 0?)
-    NmiEnableSet,              // $2000 write sets bit 7
-    NmiEnableCleared,          // $2000 write clears bit 7
-    StatusReadDuringVBlankSet, // $2002 read on set edge
+    /// PPU enters vblank
+    VBlankSet,
+    /// PPU exits vblank
+    VBlankCleared,
+    /// $2000 bit 7 went 0->1
+    NmiEnableSet,
+    /// $2000 bit 7 went 1->0
+    NmiEnableCleared,
+    /// $2002 read at the vblank-set edge window
+    StatusReadDuringVBlankSet,
+    /// $2002 read cleared the vblank flag (PPUSTATUS bit 7)
+    StatusReadClearsVBlank,
 }
 
+/// PPU-side NMI line model
 #[derive(Debug, Default)]
 pub struct Nmi {
     enabled: bool,
     vblank: bool,
-    fired_this_vblank: bool,
-    suppress_next: bool,
-    pending: bool,
+
+    /// Set by a $2002 read in the vblank-set window (consumed on VBlankSet)
+    suppress_next_vblank_edge: bool,
+
+    /// NMI output line level driven by the PPU
+    line: bool,
 }
 
 impl Nmi {
-    pub fn on_event(&mut self, ev: NmiEvent) {
-        match ev {
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Current NMI output line level
+    #[inline]
+    pub fn line(&self) -> bool {
+        self.line
+    }
+
+    #[inline]
+    fn set_line(&mut self, high: bool, why: &'static str) {
+        if self.line != high {
+            self.line = high;
+            trace_ppu_event!(
+                "[NMI LINE {}] why={} enabled={} vblank={} suppress_next_edge={}",
+                if high { "HIGH" } else { "LOW" },
+                why,
+                self.enabled,
+                self.vblank,
+                self.suppress_next_vblank_edge
+            );
+        }
+    }
+
+    pub fn on_event(&mut self, event: NmiEvent) {
+        match event {
             NmiEvent::VBlankSet => {
                 self.vblank = true;
-                if self.enabled && !self.suppress_next && !self.fired_this_vblank {
-                    self.pending = true;
-                    self.fired_this_vblank = true;
+
+                if self.enabled && !self.suppress_next_vblank_edge {
+                    self.set_line(true, "vblank_entry");
+                } else {
+                    self.set_line(false, "vblank_entry_suppressed_or_disabled");
                 }
-                self.suppress_next = false;
+
+                self.suppress_next_vblank_edge = false;
             }
             NmiEvent::VBlankCleared => {
                 self.vblank = false;
-                self.fired_this_vblank = false;
-                self.pending = false;
+                self.set_line(false, "vblank_exit");
+                self.suppress_next_vblank_edge = false;
             }
             NmiEvent::NmiEnableSet => {
                 self.enabled = true;
 
-                // Edge-trigger: enable during vblank causes immediate NMI
-                if self.vblank && !self.fired_this_vblank {
-                    self.pending = true;
-                    self.fired_this_vblank = true;
+                if self.vblank {
+                    self.set_line(true, "enable_during_vblank");
+                } else {
+                    self.set_line(false, "enable_outside_vblank");
                 }
             }
             NmiEvent::NmiEnableCleared => {
                 self.enabled = false;
+                self.set_line(false, "disable");
             }
             NmiEvent::StatusReadDuringVBlankSet => {
-                self.suppress_next = true;
+                self.suppress_next_vblank_edge = true;
             }
-        }
-    }
-
-    pub fn poll(&mut self) -> bool {
-        if self.pending {
-            self.pending = false;
-            true
-        } else {
-            false
+            NmiEvent::StatusReadClearsVBlank => {
+                // Reading $2002 clears the vblank flag; dropping vblank should drop the line
+                self.vblank = false;
+                self.set_line(false, "status_read_clears_vblank");
+            }
         }
     }
 }
@@ -63,112 +102,175 @@ impl Nmi {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_basic_vblank_nmi_fires() {
-        let mut nmi = Nmi::default();
-
-        // Enable nmi before vblank
-        nmi.on_event(NmiEvent::NmiEnableSet);
-        assert!(!nmi.poll());
-
-        // VBlank starts
-        nmi.on_event(NmiEvent::VBlankSet);
-        assert!(nmi.poll(), "NMI should fire at VBlank start");
-        assert!(!nmi.poll(), "NMI should not fire twice");
+    fn assert_line(nmi: &Nmi, expected: bool, msg: &str) {
+        assert_eq!(nmi.line(), expected, "{}", msg);
     }
 
     #[test]
-    fn test_vblank_clear_resets_state() {
+    fn vblank_entry_asserts_line_when_enabled() {
         let mut nmi = Nmi::default();
 
         nmi.on_event(NmiEvent::NmiEnableSet);
-        nmi.on_event(NmiEvent::VBlankSet);
-        assert!(nmi.poll());
-
-        // Clear VBlank
-        nmi.on_event(NmiEvent::VBlankCleared);
-        assert!(!nmi.poll(), "No NMI should be pending after clear");
-
-        // Next vblank fires again
-        nmi.on_event(NmiEvent::VBlankSet);
-        assert!(nmi.poll());
-    }
-
-    #[test]
-    fn test_enable_during_vblank_fires_immediately() {
-        let mut nmi = Nmi::default();
-
-        // VBlank set first, NMI disabled
-        nmi.on_event(NmiEvent::VBlankSet);
-        assert!(!nmi.poll());
-
-        // Now enable NMI
-        nmi.on_event(NmiEvent::NmiEnableSet);
-        assert!(
-            nmi.poll(),
-            "Enabling NMI during VBlank should fire immediately"
+        assert_line(
+            &nmi,
+            false,
+            "enabling outside vblank should not assert NMI line",
         );
 
-        // Should not fire twice
-        assert!(!nmi.poll());
+        nmi.on_event(NmiEvent::VBlankSet);
+        assert_line(
+            &nmi,
+            true,
+            "vblank entry with NMI enabled should assert line",
+        );
     }
 
     #[test]
-    fn test_status_read_suppresses_next_nmi() {
+    fn vblank_entry_does_not_assert_line_when_disabled() {
         let mut nmi = Nmi::default();
 
-        nmi.on_event(NmiEvent::NmiEnableSet);
+        nmi.on_event(NmiEvent::VBlankSet);
+        assert_line(
+            &nmi,
+            false,
+            "vblank entry with NMI disabled should keep line low",
+        );
+    }
 
-        // Read $2002 right before VBlank
+    #[test]
+    fn status_read_during_vblank_set_suppresses_next_vblank_edge_only() {
+        let mut nmi = Nmi::default();
+
         nmi.on_event(NmiEvent::StatusReadDuringVBlankSet);
 
-        // VBlank starts
+        nmi.on_event(NmiEvent::NmiEnableSet);
         nmi.on_event(NmiEvent::VBlankSet);
-        assert!(!nmi.poll(), "NMI suppressed due to status read");
+        assert_line(
+            &nmi,
+            false,
+            "suppression should prevent line asserting on this vblank entry",
+        );
 
-        // VBlank clears and next VBlank should fire normally
         nmi.on_event(NmiEvent::VBlankCleared);
+        assert_line(&nmi, false, "line remains low after vblank exit");
+
         nmi.on_event(NmiEvent::VBlankSet);
-        assert!(nmi.poll());
+        assert_line(
+            &nmi,
+            true,
+            "suppression is one-shot; next vblank entry should assert line",
+        );
     }
 
     #[test]
-    fn test_disable_nmi_during_vblank_prevents_firing() {
+    fn enabling_during_vblank_asserts_line_immediately() {
+        let mut nmi = Nmi::default();
+
+        nmi.on_event(NmiEvent::VBlankSet);
+        assert_line(&nmi, false, "entering vblank while disabled keeps line low");
+
+        nmi.on_event(NmiEvent::NmiEnableSet);
+        assert_line(
+            &nmi,
+            true,
+            "enabling during vblank should assert line immediately",
+        );
+    }
+
+    #[test]
+    fn disabling_during_vblank_deasserts_line() {
         let mut nmi = Nmi::default();
 
         nmi.on_event(NmiEvent::NmiEnableSet);
+        nmi.on_event(NmiEvent::VBlankSet);
+        assert_line(&nmi, true, "line high in vblank when enabled");
 
-        // Disable NMI before VBlank
         nmi.on_event(NmiEvent::NmiEnableCleared);
+        assert_line(&nmi, false, "disabling should drop NMI line immediately");
 
-        nmi.on_event(NmiEvent::VBlankSet);
-        assert!(!nmi.poll(), "NMI should not fire when disabled");
-
-        // Re-enable NMI during VBlank
         nmi.on_event(NmiEvent::NmiEnableSet);
-        assert!(nmi.poll(), "Enabling during VBlank triggers NMI");
+        assert_line(
+            &nmi,
+            true,
+            "re-enabling during vblank should re-assert line",
+        );
     }
 
     #[test]
-    fn test_multiple_vblanks_fire_once_each() {
+    fn vblank_exit_deasserts_line() {
         let mut nmi = Nmi::default();
 
         nmi.on_event(NmiEvent::NmiEnableSet);
-
-        // First VBlank
         nmi.on_event(NmiEvent::VBlankSet);
-        assert!(nmi.poll());
-        assert!(!nmi.poll());
+        assert_line(&nmi, true, "line high during vblank when enabled");
 
-        // Still in VBlank, no extra NMI
+        nmi.on_event(NmiEvent::VBlankCleared);
+        assert_line(&nmi, false, "vblank exit should drop NMI line");
+    }
+
+    #[test]
+    fn status_read_clears_vblank_drops_line() {
+        let mut nmi = Nmi::default();
+
+        nmi.on_event(NmiEvent::NmiEnableSet);
         nmi.on_event(NmiEvent::VBlankSet);
-        assert!(!nmi.poll());
+        assert_line(&nmi, true, "line high during vblank when enabled");
 
-        // Clear VBlank
+        nmi.on_event(NmiEvent::StatusReadClearsVBlank);
+        assert_line(
+            &nmi,
+            false,
+            "clearing vblank via status read should drop line",
+        );
+    }
+
+    #[test]
+    fn vblank_cleared_resets_suppression() {
+        let mut nmi = Nmi::default();
+
+        nmi.on_event(NmiEvent::StatusReadDuringVBlankSet);
         nmi.on_event(NmiEvent::VBlankCleared);
 
-        // Second VBlank
+        nmi.on_event(NmiEvent::NmiEnableSet);
         nmi.on_event(NmiEvent::VBlankSet);
-        assert!(nmi.poll());
+        assert_line(
+            &nmi,
+            true,
+            "suppression should be cleared by VBlankCleared; vblank entry should assert",
+        );
+    }
+
+    #[test]
+    fn status_read_during_vblank_set_does_not_drop_current_line() {
+        let mut nmi = Nmi::default();
+
+        nmi.on_event(NmiEvent::NmiEnableSet);
+        nmi.on_event(NmiEvent::VBlankSet);
+        assert_line(&nmi, true, "line asserted on vblank entry");
+
+        nmi.on_event(NmiEvent::StatusReadDuringVBlankSet);
+        assert_line(
+            &nmi,
+            true,
+            "arming suppression during vblank should not drop an already-high line",
+        );
+
+        nmi.on_event(NmiEvent::VBlankCleared);
+        assert_line(&nmi, false, "line drops on vblank exit");
+
+        nmi.on_event(NmiEvent::VBlankSet);
+        assert_line(
+            &nmi,
+            true,
+            "suppression does not persist across vblank exit; next vblank entry asserts",
+        );
+
+        nmi.on_event(NmiEvent::VBlankCleared);
+        nmi.on_event(NmiEvent::VBlankSet);
+        assert_line(
+            &nmi,
+            true,
+            "suppression is one-shot; subsequent vblank asserts",
+        );
     }
 }

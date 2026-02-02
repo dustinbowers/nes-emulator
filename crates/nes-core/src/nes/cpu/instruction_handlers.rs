@@ -2,6 +2,9 @@ use super::{
     AccessType, AddrResult, AddressingMode, CPU, CPU_STACK_BASE, CpuError, ExecPhase, Flags,
     Interrupt,
 };
+use crate::nes::cpu::interrupts::InterruptType;
+use crate::trace;
+use crate::trace_cpu_event;
 
 impl CPU {
     /// Software-defined interrupt
@@ -1350,6 +1353,14 @@ impl CPU {
     pub(super) fn exec_interrupt_cycle(&mut self, interrupt: Interrupt) -> bool {
         match self.current_op.micro_cycle {
             0 => {
+                if interrupt.interrupt_type == InterruptType::Nmi {
+                    trace_cpu_event!(
+                        "[CPU NMI ENTRY] PC={:04X} cycle={} flags=0b{:08b}",
+                        self.program_counter,
+                        self.cycle,
+                        self.status.bits()
+                    );
+                }
                 let _ = self.read_program_counter(); // dummy read
             }
             1 => {

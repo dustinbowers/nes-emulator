@@ -29,9 +29,9 @@ mod test {
         fn mirroring(&mut self) -> Mirroring {
             self.mirroring.clone()
         }
-        fn nmi(&mut self) {
-            self.triggered_nmi = true;
-        }
+        // fn nmi(&mut self, _defer_one_instruction: bool) {
+        //     self.triggered_nmi = true;
+        // }
     }
 
     fn init_mock_ppu(mirroring: Mirroring) -> PPU {

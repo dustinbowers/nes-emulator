@@ -1,6 +1,5 @@
+#[cfg(feature = "tracing")]
 use crate::nes::tracer::Tracer;
-use once_cell::sync::Lazy;
-use std::sync::Mutex;
 
 #[macro_export]
 macro_rules! trace {
@@ -42,5 +41,12 @@ macro_rules! trace_ppu_event {
     };
 }
 
-#[cfg(feature = "tracing")]
-pub static TRACER: Lazy<Mutex<Tracer>> = Lazy::new(|| Mutex::new(Tracer::new(1_000_000)));
+#[macro_export]
+macro_rules! trace_cpu_event {
+    ($($arg:tt)*) => {
+        #[cfg(feature = "tracing")]
+        {
+            trace!("[CPU EVENT] {}", format!($($arg)*));
+        }
+    };
+}

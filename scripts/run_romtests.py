@@ -99,7 +99,6 @@ def main():
     for filename, frames in tests:
         total += 1
         rom_path = "external/" + os.path.join(args.rom_root, filename)
-        print(f"rom_path = {rom_path}")
         effective_frames = args.frames if args.frames > 0 else frames
         cmd = [
             "make",

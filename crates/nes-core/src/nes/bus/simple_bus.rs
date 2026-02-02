@@ -39,4 +39,11 @@ impl CpuBusInterface for SimpleBus {
     fn cpu_bus_write(&mut self, addr: u16, value: u8) {
         self.cpu_ram[addr as usize] = value;
     }
+    fn ppu_nmi_line(&mut self) -> bool {
+        false
+    }
+
+    fn ppu_timing(&mut self) -> (usize, usize) {
+        (0, 0)
+    }
 }

@@ -93,13 +93,8 @@ impl NES {
     ///
     /// # Returns
     ///
-    /// Returns `true` if a new frame is ready to be rendered, and `false` otherwise.
+    /// Returns `true` if a new frame is ready to be rendered, and `false` otherwise
     pub fn tick(&mut self) -> bool {
-        self.master_clock += 1;
-
-        // Tick PPU
-        let frame_ready = self.bus.ppu.tick();
-
         // CPU runs at 1/3 PPU speed
         if self.master_clock % 3 == 0 {
             match self.dma_mode {
@@ -137,6 +132,11 @@ impl NES {
             // APU Runs at CPU speed
             self.bus.apu.clock();
         }
+
+        // Tick PPU
+        let frame_ready = self.bus.ppu.tick();
+
+        self.master_clock += 1;
         frame_ready
     }
 

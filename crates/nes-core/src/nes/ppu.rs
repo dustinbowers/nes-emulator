@@ -25,7 +25,6 @@ pub trait PpuBusInterface {
     fn ppu_bus_read(&mut self, addr: u16) -> u8;
     fn ppu_bus_write(&mut self, addr: u16, value: u8);
     fn mirroring(&mut self) -> Mirroring;
-    fn nmi(&mut self);
 }
 
 enum PaletteKind {
@@ -37,17 +36,11 @@ pub struct PPU {
     schedule: &'static [[DotOperations; DOTS]; SCAN_LINES],
     pub cycles: usize,
     pub scanline: usize,
-    vblank_clear_pending: bool,
-    suppress_vblank: bool,
-    // nmi_fired_this_vblank: bool,
-    // instant_nmi_pending: bool,
-    nmi: Nmi,
-    vblank_set_this_dot: bool,
+    pub(crate) nmi: Nmi,
     pub global_ppu_ticks: usize,
     pub vblank_ticks: usize, // TODO: remove this
     prerender_rendering_enabled: bool,
-    last_2002_read_dot: usize,
-    last_2002_read_scanline: usize,
+    suppress_next_vblank_set: bool,
 
     bus: Option<*mut dyn PpuBusInterface>,
     pub v_ram: [u8; RAM_SIZE], // $2007 (R - latched)
@@ -102,17 +95,11 @@ impl PPU {
             v_ram: [0; RAM_SIZE],
             cycles: 0,
             scanline: 261,
-            // instant_nmi_pending: false,
-            // nmi_fired_this_vblank: false,
             nmi: Nmi::default(),
-            vblank_set_this_dot: false,
-            vblank_clear_pending: false,
-            suppress_vblank: false,
             global_ppu_ticks: 0,
             vblank_ticks: 0, // TODO: Remove this
             prerender_rendering_enabled: false,
-            last_2002_read_dot: 0,
-            last_2002_read_scanline: 0,
+            suppress_next_vblank_set: false,
 
             internal_data: 0,
             frame_is_odd: false,
@@ -168,15 +155,11 @@ impl PPU {
         self.v_ram = [0; RAM_SIZE];
         self.cycles = 0;
         self.scanline = 261;
-        // self.instant_nmi_pending = false;
-        // self.nmi_fired_this_vblank = false;
         self.nmi = Nmi::default();
-        self.suppress_vblank = false;
         self.global_ppu_ticks = 0;
         self.vblank_ticks = 0;
         self.prerender_rendering_enabled = false;
-        self.last_2002_read_dot = 0;
-        self.last_2002_read_scanline = 0;
+        self.suppress_next_vblank_set = false;
 
         self.internal_data = 0;
         self.frame_is_odd = false;
@@ -230,18 +213,8 @@ impl PPU {
 impl PPU {
     /// Advance the PPU by 1 dot
     pub fn tick(&mut self) -> bool {
-        // odd frame skips dot 0 of pre-render scanline
-        if self.scanline == 261
-            && self.cycles == 0
-            && self.frame_is_odd
-            && self.prerender_rendering_enabled
-        {
-            self.cycles = 1;
-        }
-
         let dot_ops = &self.schedule[self.scanline][self.cycles];
 
-        self.vblank_set_this_dot = false;
         for i in 0..dot_ops.len as usize {
             let op = dot_ops.ops[i];
             if self.is_op_enabled(op) {
@@ -254,24 +227,18 @@ impl PPU {
             self.vblank_ticks += 1;
         }
 
-        // self.handle_instant_nmi();
-        if self.nmi.poll() {
-            if let Some(bus_ptr) = self.bus {
-                trace!(
-                    "{}",
-                    format!(
-                        "[NMI] scanline={} dot={} vblank={} ctrl_register=0b{:08b}, nmi: {:#?}",
-                        self.scanline,
-                        self.cycles,
-                        self.status_register.vblank_active(),
-                        self.ctrl_register.bits(),
-                        self.nmi
-                    )
-                );
-                unsafe {
-                    (*bus_ptr).nmi();
-                }
-            }
+        if self.scanline == 261
+            && self.cycles == 339
+            && self.frame_is_odd
+            && self.mask_register.rendering_enabled()
+        {
+            // trace!(
+            //     "[ODD SKIP] SL=261 dot=339 frame_is_odd={} mask=0b{:08b}",
+            //     self.frame_is_odd,
+            //     self.mask_register.bits()
+            // );
+            // Skip dot 340 by advancing to dot 340 here; advance_dot will wrap to next scanline.
+            self.cycles = 340;
         }
         self.advance_dot()
     }
@@ -337,50 +304,27 @@ impl PPU {
                 self.sprite_fill_register(sprite_num, self.scanline);
             }
             PpuOperation::SetVBlank => {
-                if !self.suppress_vblank {
+                let suppress = self.suppress_next_vblank_set;
+                self.suppress_next_vblank_set = false;
+                if suppress {
+                    trace!(
+                        "[VBLANK SET SUPPRESSED] scanline={} dot={}",
+                        self.scanline, self.cycles
+                    );
+                } else {
                     self.vblank_ticks = 0;
                     self.status_register.set_vblank_started();
                     self.nmi.on_event(NmiEvent::VBlankSet);
+                    trace_ppu_event!(
+                        "VBLANK SET vblank={} frame={} scanline={} dot={} ppu_cycle={} ticks_since_vblank_start={}",
+                        self.status_register.vblank_active(),
+                        self.frame_is_odd as u8,
+                        self.scanline,
+                        self.cycles,
+                        self.global_ppu_ticks,
+                        self.temp_counter
+                    );
                 }
-
-                // let dot = self.cycles;
-                // let scanline = self.scanline;
-
-                // Suppress NMI if $2002 was read 3 dots **before or at the VBLANK edge**
-                // let suppress_nmi_due_to_read = (self.last_2002_read_scanline == 241
-                //     && self.last_2002_read_dot <= 2)
-                //     || (self.last_2002_read_scanline == 240 && self.last_2002_read_dot >= 338);
-
-                // trace_ppu_event!(
-                //     "VBLANK SET    frame={} scanline={} dot={} ppu_cycle={} suppress_nmi={}",
-                //     self.frame_is_odd as u8,
-                //     scanline,
-                //     dot,
-                //     self.global_ppu_ticks,
-                //     suppress_nmi_due_to_read
-                // );
-                //
-                //
-                //
-                // if self.ctrl_register.nmi_enabled()
-                //     && !suppress_nmi_due_to_read
-                //     && !self.nmi_fired_this_vblank
-                // {
-                //     self.nmi_fired_this_vblank = true;
-                //     trace_ppu_event!(
-                //         "NMI FIRED     frame={} scanline={} dot={} ppu_cycle={} nmi_fired_this_vblank={}",
-                //         self.frame_is_odd as u8,
-                //         scanline,
-                //         dot,
-                //         self.global_ppu_ticks,
-                //         self.nmi_fired_this_vblank
-                //     );
-                //     if let Some(bus_ptr) = self.bus {
-                //         unsafe {
-                //             (*bus_ptr).nmi();
-                //         }
-                //     }
-                // }
             }
             PpuOperation::ClearVBlank => {
                 trace_ppu_event!(
@@ -394,10 +338,6 @@ impl PPU {
                 );
                 self.temp_counter = 0;
                 self.prerender_rendering_enabled = self.mask_register.rendering_enabled();
-                // self.nmi_fired_this_vblank = false;
-                self.suppress_vblank = false;
-                self.vblank_clear_pending = true;
-                // self.status_register.reset_vblank_status();
                 self.status_register.set_sprite_zero_hit(false);
                 self.status_register.set_sprite_overflow(false);
                 self.scroll_register.reset_latch();
@@ -406,7 +346,6 @@ impl PPU {
                 self.nmi.on_event(NmiEvent::VBlankCleared);
             }
             PpuOperation::ClearVBlank2 => {
-                self.vblank_clear_pending = false;
                 self.status_register.reset_vblank_status();
                 trace_ppu_event!(
                     "VBLANK CLEAR2 vblank={} frame={} scanline={} dot={} ppu_cycle={} ticks_since_vblank_start={}",
@@ -424,21 +363,6 @@ impl PPU {
             PpuOperation::None => {}
         }
     }
-
-    // #[inline(always)]
-    // /// Notify CPU of NMI if one is triggered from a write to CTRL
-    // pub fn handle_instant_nmi(&mut self) {
-    //     if self.status_register.vblank_active() &&
-    //         self.instant_nmi_pending &&
-    //         self.ctrl_register.nmi_enabled() {
-    //         if let Some(bus_ptr) = self.bus {
-    //             unsafe {
-    //                 (*bus_ptr).nmi();
-    //             }
-    //         }
-    //         self.instant_nmi_pending = false;
-    //     }
-    // }
 
     #[inline(always)]
     pub fn advance_dot(&mut self) -> bool {
@@ -491,36 +415,41 @@ impl PPU {
             0x2002 => {
                 // PPUSTATUS - latch current status before side effects
                 let status = self.status_register.bits();
-                let had_vblank = (status & 0x80) != 0;
-                self.last_2002_read_scanline = self.scanline;
-                self.last_2002_read_dot = self.cycles; // + 1;
+                let had_vblank = self.status_register.vblank_active();
+
+                if self.scanline == 241 && self.cycles == 1 {
+                    self.suppress_next_vblank_set = true;
+                }
+
+                let in_vblank_set_window =
+                    self.scanline == 241 && (self.cycles == 1 || self.cycles == 2);
+                if in_vblank_set_window {
+                    self.nmi.on_event(NmiEvent::StatusReadDuringVBlankSet);
+                }
 
                 // From return value:
                 // bits 7–5 = real status
                 // bits 4–0 = open bus (last read)
-                let result = (status & 0xE0) | (self.last_byte_read.output() & 0x1F);
-                // trace!("[READ $2002] last_2002_read_cycle = {}", self.global_ppu_ticks);
+                let result =
+                    (status & 0x60) | (status & 0x80) | (self.last_byte_read.output() & 0x1F);
+
+                if self.scanline == 261 && self.cycles <= 3 {
+                    trace!(
+                        "[PPUSTATUS READ] SL=261 dot={} had_vblank={} status=0b{:08b}",
+                        self.cycles, had_vblank, status,
+                    );
+                }
 
                 // side effects happen capturing status
                 if had_vblank {
                     self.status_register.reset_vblank_status();
                     self.scroll_register.reset_latch();
+                    self.nmi.on_event(NmiEvent::StatusReadClearsVBlank);
                 }
 
                 // update open bus with what was read
                 self.last_byte_read.set(reg, result);
 
-                if self.vblank_set_this_dot {
-                    self.nmi.on_event(NmiEvent::StatusReadDuringVBlankSet);
-                }
-
-                // Quirk: reading $2002 one PPU clock before VBL suppresses VBL for that frame.
-                if !had_vblank
-                    && ((self.scanline == 241 && self.cycles == 0) ||  // dot 0 of scanline 241
-                    (self.scanline == 240 && self.cycles >= 254 && self.cycles <= 256))
-                {
-                    self.suppress_vblank = true;
-                }
                 result
             }
             0x2004 => {
@@ -792,20 +721,22 @@ impl PPU {
         self.ctrl_register.update(value);
         let curr_nmi_enable = self.ctrl_register.contains(ControlRegister::GENERATE_NMI);
 
-        // Immediately trigger NMI if it goes from 0->1 during VBLANK
-        // if !prev_nmi_enable
-        //     && value & 0b1000_0000 != 0
-        //     && (self.scanline >= 241 && self.cycles > 0)
-        //     && (self.scanline <= 260 && self.cycles <= 340)
-        //     && let Some(bus_ptr) = self.bus
-        // {
-        //     self.instant_nmi_pending = true;
-        // }
-
         if !prev_nmi_enable && curr_nmi_enable {
             self.nmi.on_event(NmiEvent::NmiEnableSet);
+            trace!(
+                "[NMI ENABLE] set at SL={} dot={} vblank_flag={}",
+                self.scanline,
+                self.cycles,
+                self.status_register.vblank_active()
+            );
         } else if prev_nmi_enable && !curr_nmi_enable {
             self.nmi.on_event(NmiEvent::NmiEnableCleared);
+            trace!(
+                "[NMI ENABLE] clear at SL={} dot={} vblank_flag={}",
+                self.scanline,
+                self.cycles,
+                self.status_register.vblank_active()
+            );
         }
 
         // Bits 0-1 control the base nametable, which go into bits 10 and 11 of t

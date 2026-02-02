@@ -1,7 +1,6 @@
 use super::tracer::Traceable;
 use crate::nes::cpu::interrupts::Interrupt;
 use bitflags::bitflags;
-use interrupts::InterruptType;
 use opcodes::Opcode;
 use thiserror::Error;
 
@@ -14,7 +13,6 @@ mod processor;
 pub mod processor_tests;
 mod trace;
 
-// const DEBUG: bool = true;
 const DEBUG: bool = false;
 const CPU_STACK_RESET: u8 = 0xFF;
 const CPU_STACK_BASE: u16 = 0x0100;
@@ -145,7 +143,9 @@ pub struct CPU {
 
     current_op: CpuCycleState,
 
-    nmi_pending: bool,
+    prev_nmi_line: bool,
+    nmi_armed: bool,
+    pub nmi_enable_holdoff: u8,
     irq_pending: bool,
     active_interrupt: Option<Interrupt>,
 
@@ -170,7 +170,9 @@ impl CPU {
             program_counter: 0,
             current_op: CpuCycleState::default(),
             active_interrupt: None,
-            nmi_pending: false,
+            prev_nmi_line: false,
+            nmi_armed: true,
+            nmi_enable_holdoff: 0,
             irq_pending: false,
             last_opcode_desc: "".to_string(),
             error: None,
@@ -193,7 +195,9 @@ impl CPU {
         self.stack_pointer = CPU_STACK_RESET;
         self.status = Flags::from_bits_truncate(0b0010_0010);
         self.active_interrupt = None;
-        self.nmi_pending = false; // PPU will notify CPU when NMI needs handling
+        self.prev_nmi_line = false;
+        self.nmi_armed = true;
+        self.nmi_enable_holdoff = 0;
         self.irq_pending = false;
         self.error = None;
     }
@@ -217,11 +221,17 @@ impl CPU {
             (*self.bus.unwrap()).cpu_bus_write(addr, data);
         }
     }
+
+    fn nmi_line(&mut self) -> bool {
+        unsafe { (*self.bus.unwrap()).ppu_nmi_line() }
+    }
 }
 
 pub trait CpuBusInterface {
     fn cpu_bus_read(&mut self, addr: u16) -> u8;
     fn cpu_bus_write(&mut self, addr: u16, value: u8);
+    fn ppu_nmi_line(&mut self) -> bool;
+    fn ppu_timing(&mut self) -> (usize, usize);
 }
 
 impl Traceable for CPU {

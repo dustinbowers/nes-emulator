@@ -94,17 +94,16 @@ impl CpuBusInterface for NesBus {
                 self.cpu_ram[mirrored as usize]
             }
             PPU_REGISTERS_START..=PPU_REGISTERS_END => {
-                let mirrored_addr = 0x2000 + (addr & 7);
-                if mirrored_addr == 0x2002 && self.ppu.status_register.vblank_active() {
-                    trace!(
-                        "[CPU READ $2002] PC=${:04X} PPU={}{} dot={} vblank={}",
-                        self.cpu.program_counter,
-                        self.ppu.scanline,
-                        if self.ppu.scanline < 10 { " " } else { "" },
-                        self.ppu.cycles + 1,
-                        self.ppu.status_register.vblank_active()
-                    );
-                }
+                // let mirrored_addr = 0x2000 + (addr & 7);
+                // if mirrored_addr == 0x2002 && self.ppu.status_register.vblank_active() {
+                //     trace!(
+                //         "[CPU READ $2002] PC=${:04X} PPU={} dot={} vblank={}",
+                //         self.cpu.program_counter,
+                //         self.ppu.scanline,
+                //         self.ppu.cycles + 1,
+                //         self.ppu.status_register.vblank_active()
+                //     );
+                // }
 
                 // PPU Registers mirrored every 8 bytes
                 self.ppu.read_register(addr)
@@ -144,7 +143,22 @@ impl CpuBusInterface for NesBus {
                 self.cpu_ram[mirrored as usize] = value;
             }
             PPU_REGISTERS_START..=PPU_REGISTERS_END => {
-                self.ppu.write_register(addr, value);
+                // NMI quirk
+                let reg = 0x2000 + (addr & 7);
+                if reg == 0x2000 {
+                    let old_enable = self.ppu.ctrl_register.nmi_enabled();
+                    self.ppu.write_register(addr, value);
+                    let new_enable = self.ppu.ctrl_register.nmi_enabled();
+                    let vblank_flag_set = self.ppu.status_register.vblank_active();
+
+                    // Quirk: if NMI flag goes 0->1 while vblank==1 then
+                    //        CPU will delay taking NMI by an additional instruction boundary
+                    if !old_enable && new_enable && vblank_flag_set {
+                        self.cpu.nmi_enable_holdoff = 1;
+                    }
+                } else {
+                    self.ppu.write_register(addr, value);
+                }
             }
             0x4014 => {
                 self.cpu.halt_scheduled = true;
@@ -175,6 +189,15 @@ impl CpuBusInterface for NesBus {
             _ => {}
         }
     }
+
+    fn ppu_nmi_line(&mut self) -> bool {
+        self.ppu.nmi.line()
+    }
+
+    // TODO: Remove this debugging function later
+    fn ppu_timing(&mut self) -> (usize, usize) {
+        (self.ppu.scanline, self.ppu.cycles)
+    }
 }
 
 impl PpuBusInterface for NesBus {
@@ -201,9 +224,9 @@ impl PpuBusInterface for NesBus {
             None => Mirroring::Horizontal,
         }
     }
-    fn nmi(&mut self) {
-        self.cpu.trigger_nmi();
-    }
+    // fn nmi(&mut self, defer_one_instruction: bool) {
+    //     self.cpu.trigger_nmi(defer_one_instruction);
+    // }
 }
 
 impl ApuBusInterface for NesBus {
