@@ -1,13 +1,11 @@
 use crate::app::event::{AppEvent, AppEventSource};
-use crate::app::ui::app_input;
+use crate::app::ui::{app_input, file_drop_overlay};
 use crate::app::ui::main_view;
 use crate::emu::commands::EmuCommand;
 use crate::emu::host::EmuHost;
 use crate::shared::frame_buffer::SharedFrameHandle;
 use eframe::epaint::TextureHandle;
-use nes_core::nes::RunState::Paused;
-use nes_core::prelude::{Cartridge, Rom, RomError};
-use std::sync::Arc;
+use nes_core::prelude::{Rom};
 
 pub struct App<E: AppEventSource> {
     events: E,
@@ -63,7 +61,10 @@ impl<E: AppEventSource> App<E> {
 
     pub fn with_initial_events(mut self, events: impl IntoIterator<Item = AppEvent>) -> Self {
         for event in events {
-            self.handle_external_event(event);
+            if let Err(e) = self.handle_external_event(event) {
+                self.last_error = Some(e.to_string());
+                break;
+            }
         }
         self
     }
@@ -76,37 +77,26 @@ impl<E: AppEventSource> App<E> {
         self
     }
 
-    fn handle_external_events(&mut self) {
+    fn handle_external_events(&mut self) -> anyhow::Result<()> {
         while let Some(event) = self.events.poll_event() {
             self.log("[RECEIVED] handle_external_events()");
-            self.handle_external_event(event);
+            self.handle_external_event(event)?;
         }
+        Ok(())
     }
 
-    fn handle_external_event(&mut self, event: AppEvent) {
+    fn handle_external_event(&mut self, event: AppEvent) -> anyhow::Result<()>{
         match event {
             AppEvent::Start => self.start(),
             AppEvent::LoadRom(rom) => {
                 self.log("AppEvent::LoadRom");
-                match Rom::parse(&rom) {
-                    Ok(rom) => match rom.into_cartridge() {
-                        Ok(cartridge) => {
-                            self.log("Cartridge parsed!");
-                            self.send_command(EmuCommand::InsertCartridge(cartridge));
-                        }
-                        Err(err) => {
-                            self.set_error(err.to_string());
-                        }
-                    },
-                    Err(err) => {
-                        self.set_error(err.to_string());
-                    }
-                }
+                self.play_rom(rom)?;
             }
             _ => {
                 self.log(format!("\t[Unhandled AppEvent] {:?}", event));
             }
         }
+        Ok(())
     }
 
     fn handle_emu_events(&mut self) {
@@ -137,12 +127,25 @@ impl<E: AppEventSource> App<E> {
         self.state.paused = true;
         self.last_error = Some(error);
     }
+
+    fn play_rom(&self, rom: Vec<u8>) -> anyhow::Result<()> {
+        let rom = Rom::parse(&rom)?;
+        let cartridge = rom.into_cartridge()?;
+        self.log("Cartridge parsed!");
+
+        // TODO: possibly send a Reset first (currently it's already handled downstream)
+        self.send_command(EmuCommand::InsertCartridge(cartridge));
+
+        Ok(())
+    }
 }
 
 impl<E: AppEventSource> eframe::App for App<E> {
     /// Serves as the main UI loop
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.handle_external_events();
+        if let Err(e) = self.handle_external_events() {
+            self.set_error(e.to_string());
+        }
         self.handle_emu_events();
 
         if let (Some(emu_host), Some(frame)) = (self.emu_host.as_ref(), self.frame.as_ref()) {
@@ -150,9 +153,17 @@ impl<E: AppEventSource> eframe::App for App<E> {
 
             main_view::render(ctx, &mut self.texture, &frame, self.state.paused);
 
+            file_drop_overlay::handle_file_drop(ctx, |bytes| {
+                self.log(format!("File drop detected! ({} bytes)", bytes.len()));
+                if let Err(e) = self.play_rom(bytes) {
+                    self.set_error(e.to_string());
+                }
+            });
+
             if self.show_debug {
                 // debug ui
             }
+
         } else {
             // TODO: render waiting ui
         }
