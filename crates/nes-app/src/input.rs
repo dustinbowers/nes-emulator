@@ -1,11 +1,11 @@
 use std::sync::atomic::{AtomicU8, Ordering};
 
 #[derive(Default)]
-pub struct ControllerState {
+pub struct GamepadState {
     buttons: AtomicU8,
 }
 
-impl ControllerState {
+impl GamepadState {
     #[inline]
     pub fn load(&self) -> u8 {
         self.buttons.load(Ordering::Relaxed)

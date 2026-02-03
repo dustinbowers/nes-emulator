@@ -23,6 +23,7 @@ pub enum ApuChannel {
     DMC,
 }
 
+#[deprecated]
 pub struct AppControl<C> {
     tx: Sender<C>,
 }

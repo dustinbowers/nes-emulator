@@ -1,5 +1,5 @@
 pub mod app;
 mod command;
-mod controller;
+mod input;
 mod event;
 mod snapshot;

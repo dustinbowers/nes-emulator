@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::process::exit;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8};
 
 pub use crate::command::{AppCommand, AppControl};
 use crate::command::{ApuChannel, ApuCommand};
-use crate::controller::ControllerState;
+use crate::input::GamepadState;
 pub use crate::event::AppEventSource;
 use crate::snapshot::{ApuSnapshot, CpuSnapshot, DebugSnapshot, FrameSnapshot};
 use cpal::Stream;
@@ -22,7 +22,6 @@ pub struct SharedInput {
 }
 
 enum State {
-    // NeedUserInteraction,
     Waiting,
     Running,
     Paused,
@@ -37,8 +36,8 @@ pub struct App<E: AppEventSource> {
     show_debug: bool,
     user_interacted: bool,
 
-    controller1: Arc<ControllerState>,
-    controller2: Arc<ControllerState>,
+    controller1: Arc<GamepadState>,
+    controller2: Arc<GamepadState>,
 
     log_callback: Option<Box<dyn Fn(String) + 'static>>,
     events: E,
@@ -97,12 +96,6 @@ impl<E: AppEventSource> App<E> {
             key_map.insert(*k, *v);
         }
 
-        // Skip user interaction screen for native with ROM argument
-        // let initial_state = if skip_user_interaction {
-        //     State::Waiting
-        // } else {
-        //     State::NeedUserInteraction
-        // };
         let initial_state = State::Waiting;
 
         let mut app = Self {
@@ -115,8 +108,8 @@ impl<E: AppEventSource> App<E> {
             events,
             log_callback: None,
 
-            controller1: Arc::new(ControllerState::default()),
-            controller2: Arc::new(ControllerState::default()),
+            controller1: Arc::new(GamepadState::default()),
+            controller2: Arc::new(GamepadState::default()),
 
             control: AppControl::new(cmd_tx),
             frame_rx,
@@ -268,8 +261,8 @@ impl<E: AppEventSource> App<E> {
         device: &cpal::Device,
         config: &cpal::StreamConfig,
         mut nes: NES,
-        controller1: Arc<ControllerState>,
-        controller2: Arc<ControllerState>,
+        controller1: Arc<GamepadState>,
+        controller2: Arc<GamepadState>,
         cmd_rx: Receiver<AppCommand>,
         frame_tx: Sender<FrameSnapshot>,
         apu_tx: Sender<ApuSnapshot>,
@@ -350,7 +343,6 @@ impl<E: AppEventSource> App<E> {
                             }
 
                             let raw = nes.bus.apu.sample();
-                            // let raw = 0.0;
                             let sample = T::from_sample(raw);
 
                             for out in frame.iter_mut() {
@@ -438,24 +430,6 @@ impl<E: AppEventSource> App<E> {
                     exit(0);
                 }
             }
-
-            // Mute channels
-            // let nes: &mut NES = unsafe { &mut *self.nes_arc.get_mut() };
-            // if i.key_pressed(egui::Key::Num1) {
-            //     nes.bus.apu.mute_pulse1 = !nes.bus.apu.mute_pulse1;
-            // }
-            // if i.key_pressed(egui::Key::Num2) {
-            //     nes.bus.apu.mute_pulse2 = !nes.bus.apu.mute_pulse2;
-            // }
-            // if i.key_pressed(egui::Key::Num3) {
-            //     nes.bus.apu.mute_triangle = !nes.bus.apu.mute_triangle;
-            // }
-            // if i.key_pressed(egui::Key::Num4) {
-            //     nes.bus.apu.mute_noise = !nes.bus.apu.mute_noise;
-            // }
-            // if i.key_pressed(egui::Key::Num5) {
-            //     nes.bus.apu.mute_dmc = !nes.bus.apu.mute_dmc;
-            // }
         });
     }
 
