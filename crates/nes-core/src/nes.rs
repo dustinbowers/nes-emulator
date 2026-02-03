@@ -82,7 +82,7 @@ impl NES {
     }
 
     pub fn parse_rom_bytes(rom_bytes: &Vec<u8>) -> Result<Box<dyn Cartridge>, RomError> {
-        let rom = Rom::new(rom_bytes)?;
+        let rom = Rom::parse(rom_bytes)?;
         let cart = rom.into_cartridge()?;
         Ok(cart)
     }
