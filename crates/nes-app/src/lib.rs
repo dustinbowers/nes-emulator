@@ -1,5 +1,4 @@
 pub mod app;
-mod command;
-mod controller;
-mod event;
-mod snapshot;
+pub mod audio;
+pub mod emu;
+pub mod shared;

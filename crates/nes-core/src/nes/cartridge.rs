@@ -13,7 +13,7 @@ pub enum MapperTiming {
     Mmc1,
 }
 
-pub trait Cartridge {
+pub trait Cartridge: Send {
     /// CPU read ($4020–$FFFF)
     ///
     /// # Returns

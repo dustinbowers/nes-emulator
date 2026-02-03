@@ -38,7 +38,7 @@ pub struct Rom {
 }
 
 impl Rom {
-    pub fn new(raw: &Vec<u8>) -> Result<Rom, RomError> {
+    pub fn parse(raw: &Vec<u8>) -> Result<Rom, RomError> {
         // Check NES magic bytes
         if raw.len() < 16 || &raw[0..4] != NES_MAGIC_BYTES {
             return Err(RomError::InvalidFormat("Not an iNES file".into()));
@@ -80,7 +80,7 @@ impl Rom {
 
     #[cfg(test)]
     pub fn empty() -> Rom {
-        Self::new(&vec![]).unwrap()
+        Self::parse(&vec![]).unwrap()
     }
 
     #[cfg(test)]
