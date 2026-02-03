@@ -21,10 +21,7 @@ impl SharedFrame {
     pub fn new() -> Self {
         Self {
             active: AtomicUsize::new(0),
-            buffers: [
-                UnsafeCell::new([0u8; W * H]),
-                UnsafeCell::new([0u8; W * H]),
-            ],
+            buffers: [UnsafeCell::new([0u8; W * H]), UnsafeCell::new([0u8; W * H])],
         }
     }
 

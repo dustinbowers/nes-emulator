@@ -3,8 +3,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use nes_app::app::app::App;
 use nes_app::app::event::{AppEvent, AppEventSource};
-use nes_app::emu::host::EmuHost;
-use nes_app::shared::frame_buffer::SharedFrame;
 
 pub struct NativeEventSource {
     // rx: Receiver<AppEvent>,
@@ -34,10 +32,7 @@ fn main() -> Result<(), eframe::Error> {
     if let Some(rom_path) = std::env::args_os().nth(1) {
         match std::fs::read(&rom_path) {
             Ok(rom_data) => initial_events.push(AppEvent::LoadRom(rom_data)),
-            Err(e) => eprintln!(
-                "Failed to load ROM '{}': {e}",
-                rom_path.to_string_lossy()
-            ),
+            Err(e) => eprintln!("Failed to load ROM '{}': {e}", rom_path.to_string_lossy()),
         }
     }
 

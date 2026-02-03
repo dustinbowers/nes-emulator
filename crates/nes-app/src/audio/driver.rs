@@ -1,7 +1,7 @@
-use std::error::Error;
-use cpal::{OutputCallbackInfo, Stream, StreamError};
-use cpal::traits::{DeviceTrait, HostTrait};
 use crate::audio::callback::AudioCallback;
+use cpal::traits::{DeviceTrait, HostTrait};
+use cpal::{OutputCallbackInfo, Stream, StreamError};
+use std::error::Error;
 
 type DataCallback<T> = Box<dyn FnMut(&mut [T], &OutputCallbackInfo) + Send + 'static>;
 type ErrorCallback = Box<dyn FnMut(StreamError) + Send + 'static>;
@@ -23,22 +23,21 @@ impl AudioDriver {
         Ok(Self {
             host,
             device,
-            config
+            config,
         })
     }
 
-    pub fn start(&mut self, mut callback: AudioCallback) -> Result<(Stream), Box<dyn Error>> {
+    pub fn start(&mut self, mut callback: AudioCallback) -> Result<Stream, Box<dyn Error>> {
         let sample_rate = self.config.sample_rate();
         let channels = self.config.channels() as usize;
         let config = self.config.clone();
 
         let stream = self.device.build_output_stream(
             &config.into(),
-            move |data: &mut [f32], _| {
-                callback.render(data, channels, sample_rate)
-            },
+            move |data: &mut [f32], _| callback.render(data, channels, sample_rate),
             |err| eprintln!("Audio stream error: {}", err),
-            None)?;
+            None,
+        )?;
 
         Ok(stream)
     }

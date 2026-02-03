@@ -1,4 +1,3 @@
-use crate::emu::events::EmuEvent;
 
 pub trait AppEventSource {
     // TODO
@@ -10,5 +9,5 @@ pub enum AppEvent {
     Start,
     LoadRom(Vec<u8>),
     Run,
-    Pause
+    Pause,
 }

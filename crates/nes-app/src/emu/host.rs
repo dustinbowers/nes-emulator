@@ -1,17 +1,20 @@
-use std::error::Error;
-use std::sync::Arc;
 use crate::audio::callback::AudioCallback;
 use crate::audio::driver::AudioDriver;
 use crate::emu::commands::EmuCommand;
+use crate::emu::emu_input::InputState;
 use crate::emu::events::EmuEvent;
 use crate::emu::runtime::EmuRuntime;
 use crate::shared::frame_buffer::{SharedFrame, SharedFrameHandle};
+use std::error::Error;
+use std::sync::Arc;
 
 /// EmuHost links the UI to the Audio/emulation thread
 pub struct EmuHost {
     command_tx: crossbeam_channel::Sender<EmuCommand>,
     event_rx: crossbeam_channel::Receiver<EmuEvent>,
     frame: SharedFrameHandle,
+
+    input_state: InputState,
 
     // keep-alive
     _stream: cpal::Stream,
@@ -23,8 +26,11 @@ impl EmuHost {
         let (command_tx, command_rx) = crossbeam_channel::unbounded();
         let (event_tx, event_rx) = crossbeam_channel::unbounded();
 
+        // Create shared input state
+        let input_state = InputState::new();
+
         // Create emulator runtime and pass it channels to send/receive messages
-        let runtime = EmuRuntime::new(command_rx, event_tx);
+        let runtime = EmuRuntime::new(command_rx, event_tx, input_state.clone());
 
         // Create a new shared frame buffer
         let frame = Arc::new(SharedFrame::new());
@@ -43,6 +49,7 @@ impl EmuHost {
             command_tx,
             event_rx,
             frame: frame.clone(),
+            input_state,
             _stream: stream,
         };
 
@@ -59,5 +66,7 @@ impl EmuHost {
 
     pub fn set_input(&self, p1: u8, p2: u8) {
         // write to AtomicU8 for sharing input states with runtime
+        self.input_state.p1.set(p1);
+        self.input_state.p2.set(p2);
     }
 }

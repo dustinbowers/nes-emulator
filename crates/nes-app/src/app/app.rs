@@ -1,16 +1,17 @@
-use std::sync::Arc;
+use crate::app::event::{AppEvent, AppEventSource};
+use crate::app::ui::app_input;
+use crate::app::ui::main_view;
+use crate::emu::commands::EmuCommand;
+use crate::emu::host::EmuHost;
+use crate::shared::frame_buffer::SharedFrameHandle;
 use eframe::epaint::TextureHandle;
 use nes_core::nes::RunState::Paused;
 use nes_core::prelude::{Cartridge, Rom, RomError};
-use crate::app::event::{AppEvent, AppEventSource};
-use crate::app::ui::main_view;
-use crate::app::ui::app_input;
-use crate::emu::host::EmuHost;
-use crate::shared::frame_buffer::{SharedFrameHandle};
+use std::sync::Arc;
 
 pub struct App<E: AppEventSource> {
     events: E,
-    emu: Option<EmuHost>,
+    emu_host: Option<EmuHost>,
     frame: Option<SharedFrameHandle>,
     texture: Option<TextureHandle>,
     log_callback: Option<Box<dyn Fn(String) + 'static>>,
@@ -18,7 +19,7 @@ pub struct App<E: AppEventSource> {
     // UI
     state: UiState,
     show_debug: bool,
-    last_error: Option<String>
+    last_error: Option<String>,
 }
 
 struct UiState {
@@ -30,27 +31,30 @@ impl<E: AppEventSource> App<E> {
     pub fn new(events: E) -> Self {
         Self {
             events,
-            emu: None,
+            emu_host: None,
             frame: None,
             texture: None,
 
             log_callback: None,
-            state: UiState { paused: false, user_interacted: false },
+            state: UiState {
+                paused: false,
+                user_interacted: false,
+            },
             show_debug: false,
             last_error: None,
         }
     }
 
     pub fn start(&mut self) {
-        if self.emu.is_some() {
+        if self.emu_host.is_some() {
             panic!("Double App::start() shouldn't happen");
         }
         self.log("App::start()");
         match EmuHost::start() {
             Ok((emu, frame)) => {
-                self.emu = Some(emu);
+                self.emu_host = Some(emu);
                 self.frame = Some(frame);
-            },
+            }
             Err(e) => {
                 self.last_error = Some(e.to_string());
             }
@@ -85,14 +89,15 @@ impl<E: AppEventSource> App<E> {
             AppEvent::LoadRom(rom) => {
                 self.log("AppEvent::LoadRom");
                 match Rom::parse(&rom) {
-                    Ok(rom) => {
-                        match rom.into_cartridge() {
-                            Ok(cartridge) => {}
-                            Err(err) => {
-                                self.set_error(err.to_string());
-                            }
+                    Ok(rom) => match rom.into_cartridge() {
+                        Ok(cartridge) => {
+                            self.log("Cartridge parsed!");
+                            self.send_command(EmuCommand::InsertCartridge(cartridge));
                         }
-                    }
+                        Err(err) => {
+                            self.set_error(err.to_string());
+                        }
+                    },
                     Err(err) => {
                         self.set_error(err.to_string());
                     }
@@ -105,7 +110,7 @@ impl<E: AppEventSource> App<E> {
     }
 
     fn handle_emu_events(&mut self) {
-        let Some(emu) = self.emu.as_ref() else {
+        let Some(emu) = self.emu_host.as_ref() else {
             return;
         };
         while let Some(event) = emu.try_recv() {
@@ -113,6 +118,12 @@ impl<E: AppEventSource> App<E> {
             match event {
                 _ => {}
             }
+        }
+    }
+
+    fn send_command(&self, cmd: EmuCommand) {
+        if let Some(emu) = &self.emu_host {
+            emu.send(cmd);
         }
     }
 
@@ -134,8 +145,8 @@ impl<E: AppEventSource> eframe::App for App<E> {
         self.handle_external_events();
         self.handle_emu_events();
 
-        if let (Some(emu), Some(frame)) = (self.emu.as_ref(), self.frame.as_ref()) {
-            app_input::update_controller_state(ctx, &emu);
+        if let (Some(emu_host), Some(frame)) = (self.emu_host.as_ref(), self.frame.as_ref()) {
+            app_input::update_controller_state(ctx, &emu_host);
 
             main_view::render(ctx, &mut self.texture, &frame, self.state.paused);
 
