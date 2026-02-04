@@ -1,5 +1,5 @@
 use crate::audio::callback::AudioCallback;
-use cpal::traits::{DeviceTrait, HostTrait};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{OutputCallbackInfo, Stream, StreamError};
 use std::error::Error;
 
@@ -38,6 +38,9 @@ impl AudioDriver {
             |err| eprintln!("Audio stream error: {}", err),
             None,
         )?;
+
+        #[cfg(target_arch = "wasm32")]
+        stream.play()?;
 
         Ok(stream)
     }

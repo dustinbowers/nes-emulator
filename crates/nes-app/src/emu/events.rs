@@ -1,8 +1,6 @@
-/// EmuEvents are sent Audio -> UI
-pub struct EmuEvent {
-    // TODO
-}
+use std::borrow::Cow;
 
-impl EmuEvent {
-    // TODO
+/// EmuEvents are sent Audio -> UI
+pub enum EmuEvent {
+    Log(Cow<'static, str>),
 }

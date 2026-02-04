@@ -2,12 +2,13 @@
 #![warn(clippy::all, rust_2018_idioms)]
 use crate::messenger::Messenger;
 use eframe::egui;
-use nes_app::app::{App, AppEvent, AppEventSource};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use wasm_bindgen::prelude::*;
+use nes_app::app::app::App;
+use nes_app::app::event::{AppEvent, AppEventSource};
 
 mod messenger;
 
@@ -40,9 +41,9 @@ impl WasmEventSource {
 impl AppEventSource for WasmEventSource {
     fn poll_event(&mut self) -> Option<AppEvent> {
         self.messenger.receive().map(|cmd| match cmd {
-            EmulatorMessage::LoadRom(rom) => AppEvent::RequestLoadRom(rom),
-            EmulatorMessage::Reset => AppEvent::RequestReset,
-            EmulatorMessage::Pause => AppEvent::RequestPause,
+            EmulatorMessage::LoadRom(rom) => AppEvent::LoadRom(rom),
+            EmulatorMessage::Reset => AppEvent::Reset,
+            EmulatorMessage::Pause => AppEvent::Pause,
         })
     }
 }
@@ -59,8 +60,8 @@ pub fn start_audio() -> Result<(), JsValue> {
             .as_ref()
             .ok_or_else(|| JsValue::from_str("App not initialized"))?;
         app.borrow_mut()
-            .init_audio()
-            .map_err(|e| JsValue::from_str(&e.to_string()))
+            .start();
+        Ok(())
     })
 }
 

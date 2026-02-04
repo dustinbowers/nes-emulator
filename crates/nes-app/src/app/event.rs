@@ -10,4 +10,5 @@ pub enum AppEvent {
     LoadRom(Vec<u8>),
     Run,
     Pause,
+    Reset,
 }
