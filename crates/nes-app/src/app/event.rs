@@ -1,4 +1,3 @@
-
 pub trait AppEventSource {
     // TODO
     fn poll_event(&mut self) -> Option<AppEvent>;

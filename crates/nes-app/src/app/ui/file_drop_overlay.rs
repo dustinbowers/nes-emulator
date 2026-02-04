@@ -1,7 +1,6 @@
-
 pub fn handle_file_drop<F>(ctx: &egui::Context, mut drop_callback: F)
 where
-    F: FnMut(Vec<u8>)
+    F: FnMut(Vec<u8>),
 {
     // Preview hovering files
     if !ctx.input(|i| i.raw.hovered_files.is_empty()) {

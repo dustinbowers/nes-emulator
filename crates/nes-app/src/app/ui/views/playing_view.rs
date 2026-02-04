@@ -1,9 +1,10 @@
-use eframe::epaint::{ColorImage, TextureHandle};
+use crate::app::app::{UiCtx};
+use crate::app::event::AppEventSource;
+use crate::app::ui::views::UiView;
+use eframe::epaint::ColorImage;
 use eframe::epaint::textures::TextureOptions;
 use nes_core::prelude::NES_SYSTEM_PALETTE;
-use crate::app::app::{App, Transition, UiCtx};
-use crate::app::event::AppEventSource;
-use crate::shared::frame_buffer::SharedFrame;
+use crate::app::ui::Transition;
 
 pub struct PlayingView {
     pub(crate) paused: bool,
@@ -11,24 +12,20 @@ pub struct PlayingView {
 
 impl PlayingView {
     pub fn new() -> Self {
-        PlayingView {
-            paused: false
-        }
+        PlayingView { paused: false }
     }
 
-    pub fn ui<E: AppEventSource>(&mut self,
-                 egui_ctx: &egui::Context,
-                 app_ctx: &mut UiCtx) -> Transition
-    {
+    pub fn ui<E: AppEventSource>(
+        &mut self,
+        egui_ctx: &egui::Context,
+        ui_ctx: &mut UiCtx,
+    ) -> Transition {
         let mut transition = Transition::None;
+        let Some(frame) = ui_ctx.frame.as_ref() else {
+            return Transition::to(UiView::error_shared_frame());
+        };
 
         egui::CentralPanel::default().show(egui_ctx, |ui| {
-            let Some(frame) = app_ctx.frame.as_ref() else {
-                // TODO: Something bad happened if we're here
-                transition = Transition::None;
-                return;
-            };
-
             let pixels = frame.read();
             let mut rgba = Vec::with_capacity(256 * 240 * 4);
             for &palette_idx in pixels.iter() {
@@ -37,7 +34,7 @@ impl PlayingView {
             }
 
             let color_image = ColorImage::from_rgba_unmultiplied([256, 240], &rgba);
-            let tex = app_ctx.texture.get_or_insert_with(|| {
+            let tex = ui_ctx.texture.get_or_insert_with(|| {
                 ui.ctx()
                     .load_texture("nes_frame", color_image.clone(), TextureOptions::LINEAR)
             });

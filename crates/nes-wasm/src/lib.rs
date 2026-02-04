@@ -2,13 +2,13 @@
 #![warn(clippy::all, rust_2018_idioms)]
 use crate::messenger::Messenger;
 use eframe::egui;
+use nes_app::app::app::App;
+use nes_app::app::event::{AppEvent, AppEventSource};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use wasm_bindgen::prelude::*;
-use nes_app::app::app::App;
-use nes_app::app::event::{AppEvent, AppEventSource};
 
 mod messenger;
 
@@ -59,8 +59,7 @@ pub fn start_audio() -> Result<(), JsValue> {
         let app = app
             .as_ref()
             .ok_or_else(|| JsValue::from_str("App not initialized"))?;
-        app.borrow_mut()
-            .start();
+        app.borrow_mut().start();
         Ok(())
     })
 }

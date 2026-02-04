@@ -1,13 +1,25 @@
-use anyhow::Context;
 use crate::app::event::{AppEvent, AppEventSource};
-use crate::app::ui::{app_input};
+use crate::app::ui::{file_drop_overlay, Transition};
+use crate::app::ui::views::UiView;
+pub(crate) use crate::app::ui::app_input;
 use crate::emu::commands::EmuCommand;
+use crate::emu::events::EmuEvent;
 use crate::emu::host::EmuHost;
 use crate::shared::frame_buffer::SharedFrameHandle;
+use anyhow::Context;
 use eframe::epaint::TextureHandle;
-use nes_core::prelude::{Rom};
-use crate::app::ui::views::playing_view::PlayingView;
-use crate::emu::events::EmuEvent;
+use nes_core::prelude::Rom;
+use crate::app::ui::views::waiting_view::WaitingView;
+
+pub enum Action {
+    PlayRom(Vec<u8>)
+}
+
+pub struct UiCtx<'a> {
+    pub frame: &'a Option<SharedFrameHandle>,
+    pub texture: &'a mut Option<TextureHandle>,
+    pub actions: &'a mut Vec<Action>,
+}
 
 pub struct App<E: AppEventSource> {
     events: E,
@@ -23,52 +35,6 @@ pub struct App<E: AppEventSource> {
     last_error: Option<String>,
 }
 
-pub enum Transition {
-    None,
-    Switch(UiView),
-    Quit,
-}
-
-impl Transition {
-    fn to(view: UiView) -> Self { Transition::Switch(view) }
-}
-
-
-pub struct ErrorInfo {
-    context: String,
-    details: String,
-}
-
-impl ErrorInfo {
-    pub fn from_anyhow(context: impl Into<String>, err: anyhow::Error) -> Self {
-        let context = context.into();
-        let details = format!("{err:#}");
-        Self { context, details }
-    }
-}
-
-
-enum UiView {
-    Waiting,
-    Options,
-    Playing(PlayingView),
-    Error(ErrorInfo)
-}
-
-impl UiView {
-    fn playing() -> Self { UiView::Playing(PlayingView::new()) }
-
-    fn error_load_rom(err: anyhow::Error) -> Self {
-        UiView::Error(ErrorInfo::from_anyhow("Failed to load ROM", err))
-    }
-}
-
-
-pub struct UiCtx<'a> {
-    pub frame: &'a Option<SharedFrameHandle>,
-    pub texture: &'a mut Option<TextureHandle>,
-}
-
 impl<E: AppEventSource> App<E> {
     pub fn new(events: E) -> Self {
         Self {
@@ -78,7 +44,7 @@ impl<E: AppEventSource> App<E> {
             texture: None,
 
             log_callback: None,
-            view: UiView::Waiting,
+            view: UiView::Waiting(WaitingView::new()),
             user_interacted: false,
             show_debug: false,
             last_error: None,
@@ -129,7 +95,7 @@ impl<E: AppEventSource> App<E> {
         Ok(())
     }
 
-    fn handle_external_event(&mut self, event: AppEvent) -> anyhow::Result<()>{
+    fn handle_external_event(&mut self, event: AppEvent) -> anyhow::Result<()> {
         match event {
             AppEvent::Start => self.start(),
             AppEvent::LoadRom(rom) => {
@@ -191,17 +157,23 @@ impl<E: AppEventSource> App<E> {
     fn apply_transition(&mut self, t: Transition) {
         match t {
             Transition::None => {}
-            Transition::Switch(v) => { self.view = v; }
+            Transition::Switch(v) => {
+                if let UiView::Error(err) = &v {
+                    self.log(format!("UI error - {}: {}", err.context, err.details));
+                }
+                self.view = v;
+            }
             Transition::Quit => { /* TODO */ }
         }
     }
 
-    fn ui_ctx(&mut self) -> UiCtx<'_> {
-        UiCtx {
-            frame: &self.frame,
-            texture: &mut self.texture,
-        }
-    }
+    // fn ui_ctx(&mut self) -> UiCtx<'_> {
+    //     UiCtx {
+    //         frame: &self.frame,
+    //         texture: &mut self.texture,
+    //         actions: &mut vec![],
+    //     }
+    // }
 }
 
 impl<E: AppEventSource> eframe::App for App<E> {
@@ -212,49 +184,44 @@ impl<E: AppEventSource> eframe::App for App<E> {
         }
         self.handle_emu_events();
 
-        // if let (Some(emu_host), Some(frame)) = (self.emu_host.as_ref(), self.frame.as_ref()) {
-        //     app_input::update_controller_state(ctx, &emu_host);
-        //
-        //     main_view::render(ctx, &mut self.texture, &frame, false);
-        //
-        //     file_drop_overlay::handle_file_drop(ctx, |bytes| {
-        //         self.log(format!("File drop detected! ({} bytes)", bytes.len()));
-        //         if let Err(e) = self.play_rom(bytes) {
-        //             self.set_error(e.to_string());
-        //         }
-        //     });
-        //
-        //     if self.show_debug {
-        //         // debug ui
-        //     }
-        //
-        // } else {
-        //     if let Some(rom_data) = waiting_view::render(ctx) {
-        //         self.play_rom(rom_data).ok();
-        //     }
-        // }
-
         // Update controller states while playing
-        if matches!(self.view, UiView::Playing{..}) && let Some(emu_host) = self.emu_host.as_ref() {
+        if matches!(self.view, UiView::Playing { .. })
+            && let Some(emu_host) = self.emu_host.as_ref()
+        {
             app_input::update_controller_state(ctx, &emu_host);
         }
 
+        let mut pending_rom: Option<Vec<u8>> = None;
+
         // Render view
-        let transition = {
+        let mut transition = {
             // Build context
             let mut ui_ctx = UiCtx {
                 frame: &self.frame,
                 texture: &mut self.texture,
+                actions: &mut vec![],
             };
             match &mut self.view {
-                UiView::Waiting => Transition::None,
+                UiView::Waiting(view) => {
+                    view.ui::<E>(ctx);
+                    pending_rom  = view.rom_bytes.take();
+                    Transition::None
+                }
                 UiView::Options => Transition::None,
-                UiView::Playing(view) => {
-                    view.ui::<E>(ctx, &mut ui_ctx)
-                },
+                UiView::Playing(view) => view.ui::<E>(ctx, &mut ui_ctx),
                 UiView::Error(_) => Transition::None,
             }
         };
+
+        file_drop_overlay::handle_file_drop(ctx, |bytes| {
+            self.log(format!("File drop detected! ({} bytes)", bytes.len()));
+            let t = self.play_rom(bytes);
+            self.apply_transition(t);
+        });
+
+        if let Some(rom_bytes) = pending_rom {
+           transition = self.play_rom(rom_bytes);
+        }
 
         // Handle transitions
         self.apply_transition(transition);

@@ -31,15 +31,15 @@ impl EmuRuntime {
         while let Ok(command) = self.command_rx.try_recv() {
             match command {
                 EmuCommand::InsertCartridge(cartridge) => {
-                    self.event_tx.send(EmuEvent::Log("[Audio thread] InsertCartridge!".into())).ok();
+                    self.event_tx
+                        .send(EmuEvent::Log("[Audio thread] InsertCartridge!".into()))
+                        .ok();
                     self.nes.insert_cartridge(cartridge);
                 }
                 EmuCommand::Reset => {
                     self.nes.bus.reset_components();
                 }
-                EmuCommand::Pause => {
-
-                }
+                EmuCommand::Pause => {}
             }
         }
     }
