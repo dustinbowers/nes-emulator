@@ -20,7 +20,7 @@ pub struct EmuHost {
 }
 
 impl EmuHost {
-    pub fn start() -> anyhow::Result<(Self, SharedFrameHandle)> {
+    pub fn start(frame: SharedFrameHandle) -> anyhow::Result<Self> {
         // Create communication channels
         let (command_tx, command_rx) = crossbeam_channel::unbounded();
         let (event_tx, event_rx) = crossbeam_channel::unbounded();
@@ -32,7 +32,7 @@ impl EmuHost {
         let runtime = EmuRuntime::new(command_rx, event_tx, input_state.clone());
 
         // Create a new shared frame buffer
-        let frame = Arc::new(SharedFrame::new());
+        // let frame = Arc::new(SharedFrame::new());
 
         // Create a new audio callback and pass ownership of the new runtime and frame buffer to it
         let audio_callback = AudioCallback::new(runtime, frame.clone());
@@ -52,7 +52,7 @@ impl EmuHost {
             _stream: stream,
         };
 
-        Ok((host, frame))
+        Ok(host)
     }
 
     pub fn send(&self, cmd: EmuCommand) {

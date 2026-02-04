@@ -1,5 +1,4 @@
 use crate::app::app::{Action, UiCtx};
-use crate::app::event::AppEventSource;
 use crate::app::ui::views::UiView;
 use eframe::epaint::ColorImage;
 use eframe::epaint::textures::TextureOptions;
@@ -15,15 +14,8 @@ impl PlayingView {
     }
 
     pub fn ui(&mut self, egui_ctx: &egui::Context, ui_ctx: &mut UiCtx) {
-        let Some(frame) = ui_ctx.frame.as_ref() else {
-            ui_ctx
-                .actions
-                .push(Action::Navigate(UiView::error_shared_frame()));
-            return;
-        };
-
         egui::CentralPanel::default().show(egui_ctx, |ui| {
-            let pixels = frame.read();
+            let pixels = ui_ctx.frame.read();
             let mut rgba = Vec::with_capacity(256 * 240 * 4);
             for &palette_idx in pixels.iter() {
                 let color = NES_SYSTEM_PALETTE[palette_idx as usize];

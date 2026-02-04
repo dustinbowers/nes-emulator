@@ -4,24 +4,27 @@ use crate::app::ui::error::ErrorInfo;
 use crate::app::ui::file_drop_overlay;
 use crate::app::ui::views::UiView;
 use crate::app::ui::views::error_view::ErrorView;
+use crate::app::ui::views::rom_select_view::RomSelectView;
 use crate::app::ui::views::waiting_view::WaitingView;
 use crate::emu::commands::EmuCommand;
 use crate::emu::events::EmuEvent;
 use crate::emu::host::EmuHost;
-use crate::shared::frame_buffer::SharedFrameHandle;
+use crate::shared::frame_buffer::{SharedFrame, SharedFrameHandle};
 use anyhow::Context;
 use eframe::epaint::TextureHandle;
 use egui::Widget;
 use nes_core::prelude::Rom;
+use std::sync::Arc;
 
 pub enum Action {
+    Start,
     Navigate(UiView),
     PlayRom(Vec<u8>),
     AcknowledgeError,
 }
 
 pub struct UiCtx<'a> {
-    pub frame: &'a Option<SharedFrameHandle>,
+    pub frame: &'a SharedFrameHandle,
     pub texture: &'a mut Option<TextureHandle>,
     pub actions: &'a mut Vec<Action>,
 }
@@ -29,14 +32,15 @@ pub struct UiCtx<'a> {
 pub struct App<E: AppEventSource> {
     events: E,
     emu_host: Option<EmuHost>,
-    pub(crate) frame: Option<SharedFrameHandle>,
+    pub(crate) frame: SharedFrameHandle,
     pub(crate) texture: Option<TextureHandle>,
     log_callback: Option<Box<dyn Fn(String) + 'static>>,
 
     // UI
     view: UiView,
-    user_interacted: bool,
     show_debug: bool,
+    user_interacted: bool,
+    started: bool,
 }
 
 impl<E: AppEventSource> App<E> {
@@ -44,26 +48,33 @@ impl<E: AppEventSource> App<E> {
         Self {
             events,
             emu_host: None,
-            frame: None,
+            frame: Arc::new(SharedFrame::new()),
             texture: None,
 
             log_callback: None,
             view: UiView::Waiting(WaitingView::new()),
-            user_interacted: false,
             show_debug: false,
+            user_interacted: false,
+            started: false,
         }
     }
 
-    pub fn start(&mut self) {
+    pub fn start_emulator(&mut self) {
+        if self.started {
+            self.log("App::start_emulator() already called.");
+            return;
+        }
+        self.started = true;
+
         if self.emu_host.is_some() {
             panic!("Double App::start() shouldn't happen");
         }
         self.log("App::start()");
-        match EmuHost::start() {
-            Ok((emu, frame)) => {
+        match EmuHost::start(self.frame.clone()) {
+            Ok((emu)) => {
                 self.log("EmuHost::start() => Ok()");
                 self.emu_host = Some(emu);
-                self.frame = Some(frame);
+                self.apply_action(Action::Navigate(UiView::RomSelect(RomSelectView::new())))
             }
             Err(e) => {
                 self.log(format!("EmuHost::start() => Err(): {}", e));
@@ -100,7 +111,7 @@ impl<E: AppEventSource> App<E> {
 
     fn handle_external_event(&mut self, event: AppEvent) -> anyhow::Result<()> {
         match event {
-            AppEvent::Start => self.start(),
+            AppEvent::Start => self.start_emulator(),
             AppEvent::LoadRom(rom) => {
                 self.log("AppEvent::LoadRom");
                 self.play_rom(rom);
@@ -139,6 +150,7 @@ impl<E: AppEventSource> App<E> {
 
     fn set_error(&mut self, error: anyhow::Error) {
         let info = ErrorInfo::from_anyhow("", error);
+        self.send_command(EmuCommand::Pause);
         self.view = UiView::Error(ErrorView::new(info));
     }
 
@@ -153,22 +165,32 @@ impl<E: AppEventSource> App<E> {
     fn play_rom(&mut self, rom_bytes: Vec<u8>) {
         match self.load_rom_and_start(rom_bytes) {
             Ok(()) => self.view = UiView::playing(),
-            Err(e) => self.view = UiView::error_load_rom(e),
+            Err(e) => self.set_error(e),
         }
     }
 
     fn apply_actions(&mut self, actions: Vec<Action>) {
         for action in actions {
-            match action {
-                Action::Navigate(v) => {
-                    self.view = v;
+            self.apply_action(action);
+        }
+    }
+
+    fn apply_action(&mut self, action: Action) {
+        match action {
+            Action::Navigate(v) => {
+                if let UiView::Error(..) = v {
+                    self.send_command(EmuCommand::Pause);
                 }
-                Action::PlayRom(rom_bytes) => {
-                    self.play_rom(rom_bytes);
-                }
-                Action::AcknowledgeError => {
-                    self.view = UiView::Waiting(WaitingView::new());
-                }
+                self.view = v;
+            }
+            Action::PlayRom(rom_bytes) => {
+                self.play_rom(rom_bytes);
+            }
+            Action::AcknowledgeError => {
+                self.view = UiView::RomSelect(RomSelectView::new());
+            }
+            Action::Start => {
+                self.start_emulator();
             }
         }
     }
@@ -202,14 +224,17 @@ impl<E: AppEventSource> eframe::App for App<E> {
 
             // Render
             match &mut self.view {
-                UiView::Waiting(v) => v.ui(ctx, &mut ui_ctx),
+                UiView::RomSelect(v) => v.ui(ctx, &mut ui_ctx),
                 UiView::Options => {}
                 UiView::Playing(v) => v.ui(ctx, &mut ui_ctx),
                 UiView::Error(v) => v.ui(ctx, &mut ui_ctx),
+                UiView::Waiting(v) => v.ui(ctx, &mut ui_ctx),
             }
 
-            // Allow file-drop at any time
-            file_drop_overlay::handle_file_drop(ctx, &mut ui_ctx);
+            // Allow file-drop only if emulator has already started
+            if self.started {
+                file_drop_overlay::handle_file_drop(ctx, &mut ui_ctx);
+            }
         };
 
         // Commit actions

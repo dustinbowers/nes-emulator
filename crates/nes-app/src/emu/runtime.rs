@@ -11,6 +11,7 @@ pub struct EmuRuntime {
     input_state: InputState,
     command_rx: Receiver<EmuCommand>,
     event_tx: Sender<EmuEvent>,
+    paused: bool,
 }
 
 impl EmuRuntime {
@@ -24,6 +25,7 @@ impl EmuRuntime {
             input_state,
             command_rx,
             event_tx,
+            paused: false,
         }
     }
 
@@ -35,11 +37,15 @@ impl EmuRuntime {
                         .send(EmuEvent::Log("[Audio thread] InsertCartridge!".into()))
                         .ok();
                     self.nes.insert_cartridge(cartridge);
+                    self.paused = false;
                 }
                 EmuCommand::Reset => {
                     self.nes.bus.reset_components();
+                    self.paused = true;
                 }
-                EmuCommand::Pause => {}
+                EmuCommand::Pause => {
+                    self.paused = !self.paused;
+                }
             }
         }
     }
@@ -53,6 +59,15 @@ impl EmuRuntime {
     ) where
         T: Sample + SizedSample + FromSample<f32>,
     {
+        if self.paused {
+            for audio_frame in data.chunks_mut(channels) {
+                for out in audio_frame.iter_mut() {
+                    *out = T::from_sample(0.0);
+                }
+            }
+            return;
+        }
+
         let sample_rate = sample_rate as f64;
         // PPU cycles per audio sample (5.369318 MHz / 44.1 kHz)
         let mut frame_ready = false;

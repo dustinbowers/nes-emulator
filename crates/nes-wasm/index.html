@@ -39,7 +39,7 @@
 </div>
 
 <script type="module">
-    import init, { start_audio } from './nes-emulator.js';
+    import init, { start_emulator } from './nes-emulator.js';
     await init();
     console.log("WASM initialized");
 
@@ -51,7 +51,7 @@
 
     // Load ROM button
     loadRomBtn.addEventListener("click", () => {
-        start_audio();
+        start_emulator();
         romInput.click();
     });
 

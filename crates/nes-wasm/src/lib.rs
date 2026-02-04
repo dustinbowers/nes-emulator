@@ -14,7 +14,7 @@ mod messenger;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", content = "rom")]
-pub enum EmulatorMessage {
+pub enum ClientMessage {
     // JS to WASM
     LoadRom(Vec<u8>),
     Reset,
@@ -22,7 +22,7 @@ pub enum EmulatorMessage {
 }
 
 pub struct WasmEventSource {
-    messenger: Messenger<EmulatorMessage>,
+    messenger: Messenger<ClientMessage>,
 }
 impl Default for WasmEventSource {
     fn default() -> Self {
@@ -32,7 +32,7 @@ impl Default for WasmEventSource {
 
 impl WasmEventSource {
     pub fn new() -> Self {
-        let messenger: Messenger<EmulatorMessage> = Messenger::new();
+        let messenger: Messenger<ClientMessage> = Messenger::new();
         messenger.init_message_listener();
         Self { messenger }
     }
@@ -41,9 +41,9 @@ impl WasmEventSource {
 impl AppEventSource for WasmEventSource {
     fn poll_event(&mut self) -> Option<AppEvent> {
         self.messenger.receive().map(|cmd| match cmd {
-            EmulatorMessage::LoadRom(rom) => AppEvent::LoadRom(rom),
-            EmulatorMessage::Reset => AppEvent::Reset,
-            EmulatorMessage::Pause => AppEvent::Pause,
+            ClientMessage::LoadRom(rom) => AppEvent::LoadRom(rom),
+            ClientMessage::Reset => AppEvent::Reset,
+            ClientMessage::Pause => AppEvent::Pause,
         })
     }
 }
@@ -53,13 +53,13 @@ thread_local! {
 }
 
 #[wasm_bindgen]
-pub fn start_audio() -> Result<(), JsValue> {
+pub fn start_emulator() -> Result<(), JsValue> {
     APP.with(|cell| {
         let app = cell.borrow();
         let app = app
             .as_ref()
             .ok_or_else(|| JsValue::from_str("App not initialized"))?;
-        app.borrow_mut().start();
+        app.borrow_mut().start_emulator();
         Ok(())
     })
 }
