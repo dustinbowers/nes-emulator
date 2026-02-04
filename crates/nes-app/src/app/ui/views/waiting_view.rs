@@ -1,5 +1,5 @@
+use crate::app::app::{Action, UiCtx};
 use crate::app::event::AppEventSource;
-use crate::app::ui::Transition;
 
 pub struct WaitingView {
     pub rom_bytes: Option<Vec<u8>>,
@@ -12,10 +12,11 @@ impl WaitingView {
         }
     }
 
-    pub fn ui<E: AppEventSource>(
+    pub fn ui(
         &mut self,
         egui_ctx: &egui::Context,
-    ) -> Transition {
+        ui_ctx: &mut UiCtx,
+    ) {
         egui::CentralPanel::default().show(egui_ctx, |ui| {
             let available = ui.available_size();
             let panel_width = 420.0;
@@ -55,7 +56,7 @@ impl WaitingView {
                                         .pick_file()
                                     && let Ok(rom_bytes) = std::fs::read(path)
                                 {
-                                    self.rom_bytes = Some(rom_bytes);
+                                    ui_ctx.actions.push(Action::PlayRom(rom_bytes));
                                 }
 
                                 ui.add_space(16.0);
@@ -66,6 +67,5 @@ impl WaitingView {
                     });
             });
         });
-        Transition::None
     }
 }

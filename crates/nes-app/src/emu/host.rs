@@ -5,7 +5,6 @@ use crate::emu::emu_input::InputState;
 use crate::emu::events::EmuEvent;
 use crate::emu::runtime::EmuRuntime;
 use crate::shared::frame_buffer::{SharedFrame, SharedFrameHandle};
-use std::error::Error;
 use std::sync::Arc;
 
 /// EmuHost links the UI to the Audio/emulation thread
@@ -21,7 +20,7 @@ pub struct EmuHost {
 }
 
 impl EmuHost {
-    pub fn start() -> Result<(Self, SharedFrameHandle), Box<dyn Error>> {
+    pub fn start() -> anyhow::Result<(Self, SharedFrameHandle)> {
         // Create communication channels
         let (command_tx, command_rx) = crossbeam_channel::unbounded();
         let (event_tx, event_rx) = crossbeam_channel::unbounded();

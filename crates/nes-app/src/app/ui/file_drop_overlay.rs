@@ -1,6 +1,8 @@
-pub fn handle_file_drop<F>(ctx: &egui::Context, mut drop_callback: F)
-where
-    F: FnMut(Vec<u8>),
+use crate::app::app::{Action, UiCtx};
+
+pub fn handle_file_drop(
+    ctx: &egui::Context,
+    ui_ctx: &mut UiCtx)
 {
     // Preview hovering files
     if !ctx.input(|i| i.raw.hovered_files.is_empty()) {
@@ -30,14 +32,14 @@ where
                 if let Some(path) = &file.path
                     && let Ok(rom_data) = std::fs::read(path)
                 {
-                    drop_callback(rom_data);
+                    ui_ctx.actions.push(Action::PlayRom(rom_data));
                 }
             }
 
             #[cfg(target_arch = "wasm32")]
             {
                 if let Some(bytes) = &file.bytes {
-                    drop_callback(bytes.to_vec());
+                    ui_ctx.actions.push(Action::PlayRom(rom_data));
                 }
             }
         }

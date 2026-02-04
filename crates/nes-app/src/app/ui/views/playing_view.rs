@@ -1,10 +1,9 @@
-use crate::app::app::{UiCtx};
+use crate::app::app::{Action, UiCtx};
 use crate::app::event::AppEventSource;
 use crate::app::ui::views::UiView;
 use eframe::epaint::ColorImage;
 use eframe::epaint::textures::TextureOptions;
 use nes_core::prelude::NES_SYSTEM_PALETTE;
-use crate::app::ui::Transition;
 
 pub struct PlayingView {
     pub(crate) paused: bool,
@@ -15,14 +14,14 @@ impl PlayingView {
         PlayingView { paused: false }
     }
 
-    pub fn ui<E: AppEventSource>(
+    pub fn ui(
         &mut self,
         egui_ctx: &egui::Context,
         ui_ctx: &mut UiCtx,
-    ) -> Transition {
-        let mut transition = Transition::None;
+    ) {
         let Some(frame) = ui_ctx.frame.as_ref() else {
-            return Transition::to(UiView::error_shared_frame());
+            ui_ctx.actions.push(Action::Navigate(UiView::error_shared_frame()));
+            return;
         };
 
         egui::CentralPanel::default().show(egui_ctx, |ui| {
@@ -51,7 +50,5 @@ impl PlayingView {
 
             ui.image((tex.id(), egui::vec2(w, h)));
         });
-
-        transition
     }
 }
