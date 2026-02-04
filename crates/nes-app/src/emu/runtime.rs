@@ -31,14 +31,15 @@ impl EmuRuntime {
         while let Ok(command) = self.command_rx.try_recv() {
             match command {
                 EmuCommand::InsertCartridge(cartridge) => {
+                    self.event_tx
+                        .send(EmuEvent::Log("[Audio thread] InsertCartridge!".into()))
+                        .ok();
                     self.nes.insert_cartridge(cartridge);
                 }
                 EmuCommand::Reset => {
-                    todo!()
+                    self.nes.bus.reset_components();
                 }
-                EmuCommand::Pause => {
-                    todo!()
-                }
+                EmuCommand::Pause => {}
             }
         }
     }
@@ -82,11 +83,4 @@ impl EmuRuntime {
         }
         self.nes.cycle_acc = cycle_acc;
     }
-
-    // fn send(&self, event: EmuEvent) {
-    //     let _ = self.event_tx.try_send(event);
-    // }
-    // fn try_recv(&mut self) -> Option<EmuCommand> {
-    //     self.command_rx.try_recv().ok()
-    // }
 }

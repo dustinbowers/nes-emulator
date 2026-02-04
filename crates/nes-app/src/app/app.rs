@@ -1,28 +1,42 @@
 use crate::app::event::{AppEvent, AppEventSource};
-use crate::app::ui::{app_input, file_drop_overlay};
-use crate::app::ui::main_view;
+pub(crate) use crate::app::ui::app_input;
+use crate::app::ui::error::ErrorInfo;
+use crate::app::ui::file_drop_overlay;
+use crate::app::ui::views::UiView;
+use crate::app::ui::views::error_view::ErrorView;
+use crate::app::ui::views::waiting_view::WaitingView;
 use crate::emu::commands::EmuCommand;
+use crate::emu::events::EmuEvent;
 use crate::emu::host::EmuHost;
 use crate::shared::frame_buffer::SharedFrameHandle;
+use anyhow::Context;
 use eframe::epaint::TextureHandle;
-use nes_core::prelude::{Rom};
+use egui::Widget;
+use nes_core::prelude::Rom;
+
+pub enum Action {
+    Navigate(UiView),
+    PlayRom(Vec<u8>),
+    AcknowledgeError,
+}
+
+pub struct UiCtx<'a> {
+    pub frame: &'a Option<SharedFrameHandle>,
+    pub texture: &'a mut Option<TextureHandle>,
+    pub actions: &'a mut Vec<Action>,
+}
 
 pub struct App<E: AppEventSource> {
     events: E,
     emu_host: Option<EmuHost>,
-    frame: Option<SharedFrameHandle>,
-    texture: Option<TextureHandle>,
+    pub(crate) frame: Option<SharedFrameHandle>,
+    pub(crate) texture: Option<TextureHandle>,
     log_callback: Option<Box<dyn Fn(String) + 'static>>,
 
     // UI
-    state: UiState,
-    show_debug: bool,
-    last_error: Option<String>,
-}
-
-struct UiState {
-    paused: bool,
+    view: UiView,
     user_interacted: bool,
+    show_debug: bool,
 }
 
 impl<E: AppEventSource> App<E> {
@@ -34,12 +48,9 @@ impl<E: AppEventSource> App<E> {
             texture: None,
 
             log_callback: None,
-            state: UiState {
-                paused: false,
-                user_interacted: false,
-            },
+            view: UiView::Waiting(WaitingView::new()),
+            user_interacted: false,
             show_debug: false,
-            last_error: None,
         }
     }
 
@@ -50,11 +61,13 @@ impl<E: AppEventSource> App<E> {
         self.log("App::start()");
         match EmuHost::start() {
             Ok((emu, frame)) => {
+                self.log("EmuHost::start() => Ok()");
                 self.emu_host = Some(emu);
                 self.frame = Some(frame);
             }
             Err(e) => {
-                self.last_error = Some(e.to_string());
+                self.log(format!("EmuHost::start() => Err(): {}", e));
+                self.set_error(e);
             }
         }
     }
@@ -62,7 +75,7 @@ impl<E: AppEventSource> App<E> {
     pub fn with_initial_events(mut self, events: impl IntoIterator<Item = AppEvent>) -> Self {
         for event in events {
             if let Err(e) = self.handle_external_event(event) {
-                self.last_error = Some(e.to_string());
+                self.set_error(e);
                 break;
             }
         }
@@ -85,12 +98,12 @@ impl<E: AppEventSource> App<E> {
         Ok(())
     }
 
-    fn handle_external_event(&mut self, event: AppEvent) -> anyhow::Result<()>{
+    fn handle_external_event(&mut self, event: AppEvent) -> anyhow::Result<()> {
         match event {
             AppEvent::Start => self.start(),
             AppEvent::LoadRom(rom) => {
                 self.log("AppEvent::LoadRom");
-                self.play_rom(rom)?;
+                self.play_rom(rom);
             }
             _ => {
                 self.log(format!("\t[Unhandled AppEvent] {:?}", event));
@@ -104,9 +117,10 @@ impl<E: AppEventSource> App<E> {
             return;
         };
         while let Some(event) = emu.try_recv() {
-            self.log("[RECEIVED] handle_emu_events()");
             match event {
-                _ => {}
+                EmuEvent::Log(msg) => {
+                    self.log(msg);
+                }
             }
         }
     }
@@ -123,20 +137,40 @@ impl<E: AppEventSource> App<E> {
         }
     }
 
-    fn set_error(&mut self, error: String) {
-        self.state.paused = true;
-        self.last_error = Some(error);
+    fn set_error(&mut self, error: anyhow::Error) {
+        let info = ErrorInfo::from_anyhow("", error);
+        self.view = UiView::Error(ErrorView::new(info));
     }
 
-    fn play_rom(&self, rom: Vec<u8>) -> anyhow::Result<()> {
-        let rom = Rom::parse(&rom)?;
-        let cartridge = rom.into_cartridge()?;
+    fn load_rom_and_start(&mut self, rom_bytes: Vec<u8>) -> anyhow::Result<()> {
+        let rom = Rom::parse(&rom_bytes).context("Rom parsing failed")?;
+        let cartridge = rom.into_cartridge().context("Cartridge parsing failed")?;
         self.log("Cartridge parsed!");
-
-        // TODO: possibly send a Reset first (currently it's already handled downstream)
         self.send_command(EmuCommand::InsertCartridge(cartridge));
-
         Ok(())
+    }
+
+    fn play_rom(&mut self, rom_bytes: Vec<u8>) {
+        match self.load_rom_and_start(rom_bytes) {
+            Ok(()) => self.view = UiView::playing(),
+            Err(e) => self.view = UiView::error_load_rom(e),
+        }
+    }
+
+    fn apply_actions(&mut self, actions: Vec<Action>) {
+        for action in actions {
+            match action {
+                Action::Navigate(v) => {
+                    self.view = v;
+                }
+                Action::PlayRom(rom_bytes) => {
+                    self.play_rom(rom_bytes);
+                }
+                Action::AcknowledgeError => {
+                    self.view = UiView::Waiting(WaitingView::new());
+                }
+            }
+        }
     }
 }
 
@@ -144,29 +178,42 @@ impl<E: AppEventSource> eframe::App for App<E> {
     /// Serves as the main UI loop
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if let Err(e) = self.handle_external_events() {
-            self.set_error(e.to_string());
+            self.set_error(e);
+            return;
         }
         self.handle_emu_events();
 
-        if let (Some(emu_host), Some(frame)) = (self.emu_host.as_ref(), self.frame.as_ref()) {
+        // Update controller states while playing
+        if matches!(self.view, UiView::Playing { .. })
+            && let Some(emu_host) = self.emu_host.as_ref()
+        {
             app_input::update_controller_state(ctx, &emu_host);
+        }
 
-            main_view::render(ctx, &mut self.texture, &frame, self.state.paused);
+        let mut actions = Vec::<Action>::new();
 
-            file_drop_overlay::handle_file_drop(ctx, |bytes| {
-                self.log(format!("File drop detected! ({} bytes)", bytes.len()));
-                if let Err(e) = self.play_rom(bytes) {
-                    self.set_error(e.to_string());
-                }
-            });
+        {
+            // Build context
+            let mut ui_ctx = UiCtx {
+                frame: &self.frame,
+                texture: &mut self.texture,
+                actions: &mut actions,
+            };
 
-            if self.show_debug {
-                // debug ui
+            // Render
+            match &mut self.view {
+                UiView::Waiting(v) => v.ui(ctx, &mut ui_ctx),
+                UiView::Options => {}
+                UiView::Playing(v) => v.ui(ctx, &mut ui_ctx),
+                UiView::Error(v) => v.ui(ctx, &mut ui_ctx),
             }
 
-        } else {
-            // TODO: render waiting ui
-        }
+            // Allow file-drop at any time
+            file_drop_overlay::handle_file_drop(ctx, &mut ui_ctx);
+        };
+
+        // Commit actions
+        self.apply_actions(actions);
 
         ctx.request_repaint();
     }
