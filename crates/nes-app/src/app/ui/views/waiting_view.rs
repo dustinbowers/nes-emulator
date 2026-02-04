@@ -7,20 +7,14 @@ pub struct WaitingView {
 
 impl WaitingView {
     pub fn new() -> Self {
-        WaitingView {
-            rom_bytes: None,
-        }
+        WaitingView { rom_bytes: None }
     }
 
-    pub fn ui(
-        &mut self,
-        egui_ctx: &egui::Context,
-        ui_ctx: &mut UiCtx,
-    ) {
+    pub fn ui(&mut self, egui_ctx: &egui::Context, ui_ctx: &mut UiCtx) {
         egui::CentralPanel::default().show(egui_ctx, |ui| {
             let available = ui.available_size();
             let panel_width = 420.0;
-            let panel_height = 240.0; // approximate height frame
+            let panel_height = 240.0;
 
             // Compute the top-left of the centered rect
             let top_left = egui::pos2(

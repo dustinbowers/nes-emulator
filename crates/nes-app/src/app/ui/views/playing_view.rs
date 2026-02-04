@@ -14,13 +14,11 @@ impl PlayingView {
         PlayingView { paused: false }
     }
 
-    pub fn ui(
-        &mut self,
-        egui_ctx: &egui::Context,
-        ui_ctx: &mut UiCtx,
-    ) {
+    pub fn ui(&mut self, egui_ctx: &egui::Context, ui_ctx: &mut UiCtx) {
         let Some(frame) = ui_ctx.frame.as_ref() else {
-            ui_ctx.actions.push(Action::Navigate(UiView::error_shared_frame()));
+            ui_ctx
+                .actions
+                .push(Action::Navigate(UiView::error_shared_frame()));
             return;
         };
 

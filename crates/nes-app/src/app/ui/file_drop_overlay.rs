@@ -1,9 +1,6 @@
 use crate::app::app::{Action, UiCtx};
 
-pub fn handle_file_drop(
-    ctx: &egui::Context,
-    ui_ctx: &mut UiCtx)
-{
+pub fn handle_file_drop(ctx: &egui::Context, ui_ctx: &mut UiCtx) {
     // Preview hovering files
     if !ctx.input(|i| i.raw.hovered_files.is_empty()) {
         use egui::*;
@@ -39,6 +36,7 @@ pub fn handle_file_drop(
             #[cfg(target_arch = "wasm32")]
             {
                 if let Some(bytes) = &file.bytes {
+                    let rom_data = bytes.to_vec();
                     ui_ctx.actions.push(Action::PlayRom(rom_data));
                 }
             }
