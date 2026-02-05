@@ -1,4 +1,5 @@
-use crate::app::app::{Action, UiCtx};
+use crate::app::action::Action;
+use crate::app::app::UiCtx;
 
 pub fn handle_file_drop(ctx: &egui::Context, ui_ctx: &mut UiCtx) {
     // Preview hovering files

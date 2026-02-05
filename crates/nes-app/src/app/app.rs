@@ -1,3 +1,4 @@
+use crate::app::action::Action;
 use crate::app::event::{AppEvent, AppEventSource};
 pub(crate) use crate::app::ui::app_input;
 use crate::app::ui::error::ErrorInfo;
@@ -7,7 +8,7 @@ use crate::app::ui::views::error_view::ErrorView;
 use crate::app::ui::views::rom_select_view::RomSelectView;
 use crate::app::ui::views::waiting_view::WaitingView;
 use crate::emu::commands::EmuCommand;
-use crate::emu::events::EmuEvent;
+use crate::emu::event::EmuEvent;
 use crate::emu::host::EmuHost;
 use crate::shared::frame_buffer::{SharedFrame, SharedFrameHandle};
 use anyhow::Context;
@@ -16,31 +17,27 @@ use egui::Widget;
 use nes_core::prelude::Rom;
 use std::sync::Arc;
 
-pub enum Action {
-    Start,
-    Navigate(UiView),
-    PlayRom(Vec<u8>),
-    AcknowledgeError,
-}
-
 pub struct UiCtx<'a> {
     pub frame: &'a SharedFrameHandle,
     pub texture: &'a mut Option<TextureHandle>,
     pub actions: &'a mut Vec<Action>,
+    pub started: bool,
+    pub paused: bool,
 }
 
 pub struct App<E: AppEventSource> {
-    events: E,
+    pub(crate) events: E,
     emu_host: Option<EmuHost>,
     pub(crate) frame: SharedFrameHandle,
     pub(crate) texture: Option<TextureHandle>,
     log_callback: Option<Box<dyn Fn(String) + 'static>>,
 
     // UI
-    view: UiView,
+    pub(crate) view: UiView,
     show_debug: bool,
     user_interacted: bool,
-    started: bool,
+    pub(crate) started: bool,
+    pub(crate) paused: bool,
 }
 
 impl<E: AppEventSource> App<E> {
@@ -56,6 +53,7 @@ impl<E: AppEventSource> App<E> {
             show_debug: false,
             user_interacted: false,
             started: false,
+            paused: false,
         }
     }
 
@@ -101,28 +99,6 @@ impl<E: AppEventSource> App<E> {
         self
     }
 
-    fn handle_external_events(&mut self) -> anyhow::Result<()> {
-        while let Some(event) = self.events.poll_event() {
-            self.log("[RECEIVED] handle_external_events()");
-            self.handle_external_event(event)?;
-        }
-        Ok(())
-    }
-
-    fn handle_external_event(&mut self, event: AppEvent) -> anyhow::Result<()> {
-        match event {
-            AppEvent::Start => self.start_emulator(),
-            AppEvent::LoadRom(rom) => {
-                self.log("AppEvent::LoadRom");
-                self.play_rom(rom);
-            }
-            _ => {
-                self.log(format!("\t[Unhandled AppEvent] {:?}", event));
-            }
-        }
-        Ok(())
-    }
-
     fn handle_emu_events(&mut self) {
         let Some(emu) = self.emu_host.as_ref() else {
             return;
@@ -136,7 +112,7 @@ impl<E: AppEventSource> App<E> {
         }
     }
 
-    fn send_command(&self, cmd: EmuCommand) {
+    pub(crate) fn send_command(&self, cmd: EmuCommand) {
         if let Some(emu) = &self.emu_host {
             emu.send(cmd);
         }
@@ -150,7 +126,7 @@ impl<E: AppEventSource> App<E> {
 
     fn set_error(&mut self, error: anyhow::Error) {
         let info = ErrorInfo::from_anyhow("", error);
-        self.send_command(EmuCommand::Pause);
+        self.apply_action(Action::SetPaused(true));
         self.view = UiView::Error(ErrorView::new(info));
     }
 
@@ -162,36 +138,10 @@ impl<E: AppEventSource> App<E> {
         Ok(())
     }
 
-    fn play_rom(&mut self, rom_bytes: Vec<u8>) {
+    pub(crate) fn play_rom(&mut self, rom_bytes: Vec<u8>) {
         match self.load_rom_and_start(rom_bytes) {
             Ok(()) => self.view = UiView::playing(),
             Err(e) => self.set_error(e),
-        }
-    }
-
-    fn apply_actions(&mut self, actions: Vec<Action>) {
-        for action in actions {
-            self.apply_action(action);
-        }
-    }
-
-    fn apply_action(&mut self, action: Action) {
-        match action {
-            Action::Navigate(v) => {
-                if let UiView::Error(..) = v {
-                    self.send_command(EmuCommand::Pause);
-                }
-                self.view = v;
-            }
-            Action::PlayRom(rom_bytes) => {
-                self.play_rom(rom_bytes);
-            }
-            Action::AcknowledgeError => {
-                self.view = UiView::RomSelect(RomSelectView::new());
-            }
-            Action::Start => {
-                self.start_emulator();
-            }
         }
     }
 }
@@ -220,7 +170,12 @@ impl<E: AppEventSource> eframe::App for App<E> {
                 frame: &self.frame,
                 texture: &mut self.texture,
                 actions: &mut actions,
+                started: self.started,
+                paused: self.paused,
             };
+
+            // Handle Hotkeys
+            app_input::handle_hotkeys(ctx, &mut ui_ctx, &self.view);
 
             // Render
             match &mut self.view {
