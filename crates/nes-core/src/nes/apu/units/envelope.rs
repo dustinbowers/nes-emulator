@@ -27,7 +27,7 @@ impl Envelope {
         }
     }
 
-    // private for testing
+    #[cfg(test)]
     fn start(&mut self) {
         self.start = false;
         self.decay = 15;

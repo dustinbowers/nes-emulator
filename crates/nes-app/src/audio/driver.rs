@@ -1,14 +1,9 @@
 use crate::audio::callback::AudioCallback;
 use anyhow::Context;
+use cpal::Stream;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{OutputCallbackInfo, Stream, StreamError};
-use std::error::Error;
-
-type DataCallback<T> = Box<dyn FnMut(&mut [T], &OutputCallbackInfo) + Send + 'static>;
-type ErrorCallback = Box<dyn FnMut(StreamError) + Send + 'static>;
 
 pub struct AudioDriver {
-    host: cpal::Host,
     device: cpal::Device,
     config: cpal::SupportedStreamConfig,
 }
@@ -25,11 +20,7 @@ impl AudioDriver {
             .default_output_config()
             .context("Failed to get default output config")?;
 
-        Ok(Self {
-            host,
-            device,
-            config,
-        })
+        Ok(Self { device, config })
     }
 
     pub fn start(&mut self, mut callback: AudioCallback) -> anyhow::Result<Stream> {
@@ -44,7 +35,7 @@ impl AudioDriver {
             None,
         )?;
 
-        #[cfg(target_arch = "wasm32")]
+        // #[cfg(target_arch = "wasm32")]
         stream.play()?;
 
         Ok(stream)

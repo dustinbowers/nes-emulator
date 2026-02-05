@@ -45,9 +45,4 @@ impl OnePole {
 
         output
     }
-
-    pub fn reset(&mut self) {
-        self.prev_in = 0.0;
-        self.prev_out = 0.0;
-    }
 }

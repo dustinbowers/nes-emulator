@@ -4,7 +4,7 @@
 pub enum InterruptType {
     Nmi, // Non-maskable interrupt (triggered from PPU at VBLANK)
     Irq,
-    Brk, // Software-defined interrupt
+    // Brk, // Software-defined interrupt
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -22,12 +22,12 @@ pub const NMI: Interrupt = Interrupt {
     cpu_cycles: 7,
 };
 
-pub const BRK: Interrupt = Interrupt {
-    interrupt_type: InterruptType::Brk,
-    vector_addr: 0xFFFE, // brk address vector lives at $FFFE
-    b_flag_mask: 0b0011_0000,
-    cpu_cycles: 7,
-};
+// pub const BRK: Interrupt = Interrupt {
+//     interrupt_type: InterruptType::Brk,
+//     vector_addr: 0xFFFE, // brk address vector lives at $FFFE
+//     b_flag_mask: 0b0011_0000,
+//     cpu_cycles: 7,
+// };
 
 pub const IRQ: Interrupt = Interrupt {
     interrupt_type: InterruptType::Irq,

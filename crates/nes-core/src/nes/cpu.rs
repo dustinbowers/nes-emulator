@@ -13,7 +13,6 @@ mod processor;
 pub mod processor_tests;
 mod trace;
 
-const DEBUG: bool = false;
 const CPU_STACK_RESET: u8 = 0xFF;
 const CPU_STACK_BASE: u16 = 0x0100;
 
@@ -99,7 +98,7 @@ enum AddrResult {
     #[default]
     InProgress,
     Ready(u16),
-    ReadyImmediate(u8),
+    ReadyImmediate,
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq)]
@@ -115,7 +114,7 @@ enum ExecPhase {
 #[derive(Default, Debug)]
 struct CpuCycleState {
     opcode: Option<&'static Opcode>,
-    interrupt: Option<Interrupt>,
+    // interrupt: Option<Interrupt>,
     micro_cycle: u8,
     access_type: AccessType,
     exec_phase: ExecPhase,

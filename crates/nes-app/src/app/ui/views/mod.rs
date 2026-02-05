@@ -1,4 +1,3 @@
-use crate::app::ui::error::ErrorInfo;
 use crate::app::ui::views::error_view::ErrorView;
 use crate::app::ui::views::playing_view::PlayingView;
 use crate::app::ui::views::rom_select_view::RomSelectView;
@@ -20,15 +19,5 @@ pub enum UiView {
 impl UiView {
     pub(crate) fn playing() -> Self {
         UiView::Playing(PlayingView::new())
-    }
-
-    pub(crate) fn error_load_rom(err: anyhow::Error) -> Self {
-        let info = ErrorInfo::from_anyhow("Failed to load ROM", err);
-        UiView::Error(ErrorView::new(info))
-    }
-
-    pub(crate) fn error_shared_frame() -> Self {
-        let info = ErrorInfo::new("SharedFrameBuffer not found.", "");
-        UiView::Error(ErrorView::new(info))
     }
 }

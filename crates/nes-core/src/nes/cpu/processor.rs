@@ -1,15 +1,8 @@
 use super::super::trace;
-use super::interrupts::{Interrupt, InterruptType};
 use super::opcodes::Opcode;
-use super::{
-    CPU, CPU_STACK_RESET, CpuBusInterface, CpuCycleState, CpuError, CpuMode, DEBUG, Flags,
-    interrupts, opcodes,
-};
-use crate::nes::tracer::Traceable;
-use crate::{trace_cpu_event, trace_obj};
-use bitflags::bitflags;
+use super::{CPU, CpuCycleState, CpuError, CpuMode, Flags, interrupts, opcodes};
+use crate::trace_cpu_event;
 use std::collections::HashMap;
-use thiserror::Error;
 
 impl CPU {
     #[allow(dead_code)]
@@ -21,11 +14,6 @@ impl CPU {
             }
         }
     }
-
-    // pub fn trigger_nmi(&mut self, defer_one_instruction: bool) {
-    //     self.nmi_pending = true;
-    //     self.nmi_defer = if defer_one_instruction { 1 } else { 0 };
-    // }
 
     fn toggle_mode(&mut self) {
         self.cpu_mode = match &self.cpu_mode {
@@ -91,6 +79,8 @@ impl CPU {
                 } else if curr_nmi_line && self.nmi_armed {
                     self.nmi_armed = false;
                     self.active_interrupt = Some(interrupts::NMI);
+
+                    #[cfg(feature = "tracing")]
                     {
                         let (scanline, dot) = unsafe { (*self.bus.unwrap()).ppu_timing() };
                         trace_cpu_event!("[NMI SET] sl={} dot={}", scanline, dot);
@@ -131,13 +121,6 @@ impl CPU {
             self.current_op.opcode = Some(opcode);
             self.current_op.access_type = opcode.access_type;
 
-            if opcode.code == 0xA2 {
-                if let Some(state) = self.trace_state() {
-                    let operand = self.bus_read(self.program_counter);
-                    trace_cpu_event!("{} OP={operand}", state);
-                }
-            }
-
             // NOTE: I've assigned the 0x02 opcode (normally a JAM/KIL) to break out of the CPU run loop for testing purposes
             let is_breaking: bool = if opcode.code == 0x02 {
                 self.error = Some(CpuError::JamOpcode(opcode.code));
@@ -168,7 +151,7 @@ impl CPU {
         (done, false)
     }
 
-    fn start_interrupt(&mut self, interrupt: Interrupt) {
-        self.current_op.interrupt = Some(interrupt);
-    }
+    // fn start_interrupt(&mut self, interrupt: Interrupt) {
+    //     self.current_op.interrupt = Some(interrupt);
+    // }
 }

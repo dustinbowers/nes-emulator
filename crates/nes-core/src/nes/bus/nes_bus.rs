@@ -7,8 +7,6 @@ use crate::nes::controller::joypad::Joypad;
 use crate::nes::cpu::{CPU, CpuBusInterface};
 use crate::nes::ppu::{PPU, PpuBusInterface};
 
-use crate::trace;
-
 pub struct NesBus {
     cart: Option<Box<dyn Cartridge>>,
 
@@ -185,8 +183,7 @@ impl CpuBusInterface for NesBus {
 
                     cart.cpu_write(addr, value);
                 }
-            }
-            _ => {}
+            } // _ => unreachable!()
         }
     }
 

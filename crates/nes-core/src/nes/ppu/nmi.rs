@@ -1,4 +1,3 @@
-use crate::trace;
 use crate::trace_ppu_event;
 
 pub enum NmiEvent {
@@ -30,9 +29,9 @@ pub struct Nmi {
 }
 
 impl Nmi {
-    pub fn reset(&mut self) {
-        *self = Self::default();
-    }
+    // pub fn reset(&mut self) {
+    //     *self = Self::default();
+    // }
 
     /// Current NMI output line level
     #[inline]

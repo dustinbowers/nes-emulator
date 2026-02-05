@@ -12,7 +12,7 @@ pub struct Sweep {
     shift: u8,
 
     divider: u8, // counts down
-    mute: bool,  // whether sweep would silence channel
+                 // mute: bool,  // whether sweep would silence channel
 }
 
 impl Sweep {
@@ -25,7 +25,7 @@ impl Sweep {
             negate: false,
             shift: 0,
             divider: 0,
-            mute: false,
+            // mute: false,
         }
     }
 
@@ -41,10 +41,8 @@ impl Sweep {
     pub fn clock(&mut self, timer: &mut u16) {
         let mut apply_change = false;
 
-        if self.divider == 0 {
-            if self.enabled && self.shift > 0 && !self.is_muting(*timer) {
-                apply_change = true;
-            }
+        if self.divider == 0 && self.enabled && self.shift > 0 && !self.is_muting(*timer) {
+            apply_change = true;
         }
 
         if apply_change {
@@ -59,10 +57,7 @@ impl Sweep {
                         }
                         // (*timer).wrapping_sub(change).wrapping_sub(1)
                     }
-                    PulseType::Pulse2 => {
-                        if change > *timer { 0 } else { *timer - change }
-                        // (*timer).wrapping_sub(change)
-                    }
+                    PulseType::Pulse2 => (*timer).saturating_sub(change),
                 }
             } else {
                 *timer + change
@@ -100,25 +95,25 @@ impl Sweep {
         target > 0x7FF // timer must fit in 11 bits
     }
 
-    pub fn set_enabled(&mut self, enabled: bool) {
-        self.enabled = enabled;
-    }
-    pub fn is_enabled(&self) -> bool {
-        self.enabled
-    }
-    pub fn set_period(&mut self, period: u8) {
-        self.period = period;
-    }
-    pub fn get_period(&self) -> u8 {
-        self.period
-    }
-    pub fn set_shift(&mut self, shift: u8) {
-        self.shift = shift;
-    }
-    pub fn get_shift(&self) -> u8 {
-        self.shift
-    }
-    pub fn get_negate_flag(&self) -> bool {
-        self.negate
-    }
+    // pub fn set_enabled(&mut self, enabled: bool) {
+    //     self.enabled = enabled;
+    // }
+    // pub fn is_enabled(&self) -> bool {
+    //     self.enabled
+    // }
+    // pub fn set_period(&mut self, period: u8) {
+    //     self.period = period;
+    // }
+    // pub fn get_period(&self) -> u8 {
+    //     self.period
+    // }
+    // pub fn set_shift(&mut self, shift: u8) {
+    //     self.shift = shift;
+    // }
+    // pub fn get_shift(&self) -> u8 {
+    //     self.shift
+    // }
+    // pub fn get_negate_flag(&self) -> bool {
+    //     self.negate
+    // }
 }

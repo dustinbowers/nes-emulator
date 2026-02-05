@@ -12,7 +12,7 @@ pub struct NromCart {
 
 impl NromCart {
     pub fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> NromCart {
-        let chr_is_ram = chr_rom.len() == 0;
+        let chr_is_ram = chr_rom.is_empty();
         NromCart {
             prg_rom,
             prg_ram: vec![0; 0x2000],
@@ -46,12 +46,9 @@ impl Cartridge for NromCart {
     }
 
     fn cpu_write(&mut self, addr: u16, data: u8) {
-        match addr {
-            0x6000..=0x7FFF => {
-                let index = (addr - 0x6000) as usize;
-                self.prg_ram[index] = data;
-            }
-            _ => {} // ignore invalid writes
+        if let 0x6000..=0x7FFF = addr {
+            let index = (addr - 0x6000) as usize;
+            self.prg_ram[index] = data;
         }
     }
 
@@ -62,7 +59,7 @@ impl Cartridge for NromCart {
         } else {
             // TODO: this may not be exceptional?
             panic!("CHR read out of bounds: {:04X}", addr);
-            (0, true)
+            // (0, true)
         }
     }
 

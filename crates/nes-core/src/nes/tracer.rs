@@ -2,7 +2,7 @@ use once_cell::sync::Lazy;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
-mod macros;
+pub mod macros;
 pub mod traceable;
 pub use traceable::Traceable;
 

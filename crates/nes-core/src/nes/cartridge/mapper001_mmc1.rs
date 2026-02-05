@@ -171,7 +171,7 @@ impl Cartridge for Mmc1 {
 
     fn ppu_read(&mut self, addr: u16) -> (u8, bool) {
         let bank_addr = self.ppu_bank_addr(addr) as usize;
-        let mut data = 0;
+        let data;
         if !self.chr_ram.is_empty() {
             data = self.chr_ram[bank_addr % self.chr_ram.len()];
         } else {

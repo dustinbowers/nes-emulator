@@ -4,15 +4,12 @@ use crate::emu::commands::EmuCommand;
 use crate::emu::emu_input::InputState;
 use crate::emu::event::EmuEvent;
 use crate::emu::runtime::EmuRuntime;
-use crate::shared::frame_buffer::{SharedFrame, SharedFrameHandle};
-use std::sync::Arc;
+use crate::shared::frame_buffer::SharedFrameHandle;
 
 /// EmuHost links the UI to the Audio/emulation thread
 pub struct EmuHost {
     command_tx: crossbeam_channel::Sender<EmuCommand>,
     event_rx: crossbeam_channel::Receiver<EmuEvent>,
-    frame: SharedFrameHandle,
-
     input_state: InputState,
 
     // keep-alive
@@ -47,7 +44,6 @@ impl EmuHost {
         let host = Self {
             command_tx,
             event_rx,
-            frame: frame.clone(),
             input_state,
             _stream: stream,
         };

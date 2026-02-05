@@ -37,7 +37,7 @@ struct CPUState {
 #[derive(Debug, Deserialize)]
 struct MemoryCycle {
     #[serde(rename = "0")]
-    address: u16,
+    _address: u16,
     #[serde(rename = "1")]
     value: u8,
     #[serde(rename = "2")]

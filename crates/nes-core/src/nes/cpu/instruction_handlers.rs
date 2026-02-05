@@ -3,7 +3,6 @@ use super::{
     Interrupt,
 };
 use crate::nes::cpu::interrupts::InterruptType;
-use crate::trace;
 use crate::trace_cpu_event;
 
 impl CPU {
@@ -61,7 +60,7 @@ impl CPU {
 
     /// Unofficial NOPs that consume extra bytes
     pub(super) fn fat_nop(&mut self) -> bool {
-        self.exec_read_cycle(|cpu| {})
+        self.exec_read_cycle(|_| {})
     }
 
     //
@@ -880,22 +879,9 @@ impl CPU {
         self.stack_pointer = self.stack_pointer.wrapping_sub(1);
     }
 
-    fn stack_push_u16(&mut self, value: u16) {
-        let hi = (value >> 8) as u8;
-        let lo = value as u8;
-        self.stack_push(hi);
-        self.stack_push(lo);
-    }
-
     fn stack_pop(&mut self) -> u8 {
         self.stack_pointer = self.stack_pointer.wrapping_add(1);
         self.bus_read(CPU_STACK_BASE.wrapping_add(self.stack_pointer as u16))
-    }
-
-    pub(super) fn stack_pop_u16(&mut self) -> u16 {
-        let lo = self.stack_pop() as u16;
-        let hi = self.stack_pop() as u16;
-        hi << 8 | lo
     }
 
     fn update_zero_and_negative_flags(&mut self, result: u8) {
@@ -929,12 +915,12 @@ impl CPU {
         self.add_to_register_a(!data);
     }
 
-    fn branch(&mut self, condition: bool) {
-        if condition {
-            let addr = self.current_op.tmp_addr;
-            self.set_program_counter(addr);
-        }
-    }
+    // fn branch(&mut self, condition: bool) {
+    //     if condition {
+    //         let addr = self.current_op.tmp_addr;
+    //         self.set_program_counter(addr);
+    //     }
+    // }
 }
 
 ////////////////////////////////////
@@ -955,7 +941,8 @@ impl CPU {
                 if self.current_op.micro_cycle == 0 {
                     self.current_op.tmp_data = self.consume_program_counter();
                     self.current_op.addr_result =
-                        AddrResult::ReadyImmediate(self.current_op.tmp_data);
+                        // AddrResult::ReadyImmediate(self.current_op.tmp_data);
+                    AddrResult::ReadyImmediate
                 }
             }
             AddressingMode::ZeroPage => {
@@ -1156,7 +1143,7 @@ impl CPU {
                 }
                 _ => unreachable!(),
             },
-            AddrResult::ReadyImmediate(val) => {
+            AddrResult::ReadyImmediate => {
                 op(self);
                 self.current_op.exec_phase = ExecPhase::Done;
                 true
@@ -1289,12 +1276,12 @@ impl CPU {
     {
         match self.tick_addressing_mode() {
             AddrResult::InProgress => false,
-            AddrResult::Ready(addr) => {
+            AddrResult::Ready(_) => {
                 op(self);
                 self.current_op.exec_phase = ExecPhase::Done;
                 true
             }
-            AddrResult::ReadyImmediate(val) => {
+            AddrResult::ReadyImmediate => {
                 op(self);
                 self.current_op.exec_phase = ExecPhase::Done;
                 true
@@ -1308,7 +1295,7 @@ impl CPU {
     {
         match self.tick_addressing_mode() {
             AddrResult::InProgress => false,
-            AddrResult::Ready(addr) => {
+            AddrResult::Ready(_) => {
                 match self.current_op.exec_phase {
                     ExecPhase::Idle => {
                         if condition(self) {

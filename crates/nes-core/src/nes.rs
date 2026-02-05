@@ -44,8 +44,6 @@ pub struct NES {
 
     pub oam_transfer_cycles: usize,
 
-    audio_time_per_system_sample: f32,
-    audio_time_per_nes_clock: f32,
     pub cycle_acc: f64,
 }
 
@@ -64,8 +62,6 @@ impl NES {
             master_clock: 0,
             dma_mode: DmaMode::None,
             oam_transfer_cycles: 0,
-            audio_time_per_system_sample: 0.0,
-            audio_time_per_nes_clock: 0.0,
             cycle_acc: 0.0,
         }
     }
@@ -96,7 +92,7 @@ impl NES {
     /// Returns `true` if a new frame is ready to be rendered, and `false` otherwise
     pub fn tick(&mut self) -> bool {
         // CPU runs at 1/3 PPU speed
-        if self.master_clock % 3 == 0 {
+        if self.master_clock.is_multiple_of(3) {
             match self.dma_mode {
                 DmaMode::None => {
                     if self.bus.cpu.rdy {

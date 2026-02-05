@@ -13,7 +13,6 @@ use crate::emu::host::EmuHost;
 use crate::shared::frame_buffer::{SharedFrame, SharedFrameHandle};
 use anyhow::Context;
 use eframe::epaint::TextureHandle;
-use egui::Widget;
 use nes_core::prelude::Rom;
 use std::sync::Arc;
 
@@ -34,8 +33,6 @@ pub struct App<E: AppEventSource> {
 
     // UI
     pub(crate) view: UiView,
-    show_debug: bool,
-    user_interacted: bool,
     pub(crate) started: bool,
     pub(crate) paused: bool,
 }
@@ -50,13 +47,12 @@ impl<E: AppEventSource> App<E> {
 
             log_callback: None,
             view: UiView::Waiting(WaitingView::new()),
-            show_debug: false,
-            user_interacted: false,
             started: false,
             paused: false,
         }
     }
 
+    /// When building to WASM, this must be called in a user-interaction context
     pub fn start_emulator(&mut self) {
         if self.started {
             self.log("App::start_emulator() already called.");
@@ -69,7 +65,7 @@ impl<E: AppEventSource> App<E> {
         }
         self.log("App::start()");
         match EmuHost::start(self.frame.clone()) {
-            Ok((emu)) => {
+            Ok(emu) => {
                 self.log("EmuHost::start() => Ok()");
                 self.emu_host = Some(emu);
                 self.apply_action(Action::Navigate(UiView::RomSelect(RomSelectView::new())))

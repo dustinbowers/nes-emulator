@@ -36,7 +36,7 @@ pub enum ApuError {
 */
 
 #[derive(PartialEq)]
-enum SequenceMode {
+pub enum SequenceMode {
     Mode0,
     Mode1,
 }
@@ -70,10 +70,6 @@ pub struct APU {
     pub irq_disable: bool,
     pub dmc_interrupt: bool,
     pub frame_interrupt: bool,
-
-    // DC blocking / high-pass filter
-    prev_sample: f32,
-    prev_hp: f32,
 
     sample_rate: f64,
     high_pass_90: OnePole,
@@ -119,9 +115,6 @@ impl APU {
             irq_disable: false,
             dmc_interrupt: false,
             frame_interrupt: false,
-
-            prev_sample: 0.0,
-            prev_hp: 0.0,
 
             sample_rate: 44100.0, // A safe default
             high_pass_90: OnePole::default(),
@@ -380,7 +373,7 @@ impl APU {
         };
         let dmc = if self.mute_dmc { 0.0 } else { 0.0 }; // TODO
 
-        let mut sample = 0.0;
+        let mut sample;
         #[cfg(feature = "linear-apu-approximation")]
         {
             // See linear approximation on: https://www.nesdev.org/wiki/APU_Mixer
@@ -422,5 +415,5 @@ impl APU {
         sample
     }
 
-    fn clock_irq(&mut self) {}
+    // fn clock_irq(&mut self) {}
 }

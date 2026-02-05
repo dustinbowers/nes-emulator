@@ -5,6 +5,12 @@ use nes_core::prelude::NES_SYSTEM_PALETTE;
 
 pub struct PlayingView {}
 
+impl Default for PlayingView {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PlayingView {
     pub fn new() -> Self {
         PlayingView {}
@@ -40,7 +46,7 @@ impl PlayingView {
 
         if ui_ctx.paused {
             // Dim the background
-            let screen_rect = egui_ctx.screen_rect();
+            let screen_rect = egui_ctx.content_rect();
             egui::Area::new("paused_dim".into())
                 .fixed_pos(screen_rect.min)
                 .show(egui_ctx, |ui| {
@@ -56,7 +62,7 @@ impl PlayingView {
                 .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
                 .show(egui_ctx, |ui| {
                     egui::Frame::popup(ui.style())
-                        .rounding(egui::Rounding::same(12))
+                        .corner_radius(egui::CornerRadius::same(12))
                         .inner_margin(egui::Margin::symmetric(18, 14))
                         .show(ui, |ui| {
                             ui.vertical_centered(|ui| {

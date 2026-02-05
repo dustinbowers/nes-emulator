@@ -70,7 +70,6 @@ impl EmuRuntime {
 
         let sample_rate = sample_rate as f64;
         // PPU cycles per audio sample (5.369318 MHz / 44.1 kHz)
-        let mut frame_ready = false;
         let ppu_cycles_per_sample = 5369318.0 / sample_rate;
         let mut cycle_acc = self.nes.cycle_acc;
 
@@ -83,7 +82,6 @@ impl EmuRuntime {
 
             while cycle_acc >= 1.0 {
                 if self.nes.tick() {
-                    frame_ready = true;
                     frame_buffer.write(self.nes.get_frame_buffer());
                 }
                 cycle_acc -= 1.0;

@@ -1,6 +1,4 @@
 use super::PPU;
-use crate::trace;
-
 impl PPU {
     /// get_sprite_pixel determines the sprite pixel.
     /// Returns (sprite_palette, sprite_pixel, sprite_behind_bg, sprite_zero_rendered)

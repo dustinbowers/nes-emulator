@@ -15,9 +15,11 @@ impl DecayRegister {
         }
     }
 
+    #[allow(unused)]
     pub fn tick(&mut self) {
-        self.cycle -= 1;
-        if self.cycle == 0 {
+        if self.cycle > 0 {
+            self.cycle -= 1;
+        } else {
             self.value = 0;
         }
     }

@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 pub struct DmcOutput {
     register: u8,
     bits_remaining: u8,
