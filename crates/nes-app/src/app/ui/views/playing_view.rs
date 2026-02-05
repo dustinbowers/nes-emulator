@@ -1,16 +1,13 @@
-use crate::app::app::{Action, UiCtx};
-use crate::app::ui::views::UiView;
+use crate::app::app::UiCtx;
 use eframe::epaint::ColorImage;
 use eframe::epaint::textures::TextureOptions;
 use nes_core::prelude::NES_SYSTEM_PALETTE;
 
-pub struct PlayingView {
-    pub(crate) paused: bool,
-}
+pub struct PlayingView {}
 
 impl PlayingView {
     pub fn new() -> Self {
-        PlayingView { paused: false }
+        PlayingView {}
     }
 
     pub fn ui(&mut self, egui_ctx: &egui::Context, ui_ctx: &mut UiCtx) {
@@ -40,5 +37,35 @@ impl PlayingView {
 
             ui.image((tex.id(), egui::vec2(w, h)));
         });
+
+        if ui_ctx.paused {
+            // Dim the background
+            let screen_rect = egui_ctx.screen_rect();
+            egui::Area::new("paused_dim".into())
+                .fixed_pos(screen_rect.min)
+                .show(egui_ctx, |ui| {
+                    ui.painter().rect_filled(
+                        screen_rect,
+                        0.0,
+                        egui::Color32::from_black_alpha(120),
+                    );
+                });
+
+            // [Pause] popup
+            egui::Area::new("paused_badge".into())
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(egui_ctx, |ui| {
+                    egui::Frame::popup(ui.style())
+                        .rounding(egui::Rounding::same(12))
+                        .inner_margin(egui::Margin::symmetric(18, 14))
+                        .show(ui, |ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.label(egui::RichText::new("Paused").strong().size(22.0));
+                                ui.add_space(6.0);
+                                ui.label(egui::RichText::new("Press P to resume"));
+                            });
+                        });
+                });
+        }
     }
 }

@@ -1,4 +1,5 @@
-use crate::app::app::{Action, UiCtx};
+use crate::app::action::Action;
+use crate::app::app::UiCtx;
 
 pub struct RomSelectView {
     pub rom_bytes: Option<Vec<u8>>,

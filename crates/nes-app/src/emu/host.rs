@@ -2,7 +2,7 @@ use crate::audio::callback::AudioCallback;
 use crate::audio::driver::AudioDriver;
 use crate::emu::commands::EmuCommand;
 use crate::emu::emu_input::InputState;
-use crate::emu::events::EmuEvent;
+use crate::emu::event::EmuEvent;
 use crate::emu::runtime::EmuRuntime;
 use crate::shared::frame_buffer::{SharedFrame, SharedFrameHandle};
 use std::sync::Arc;

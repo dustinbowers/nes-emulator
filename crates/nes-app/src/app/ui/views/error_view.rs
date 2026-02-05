@@ -1,4 +1,5 @@
-use crate::app::app::{Action, UiCtx};
+use crate::app::action::Action;
+use crate::app::app::UiCtx;
 use crate::app::ui::error::ErrorInfo;
 
 pub struct ErrorView {

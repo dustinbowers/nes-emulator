@@ -1,6 +1,6 @@
 use crate::emu::commands::EmuCommand;
 use crate::emu::emu_input::InputState;
-use crate::emu::events::EmuEvent;
+use crate::emu::event::EmuEvent;
 use crate::shared::frame_buffer::SharedFrameHandle;
 use cpal::{FromSample, Sample, SampleRate, SizedSample};
 use crossbeam_channel::{Receiver, Sender};
@@ -43,8 +43,8 @@ impl EmuRuntime {
                     self.nes.bus.reset_components();
                     self.paused = true;
                 }
-                EmuCommand::Pause => {
-                    self.paused = !self.paused;
+                EmuCommand::Pause(p) => {
+                    self.paused = p;
                 }
             }
         }
