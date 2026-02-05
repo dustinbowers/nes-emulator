@@ -4,6 +4,7 @@ use crate::messenger::Messenger;
 use eframe::egui;
 use nes_app::app::app::App;
 use nes_app::app::event::{AppEvent, AppEventSource};
+use once_cell::unsync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -23,11 +24,6 @@ pub enum ClientMessage {
 
 pub struct WasmEventSource {
     messenger: Messenger<ClientMessage>,
-}
-impl Default for WasmEventSource {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl WasmEventSource {
@@ -49,40 +45,50 @@ impl AppEventSource for WasmEventSource {
 }
 
 thread_local! {
-    static APP: RefCell<Option<Rc<RefCell<App<WasmEventSource>>>>> = RefCell::new(None);
+    static APP: RefCell<OnceCell<Rc<RefCell<App<WasmEventSource>>>>> =
+        RefCell::new(OnceCell::new());
+}
+
+fn set_app(app: Rc<RefCell<App<WasmEventSource>>>) {
+    APP.with(|cell| {
+        let _ = cell.borrow_mut().set(app);
+    });
+}
+
+fn with_app<R>(f: impl FnOnce(&Rc<RefCell<App<WasmEventSource>>>) -> R) -> Result<R, JsValue> {
+    APP.with(|cell| {
+        let cell = cell.borrow();
+        let app = cell
+            .get()
+            .ok_or_else(|| JsValue::from_str("App not initialized"))?;
+        Ok(f(app))
+    })
 }
 
 #[wasm_bindgen]
 pub fn start_emulator() -> Result<(), JsValue> {
-    APP.with(|cell| {
-        let app = cell.borrow();
-        let app = app
-            .as_ref()
-            .ok_or_else(|| JsValue::from_str("App not initialized"))?;
-        app.borrow_mut().start_emulator();
-        Ok(())
-    })
+    with_app(|app| {
+        app.borrow_mut().start_emulator(); // Must be called in a user-interaction context
+    })?;
+    Ok(())
 }
+
+static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 #[wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();
-    web_sys::console::log_1(&"start() called".into());
-    spawn_eframe()
-}
-
-fn spawn_eframe() {
-    // Prevent multiple initializations
-    static INITIALIZED: AtomicBool = AtomicBool::new(false);
-
     if INITIALIZED.swap(true, Ordering::SeqCst) {
         web_sys::console::log_1(&"Already initialized, skipping".into());
         return;
     }
+    spawn_eframe();
+}
 
+fn spawn_eframe() {
     let web_options = eframe::WebOptions::default();
 
-    wasm_bindgen_futures::spawn_local(async {
+    wasm_bindgen_futures::spawn_local(async move {
         let canvas = get_canvas("nes_canvas");
         let runner = eframe::WebRunner::new();
 
@@ -97,12 +103,10 @@ fn spawn_eframe() {
                         web_sys::console::log_1(&msg.into());
                     })));
 
-                    // save handle for js -> wasm calls
-                    APP.with(|cell| {
-                        *cell.borrow_mut() = Some(app.clone());
-                    });
+                    // Expose to JS calls (gesture-sensitive start_emulator)
+                    set_app(app.clone());
 
-                    Ok(Box::new(AppWrapper(app)))
+                    Ok(Box::new(AppWrapper { app }))
                 }),
             )
             .await
@@ -111,8 +115,6 @@ fn spawn_eframe() {
 }
 
 fn get_canvas(id: &str) -> web_sys::HtmlCanvasElement {
-    use wasm_bindgen::JsCast;
-
     web_sys::window()
         .unwrap()
         .document()
@@ -123,10 +125,12 @@ fn get_canvas(id: &str) -> web_sys::HtmlCanvasElement {
         .unwrap()
 }
 
-struct AppWrapper(Rc<RefCell<App<WasmEventSource>>>);
+struct AppWrapper {
+    app: Rc<RefCell<App<WasmEventSource>>>,
+}
 
 impl eframe::App for AppWrapper {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        self.0.borrow_mut().update(ctx, frame);
+        self.app.borrow_mut().update(ctx, frame);
     }
 }

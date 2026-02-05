@@ -1267,6 +1267,7 @@ dependencies = [
  "console_error_panic_hook",
  "eframe",
  "nes-app",
+ "once_cell",
  "serde",
  "serde-wasm-bindgen",
  "wasm-bindgen",
