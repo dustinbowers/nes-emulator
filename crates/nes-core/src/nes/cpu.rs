@@ -145,7 +145,6 @@ pub struct CPU {
     prev_nmi_line: bool,
     nmi_armed: bool,
     pub nmi_enable_holdoff: u8,
-    irq_pending: bool,
     active_interrupt: Option<Interrupt>,
 
     pub last_opcode_desc: String,
@@ -172,7 +171,6 @@ impl CPU {
             prev_nmi_line: false,
             nmi_armed: true,
             nmi_enable_holdoff: 0,
-            irq_pending: false,
             last_opcode_desc: "".to_string(),
             error: None,
             stop: false,
@@ -197,7 +195,6 @@ impl CPU {
         self.prev_nmi_line = false;
         self.nmi_armed = true;
         self.nmi_enable_holdoff = 0;
-        self.irq_pending = false;
         self.error = None;
     }
 
@@ -231,6 +228,7 @@ pub trait CpuBusInterface {
     fn cpu_bus_write(&mut self, addr: u16, value: u8);
     fn ppu_nmi_line(&mut self) -> bool;
     fn ppu_timing(&mut self) -> (usize, usize);
+    fn irq_line(&mut self) -> bool;
 }
 
 impl Traceable for CPU {

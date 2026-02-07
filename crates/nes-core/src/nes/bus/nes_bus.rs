@@ -39,6 +39,7 @@ impl NesBus {
             apu: APU::new(),
 
             nmi_scheduled: None,
+
             oam_dma_addr: 0,
 
             last_mapper_write_cycle: None,
@@ -82,6 +83,7 @@ impl NesBus {
         self.reset_components();
     }
 }
+
 
 impl CpuBusInterface for NesBus {
     fn cpu_bus_read(&mut self, addr: u16) -> u8 {
@@ -195,6 +197,16 @@ impl CpuBusInterface for NesBus {
     fn ppu_timing(&mut self) -> (usize, usize) {
         (self.ppu.scanline, self.ppu.cycles)
     }
+
+    fn irq_line(&mut self) -> bool {
+        let cart_irq = self.cart.as_ref().map(|c| c.irq_pending()).unwrap_or(false);
+        let apu_irq = self.apu.irq_pending();
+
+        if cart_irq || apu_irq {
+            println!("{}",format!("cart_irq = {cart_irq}, apu_irq = {apu_irq}"));
+        }
+        cart_irq || apu_irq
+    }
 }
 
 impl PpuBusInterface for NesBus {
@@ -221,9 +233,6 @@ impl PpuBusInterface for NesBus {
             None => Mirroring::Horizontal,
         }
     }
-    // fn nmi(&mut self, defer_one_instruction: bool) {
-    //     self.cpu.trigger_nmi(defer_one_instruction);
-    // }
 }
 
 impl ApuBusInterface for NesBus {

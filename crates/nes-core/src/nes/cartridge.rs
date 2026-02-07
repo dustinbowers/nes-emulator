@@ -42,4 +42,8 @@ pub trait Cartridge: Send {
     fn timing(&self) -> MapperTiming {
         MapperTiming::None
     }
+
+    fn irq_pending(&self) -> bool {
+        false
+    }
 }

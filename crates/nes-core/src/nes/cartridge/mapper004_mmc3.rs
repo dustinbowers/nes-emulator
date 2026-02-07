@@ -21,7 +21,13 @@ pub struct Mmc3 {
     irq_reload: bool,
     irq_enabled: bool,
 
+    // Note: A12 refers to the 12th bit of the NES's 14-bit address bus
+    // The PPU crosses between nametables regularly ($0xxx and $1xxx)
+    // and this creates a regular rising edge on A12 that signals new scanlines.
+    // It's effectively a clever way of clocking scanlines without
+    // having a specific way to do it
     last_ppu_a12: bool,
+    a12_low_cycles: u8,
 
     mirroring: Mirroring,
     mirroring_fixed: bool,
@@ -60,6 +66,7 @@ impl Mmc3 {
             irq_reload: false,
             irq_enabled: false,
             last_ppu_a12: false,
+            a12_low_cycles: 0,
             mirroring,
             mirroring_fixed,
             prg_ram_enabled: true,
@@ -170,22 +177,42 @@ impl Mmc3 {
     }
 
     fn clock_irq(&mut self, addr: u16) {
-        let a12 = addr & 0x1000 != 0;
-        if !self.last_ppu_a12 && a12 {
-            if self.irq_counter == 0 || self.irq_reload {
+        // Only CHR / pattern table accesses
+        if addr >= 0x2000 {
+            return;
+        }
+
+        let a12 = (addr & 0x1000) != 0;
+
+        // Track continuous low time
+        if !a12 {
+            self.a12_low_cycles = self.a12_low_cycles.saturating_add(1);
+        } else {
+            // THIS WAS MISSING
+            self.a12_low_cycles = 0;
+        }
+
+        // Rising edge after >=8 continuous low PPU cycles
+        if a12 && !self.last_ppu_a12 && self.a12_low_cycles >= 8 {
+            let prev = self.irq_counter;
+
+            if self.irq_reload {
                 self.irq_counter = self.irq_latch;
                 self.irq_reload = false;
-            } else {
-                self.irq_counter = self.irq_counter.wrapping_sub(1);
+            } else if self.irq_counter > 0 {
+                self.irq_counter -= 1;
             }
 
-            if self.irq_counter == 0 && self.irq_enabled {
+            // Fire only on non-zero → zero transition
+            if prev != 0 && self.irq_counter == 0 && self.irq_enabled {
+                println!("MMC3 irq should be fired here.");
                 self.irq_pending = true;
             }
         }
 
         self.last_ppu_a12 = a12;
     }
+
 }
 
 impl Cartridge for Mmc3 {
@@ -254,6 +281,7 @@ impl Cartridge for Mmc3 {
                     self.irq_pending = false;
                 } else {
                     self.irq_enabled = true;
+                    self.irq_reload = true;
                 }
             }
             _ => {}
@@ -278,5 +306,9 @@ impl Cartridge for Mmc3 {
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring
+    }
+
+    fn irq_pending(&self) -> bool {
+        self.irq_pending
     }
 }
