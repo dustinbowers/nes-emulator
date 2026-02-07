@@ -233,6 +233,12 @@ impl PpuBusInterface for NesBus {
             None => Mirroring::Horizontal,
         }
     }
+
+    fn ppu_address(&mut self, addr: u16) {
+        if let Some(cart) = &mut self.cart {
+            cart.ppu_clock(addr);
+        }
+    }
 }
 
 impl ApuBusInterface for NesBus {

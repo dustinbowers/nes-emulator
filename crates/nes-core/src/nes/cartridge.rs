@@ -46,4 +46,8 @@ pub trait Cartridge: Send {
     fn irq_pending(&self) -> bool {
         false
     }
+
+    fn ppu_clock(&mut self, addr: u16) {
+
+    }
 }

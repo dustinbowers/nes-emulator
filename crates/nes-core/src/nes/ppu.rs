@@ -25,6 +25,7 @@ pub trait PpuBusInterface {
     fn ppu_bus_read(&mut self, addr: u16) -> u8;
     fn ppu_bus_write(&mut self, addr: u16, value: u8);
     fn mirroring(&mut self) -> Mirroring;
+    fn ppu_address(&mut self, addr: u16);
 }
 
 enum PaletteKind {

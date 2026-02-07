@@ -311,4 +311,8 @@ impl Cartridge for Mmc3 {
     fn irq_pending(&self) -> bool {
         self.irq_pending
     }
+
+    fn ppu_clock(&mut self, addr: u16) {
+        self.clock_irq(addr);
+    }
 }
