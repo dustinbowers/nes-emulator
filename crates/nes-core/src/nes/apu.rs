@@ -67,6 +67,7 @@ pub struct APU {
     pub frame_clock_counter: u8,
     pub clock_counter: u32,
 
+    pub irq_pending: bool,
     pub irq_disable: bool,
     pub dmc_interrupt: bool,
     pub frame_interrupt: bool,
@@ -112,6 +113,7 @@ impl APU {
             frame_clock_counter: 0,
             clock_counter: 0,
 
+            irq_pending: false,
             irq_disable: false,
             dmc_interrupt: false,
             frame_interrupt: false,
@@ -415,5 +417,8 @@ impl APU {
         sample
     }
 
+    pub fn irq_pending(&self) -> bool {
+        self.irq_pending
+    }
     // fn clock_irq(&mut self) {}
 }

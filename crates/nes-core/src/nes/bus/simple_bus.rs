@@ -46,4 +46,8 @@ impl CpuBusInterface for SimpleBus {
     fn ppu_timing(&mut self) -> (usize, usize) {
         (0, 0)
     }
+
+    fn irq_line(&mut self) -> bool {
+        false
+    }
 }
