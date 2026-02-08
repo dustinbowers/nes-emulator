@@ -1,5 +1,5 @@
-use super::rom::Mirroring;
 use super::Cartridge;
+use super::rom::Mirroring;
 
 pub struct Mmc3 {
     prg_rom: Vec<u8>,
@@ -177,23 +177,22 @@ impl Mmc3 {
     }
 
     fn clock_irq(&mut self, addr: u16) {
-        // Only CHR / pattern table accesses
         if addr >= 0x2000 {
             return;
         }
 
         let a12 = (addr & 0x1000) != 0;
 
-        // Track continuous low time
+        // track continuous low time
         if !a12 {
             self.a12_low_cycles = self.a12_low_cycles.saturating_add(1);
         } else {
-            // THIS WAS MISSING
             self.a12_low_cycles = 0;
         }
 
-        // Rising edge after >=8 continuous low PPU cycles
-        if a12 && !self.last_ppu_a12 && self.a12_low_cycles >= 8 {
+        // rising edge after >=8 consecutive low PPU cycles
+        if a12 && !self.last_ppu_a12 {
+            //&& self.a12_low_cycles >= 8 {
             let prev = self.irq_counter;
 
             if self.irq_reload {
@@ -203,16 +202,14 @@ impl Mmc3 {
                 self.irq_counter -= 1;
             }
 
-            // Fire only on non-zero → zero transition
+            // Fire only on 1 -> 0 transition
             if prev != 0 && self.irq_counter == 0 && self.irq_enabled {
-                println!("MMC3 irq should be fired here.");
+                println!("MMC3 irq");
                 self.irq_pending = true;
             }
         }
-
         self.last_ppu_a12 = a12;
     }
-
 }
 
 impl Cartridge for Mmc3 {

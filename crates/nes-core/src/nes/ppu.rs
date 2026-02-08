@@ -471,8 +471,8 @@ impl PPU {
     }
 
     pub fn write_register(&mut self, addr: u16, value: u8) {
-        assert!(addr >= 0x2000);
-        assert!(addr <= 0x3FFF);
+        debug_assert!(addr >= 0x2000);
+        debug_at stassert!(addr <= 0x3FFF);
         let reg = 0x2000 + (addr & 7); // mirror
 
         match reg {

@@ -84,7 +84,6 @@ impl NesBus {
     }
 }
 
-
 impl CpuBusInterface for NesBus {
     fn cpu_bus_read(&mut self, addr: u16) -> u8 {
         let value = match addr {
@@ -203,7 +202,7 @@ impl CpuBusInterface for NesBus {
         let apu_irq = self.apu.irq_pending();
 
         if cart_irq || apu_irq {
-            println!("{}",format!("cart_irq = {cart_irq}, apu_irq = {apu_irq}"));
+            println!("{}", format!("cart_irq = {cart_irq}, apu_irq = {apu_irq}"));
         }
         cart_irq || apu_irq
     }

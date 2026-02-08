@@ -47,7 +47,5 @@ pub trait Cartridge: Send {
         false
     }
 
-    fn ppu_clock(&mut self, addr: u16) {
-
-    }
+    fn ppu_clock(&mut self, addr: u16) {}
 }
