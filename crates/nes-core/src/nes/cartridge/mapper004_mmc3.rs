@@ -1,6 +1,12 @@
 use super::Cartridge;
 use super::rom::Mirroring;
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum Mmc3Revision {
+    A, // Less popular. (Crystalis)
+    B, // More popular. (SMB3, Mega Man 3, etc.)
+}
+
 pub struct Mmc3 {
     prg_rom: Vec<u8>,
     chr: Vec<u8>,
@@ -34,6 +40,7 @@ pub struct Mmc3 {
     prg_ram_enabled: bool,
     prg_ram_write_protect: bool,
     irq_pending: bool,
+    revision: Mmc3Revision,
 }
 
 impl Mmc3 {
@@ -49,6 +56,8 @@ impl Mmc3 {
         let chr_banks = (chr.len() / 0x0400).max(1);
 
         let mirroring_fixed = matches!(mirroring, Mirroring::FourScreen);
+
+        let revision = detect_revision(&prg_rom);
 
         Self {
             prg_rom,
@@ -72,6 +81,7 @@ impl Mmc3 {
             prg_ram_enabled: true,
             prg_ram_write_protect: false,
             irq_pending: false,
+            revision,
         }
     }
 
@@ -185,14 +195,23 @@ impl Mmc3 {
         } else {
             // Rising edge?
             if !self.last_ppu_a12 && self.a12_low_cycles >= 8 {
-                if self.irq_reload || self.irq_counter == 0 {
+                let reload_from_flag = self.irq_reload;
+                let counter_was_zero = self.irq_counter == 0;
+                let mut fire_irq = false;
+
+                if reload_from_flag || counter_was_zero {
                     self.irq_counter = self.irq_latch;
+                    fire_irq = match self.revision {
+                        Mmc3Revision::A => reload_from_flag && self.irq_counter == 0,
+                        Mmc3Revision::B => self.irq_counter == 0,
+                    };
                 } else {
                     self.irq_counter = self.irq_counter.wrapping_sub(1);
+                    fire_irq = self.irq_counter == 0;
+                }
 
-                    if self.irq_counter == 0 && self.irq_enabled {
-                        self.irq_pending = true;
-                    }
+                if fire_irq && self.irq_enabled {
+                    self.irq_pending = true;
                 }
                 self.irq_reload = false;
             }
@@ -299,6 +318,39 @@ impl Cartridge for Mmc3 {
     fn ppu_clock(&mut self, addr: u16) {
         self.clock_irq(addr);
     }
+}
+
+// Blargg mmc3_irq_tests have test rom titles in the ROMs that can be
+// used as distinguishing markers for testing purposes.
+// iNES 1.0 format doesn't support submappers, so Revision defaults to
+// the more popular Revision B.
+fn detect_revision(prg_rom: &[u8]) -> Mmc3Revision {
+    const REV_A_MARKER: &[u8] = b"MMC3 IRQ COUNTER REVISION A";
+    const REV_B_MARKER: &[u8] = b"MMC3 IRQ COUNTER REVISION B";
+
+    /*
+        test_name:
+          .db   "MMC3 IRQ COUNTER REVISION A",0
+     */
+    if prg_rom
+        .windows(REV_A_MARKER.len())
+        .any(|window| window == REV_A_MARKER)
+    {
+        return Mmc3Revision::A;
+    }
+
+    /*
+    test_name:
+      .db   "MMC3 IRQ COUNTER REVISION B",0
+ */
+    if prg_rom
+        .windows(REV_B_MARKER.len())
+        .any(|window| window == REV_B_MARKER)
+    {
+        return Mmc3Revision::B;
+    }
+
+    Mmc3Revision::B
 }
 
 #[cfg(test)]
