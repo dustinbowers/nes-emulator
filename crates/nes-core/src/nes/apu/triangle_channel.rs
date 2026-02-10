@@ -56,17 +56,24 @@ impl TriangleChannel {
 }
 
 impl TriangleChannel {
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.length_counter.set_enabled(enabled);
+    }
+
     pub fn disable(&mut self) {
         self.length_counter.set_enabled(false);
-        self.length_counter.set_halt(true);
     }
 
     pub fn is_enabled(&self) -> bool {
         self.length_counter.output() > 0
     }
 
-    pub fn clock(&mut self, quarter_frame_clock: bool) {
-        let advance_waveform = self.sequence_timer.clock();
+    pub fn clock(&mut self, quarter_frame_clock: bool, half_frame_clock: bool, timer_tick: bool) {
+        let advance_waveform = if timer_tick {
+            self.sequence_timer.clock()
+        } else {
+            false
+        };
         // triangle advances only if both length counter and linear counter are non-zero,
         // and the timer period is at least 2
         if advance_waveform
@@ -89,6 +96,10 @@ impl TriangleChannel {
                 self.linear_counter_reload_flag = false;
             }
             // println!("TriangleChannel: seq_ind {}\tlinear_ct: {}\tlength_ct:{}", self.sequence_index, self.linear_counter_value, self.length_counter.output());
+        }
+
+        if half_frame_clock {
+            self.length_counter.clock();
         }
     }
 

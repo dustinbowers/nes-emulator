@@ -93,17 +93,6 @@ impl CpuBusInterface for NesBus {
                 self.cpu_ram[mirrored as usize]
             }
             PPU_REGISTERS_START..=PPU_REGISTERS_END => {
-                // let mirrored_addr = 0x2000 + (addr & 7);
-                // if mirrored_addr == 0x2002 && self.ppu.status_register.vblank_active() {
-                //     trace!(
-                //         "[CPU READ $2002] PC=${:04X} PPU={} dot={} vblank={}",
-                //         self.cpu.program_counter,
-                //         self.ppu.scanline,
-                //         self.ppu.cycles + 1,
-                //         self.ppu.status_register.vblank_active()
-                //     );
-                // }
-
                 // PPU Registers mirrored every 8 bytes
                 self.ppu.read_register(addr)
             }
@@ -199,7 +188,7 @@ impl CpuBusInterface for NesBus {
 
     fn irq_line(&mut self) -> bool {
         let cart_irq = self.cart.as_ref().map(|c| c.irq_pending()).unwrap_or(false);
-        let apu_irq = self.apu.irq_pending();
+        let apu_irq = self.apu.irq_line();
 
         // if cart_irq || apu_irq {
         //     println!("{}", format!("cart_irq = {cart_irq}, apu_irq = {apu_irq}"));
@@ -244,10 +233,6 @@ impl ApuBusInterface for NesBus {
     fn apu_bus_read(&mut self, addr: u16) -> u8 {
         println!("ApuBusInterface::read({:?})", addr);
         0
-    }
-    fn irq(&mut self) {
-        println!("ApuBusInterface::irq()");
-        // TODO: Set IRQ request
     }
 }
 

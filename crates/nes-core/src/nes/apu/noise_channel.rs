@@ -62,9 +62,12 @@ impl NoiseChannel {
 }
 
 impl NoiseChannel {
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.length_counter.set_enabled(enabled);
+    }
+
     pub fn disable(&mut self) {
         self.length_counter.set_enabled(false);
-        self.length_counter.set_halt(true);
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -88,7 +91,7 @@ impl NoiseChannel {
         self.shifter = (feedback << 14) | (self.shifter >> 1);
     }
 
-    pub fn clock(&mut self, quarter_frame_clock: bool, half_frame_clock: bool) {
+    pub fn clock(&mut self, quarter_frame_clock: bool, half_frame_clock: bool, timer_tick: bool) {
         if quarter_frame_clock {
             self.envelope.clock();
         }
@@ -97,7 +100,7 @@ impl NoiseChannel {
             self.length_counter.clock();
         }
 
-        if self.seq_timer.clock() {
+        if timer_tick && self.seq_timer.clock() {
             self.shift_noise();
         }
     }
