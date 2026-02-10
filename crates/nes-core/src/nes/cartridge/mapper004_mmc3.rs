@@ -3,8 +3,8 @@ use super::rom::Mirroring;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum Mmc3Revision {
-    A, // Less popular. (Crystalis)
-    B, // More popular. (SMB3, Mega Man 3, etc.)
+    A, // Less popular. Used in Crystalis
+    B, // More popular (Default). Used in SMB3, Mega Man 3, etc.
 }
 
 pub struct Mmc3 {
@@ -30,7 +30,7 @@ pub struct Mmc3 {
     // Note: A12 refers to the 12th bit of the NES's 14-bit address bus
     // The PPU crosses between nametables regularly ($0xxx and $1xxx)
     // and this creates a regular rising edge on A12 that signals new scanlines.
-    // It's effectively a clever way of clocking scanlines without
+    // It's effectively a clever way of counting scanlines without
     // having a specific way to do it
     last_ppu_a12: bool,
     a12_low_cycles: u8,
@@ -322,13 +322,13 @@ impl Cartridge for Mmc3 {
 
 // Blargg mmc3_irq_tests have test rom titles in the ROMs that can be
 // used as distinguishing markers for testing purposes.
-// iNES 1.0 format doesn't support submappers, so Revision defaults to
+// iNES header format doesn't support submappers, so revision mode defaults to
 // the more popular Revision B.
 fn detect_revision(prg_rom: &[u8]) -> Mmc3Revision {
     const REV_A_MARKER: &[u8] = b"MMC3 IRQ COUNTER REVISION A";
     const REV_B_MARKER: &[u8] = b"MMC3 IRQ COUNTER REVISION B";
 
-    /*
+    /* Source: nes-test-roms/mmc3_irq_tests/source/5.MMC3_rev_A.asm:
         test_name:
           .db   "MMC3 IRQ COUNTER REVISION A",0
      */
@@ -339,10 +339,10 @@ fn detect_revision(prg_rom: &[u8]) -> Mmc3Revision {
         return Mmc3Revision::A;
     }
 
-    /*
-    test_name:
-      .db   "MMC3 IRQ COUNTER REVISION B",0
- */
+    /* Source: nes-test-roms/mmc3_irq_tests/source/6.MMC3_rev_B.asm:
+        test_name:
+          .db   "MMC3 IRQ COUNTER REVISION B",0
+     */
     if prg_rom
         .windows(REV_B_MARKER.len())
         .any(|window| window == REV_B_MARKER)
