@@ -77,7 +77,12 @@ impl ScrollRegister {
         self.w = !self.w;
     }
 
-    pub fn write_to_addr(&mut self, data: u8) {
+    /// Write address to scroll register, commit on every second write.
+    ///
+    /// # Returns
+    /// - Returns true when writes to addr is committed
+    pub fn write_to_addr(&mut self, data: u8) -> bool {
+        let mut commit = false;
         if !self.w {
             // First write (high byte of address)
             // self.t = (self.t & 0x00FF) | (((data as u16) & 0x3F) << 8);
@@ -87,8 +92,10 @@ impl ScrollRegister {
             // Second write (low byte of address)
             self.t = (self.t & 0xFF00) | (data as u16);
             self.v = self.t;
+            commit = true;
         }
         self.w = !self.w;
+        commit
     }
 
     pub fn get_addr(&self) -> u16 {

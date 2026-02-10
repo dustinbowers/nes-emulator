@@ -73,19 +73,19 @@ pub enum PpuOperation {
 #[repr(C)]
 pub struct DotOperations {
     pub len: u8,
-    pub ops: [PpuOperation; 6],
+    pub ops: [PpuOperation; 7],
 }
 
 impl DotOperations {
     pub const fn new() -> Self {
         Self {
             len: 0,
-            ops: [PpuOperation::None; 6],
+            ops: [PpuOperation::None; 7],
         }
     }
 
     pub const fn push(mut self, op: PpuOperation) -> Self {
-        debug_assert!(self.len < 6);
+        debug_assert!(self.len < 7);
         self.ops[self.len as usize] = op;
         self.len += 1;
         self
@@ -117,12 +117,25 @@ const fn schedule_for(scanline: usize, dot: usize) -> DotOperations {
 
     let visible = scanline < 240;
     let prerender = scanline == 261;
-    let render_cycle = dot >= 1 && dot <= 256;
-    let fetch_cycle = render_cycle || (dot >= 321 && dot <= 336);
+    let rendering = visible || prerender;
+
+    // Background fetch windows
+    let bg_fetch_window = rendering && ((dot >= 1 && dot <= 256) || (dot >= 321 && dot <= 336));
+
+    // Sprite fetch window
+    let sprite_fetch_window = rendering && (dot >= 257 && dot <= 320);
+
+    // Render a pixel (dots 1-256) before shift for this dot
+    if visible && dot >= 1 && dot <= 256 {
+        ops = ops.push(PpuOperation::RenderPixel);
+    }
+
+    if rendering && ((dot >= 1 && dot <= 256) || (dot >= 321 && dot <= 336)) {
+        ops = ops.push(PpuOperation::ShiftRegisters);
+    }
 
     // Background fetch pipeline
-    let load_bg = (visible || prerender) && fetch_cycle && dot % 8 == 0;
-    if (visible || prerender) && fetch_cycle {
+    if bg_fetch_window {
         match dot % 8 {
             1 => ops = ops.push(PpuOperation::FetchNameTable),
             3 => ops = ops.push(PpuOperation::FetchAttribute),
@@ -130,24 +143,20 @@ const fn schedule_for(scanline: usize, dot: usize) -> DotOperations {
             7 => ops = ops.push(PpuOperation::FetchTileHigh),
             _ => {}
         }
-
-        // shift registers every fetch
-        ops = ops.push(PpuOperation::ShiftRegisters);
     }
 
-    // Render a pixel (dots 1-256) after shift for this dot
-    if visible && render_cycle {
-        ops = ops.push(PpuOperation::RenderPixel);
-    }
-
-    // Load new tile data after render so it applies to the next pixels
-    if load_bg {
+    // Load background shift registers
+    if bg_fetch_window && dot % 8 == 0 {
         ops = ops.push(PpuOperation::LoadBackgroundRegisters);
+    }
+
+    // Increment coarse X at end of tile (visible + prefetch windows)
+    if rendering && dot % 8 == 0 && ((dot >= 8 && dot <= 256) || (dot >= 328 && dot <= 336)) {
         ops = ops.push(PpuOperation::IncCoarseX);
     }
 
     // Fine Y increments
-    if (visible || prerender) && dot == 257 {
+    if (visible || prerender) && dot == 256 {
         ops = ops.push(PpuOperation::IncFineY);
     }
 
@@ -177,8 +186,8 @@ const fn schedule_for(scanline: usize, dot: usize) -> DotOperations {
     }
 
     // FIXME: This doesn't match the NESDev PPU.svg chart...
-    // Sprite fetches (dots 257-320)
-    if (visible || prerender) && (dot >= 257 && dot <= 320) && (dot - 257).is_multiple_of(8) {
+    // Sprite fetches
+    if sprite_fetch_window && dot % 2 == 0 {
         ops = ops.push(PpuOperation::FillSpriteRegister);
     }
 
@@ -239,18 +248,22 @@ mod test {
         for dot in 1..=256 {
             let ops = &get_ppu_schedule()[scanline][dot];
 
-            // Always shifts during fetch cycles
-            assert!(has_op(ops, PpuOperation::ShiftRegisters));
+            // Always shift during fetch cycles
+            if dot >= 1 {
+                assert!(has_op(ops, PpuOperation::ShiftRegisters));
+            } else {
+                assert_not(scanline, dot, PpuOperation::ShiftRegisters);
+            }
 
             match dot % 8 {
+                0 if dot >= 8 => {
+                    assert!(has_op(ops, PpuOperation::LoadBackgroundRegisters));
+                    assert!(has_op(ops, PpuOperation::IncCoarseX));
+                }
                 1 => assert!(has_op(ops, PpuOperation::FetchNameTable)),
                 3 => assert!(has_op(ops, PpuOperation::FetchAttribute)),
                 5 => assert!(has_op(ops, PpuOperation::FetchTileLow)),
                 7 => assert!(has_op(ops, PpuOperation::FetchTileHigh)),
-                0 => {
-                    assert!(has_op(ops, PpuOperation::LoadBackgroundRegisters));
-                    assert!(has_op(ops, PpuOperation::IncCoarseX));
-                }
                 _ => {}
             }
         }

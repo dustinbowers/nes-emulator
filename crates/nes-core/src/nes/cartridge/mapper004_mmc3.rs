@@ -177,37 +177,30 @@ impl Mmc3 {
     }
 
     fn clock_irq(&mut self, addr: u16) {
-        if addr >= 0x2000 {
-            return;
-        }
-
         let a12 = (addr & 0x1000) != 0;
 
-        // track continuous low time
         if !a12 {
+            // Track how long A12 stays low
             self.a12_low_cycles = self.a12_low_cycles.saturating_add(1);
         } else {
+            // Rising edge?
+            if !self.last_ppu_a12 && self.a12_low_cycles >= 8 {
+                if self.irq_reload || self.irq_counter == 0 {
+                    self.irq_counter = self.irq_latch;
+                } else {
+                    self.irq_counter = self.irq_counter.wrapping_sub(1);
+
+                    if self.irq_counter == 0 && self.irq_enabled {
+                        self.irq_pending = true;
+                    }
+                }
+
+                self.irq_reload = false;
+            }
+
             self.a12_low_cycles = 0;
         }
 
-        // rising edge after >=8 consecutive low PPU cycles
-        if a12 && !self.last_ppu_a12 {
-            //&& self.a12_low_cycles >= 8 {
-            let prev = self.irq_counter;
-
-            if self.irq_reload {
-                self.irq_counter = self.irq_latch;
-                self.irq_reload = false;
-            } else if self.irq_counter > 0 {
-                self.irq_counter -= 1;
-            }
-
-            // Fire only on 1 -> 0 transition
-            if prev != 0 && self.irq_counter == 0 && self.irq_enabled {
-                println!("MMC3 irq");
-                self.irq_pending = true;
-            }
-        }
         self.last_ppu_a12 = a12;
     }
 }
@@ -278,7 +271,7 @@ impl Cartridge for Mmc3 {
                     self.irq_pending = false;
                 } else {
                     self.irq_enabled = true;
-                    self.irq_reload = true;
+                    // self.irq_reload = true;
                 }
             }
             _ => {}
@@ -286,14 +279,11 @@ impl Cartridge for Mmc3 {
     }
 
     fn ppu_read(&mut self, addr: u16) -> (u8, bool) {
-        self.clock_irq(addr);
-
         let i = self.chr_addr(addr);
         (self.chr[i % self.chr.len()], false)
     }
 
     fn ppu_write(&mut self, addr: u16, data: u8) {
-        self.clock_irq(addr);
         if self.chr_is_ram {
             let i = self.chr_addr(addr);
             let chr_len = self.chr.len();
@@ -311,5 +301,128 @@ impl Cartridge for Mmc3 {
 
     fn ppu_clock(&mut self, addr: u16) {
         self.clock_irq(addr);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn a12_low(mmc3: &mut Mmc3, cycles: u8) {
+        for _ in 0..cycles {
+            mmc3.clock_irq(0x0FFF); // A12 = 0
+        }
+    }
+
+    fn a12_rise(mmc3: &mut Mmc3) {
+        mmc3.clock_irq(0x1000); // A12 = 1
+    }
+
+    #[test]
+    fn mmc3_decrements_on_a12_rise() {
+        let mut mmc3 = Mmc3::new(vec![0; 0x8000], vec![0; 0x2000], Mirroring::Vertical);
+
+        mmc3.cpu_write(0xC000, 5); // latch = 5
+        mmc3.cpu_write(0xC001, 0); // reload
+        mmc3.cpu_write(0xE001, 0); // enable IRQ
+
+        // First clock → reload only
+        a12_low(&mut mmc3, 8);
+        a12_rise(&mut mmc3);
+        assert_eq!(mmc3.irq_counter, 5);
+
+        // Second clock → decrement
+        a12_low(&mut mmc3, 8);
+        a12_rise(&mut mmc3);
+        assert_eq!(mmc3.irq_counter, 4);
+    }
+
+    #[test]
+    fn mmc3_c000_does_not_reload() {
+        let mut mmc3 = Mmc3::new(vec![0; 0x8000], vec![0; 0x2000], Mirroring::Vertical);
+
+        mmc3.irq_counter = 3;
+        mmc3.cpu_write(0xC000, 7);
+
+        assert_eq!(mmc3.irq_counter, 3);
+    }
+
+    #[test]
+    fn mmc3_c001_sets_reload_flag() {
+        let mut mmc3 = Mmc3::new(vec![0; 0x8000], vec![0; 0x2000], Mirroring::Vertical);
+
+        mmc3.irq_counter = 4;
+        mmc3.cpu_write(0xC001, 0);
+
+        // Not reloaded yet
+        assert_eq!(mmc3.irq_counter, 4);
+
+        // Next clock reloads
+        a12_low(&mut mmc3, 8);
+        a12_rise(&mut mmc3);
+        assert_eq!(mmc3.irq_counter, mmc3.irq_latch);
+    }
+
+    #[test]
+    fn mmc3_irq_fires_on_decrement_to_zero() {
+        let mut mmc3 = Mmc3::new(vec![0; 0x8000], vec![0; 0x2000], Mirroring::Vertical);
+
+        mmc3.cpu_write(0xC000, 1);
+        mmc3.cpu_write(0xC001, 0);
+        mmc3.cpu_write(0xE001, 0);
+
+        // Reload
+        a12_low(&mut mmc3, 8);
+        a12_rise(&mut mmc3);
+
+        // Decrement to zero
+        a12_low(&mut mmc3, 8);
+        a12_rise(&mut mmc3);
+
+        assert!(mmc3.irq_pending());
+    }
+
+    #[test]
+    fn mmc3_irq_does_not_fire_when_disabled() {
+        let mut mmc3 = Mmc3::new(vec![0; 0x8000], vec![0; 0x2000], Mirroring::Vertical);
+
+        mmc3.cpu_write(0xC000, 1);
+        mmc3.cpu_write(0xC001, 0);
+        mmc3.cpu_write(0xE000, 0); // disable
+
+        for _ in 0..4 {
+            a12_low(&mut mmc3, 8);
+            a12_rise(&mut mmc3);
+        }
+
+        assert!(!mmc3.irq_pending());
+    }
+
+    #[test]
+    fn mmc3_reload_when_counter_zero() {
+        let mut mmc3 = Mmc3::new(vec![0; 0x8000], vec![0; 0x2000], Mirroring::Vertical);
+
+        mmc3.cpu_write(0xC000, 3);
+        mmc3.cpu_write(0xC001, 0);
+
+        mmc3.irq_counter = 0;
+
+        a12_low(&mut mmc3, 8);
+        a12_rise(&mut mmc3);
+
+        assert_eq!(mmc3.irq_counter, 3);
+    }
+
+    #[test]
+    fn mmc3_ignores_short_a12_pulses() {
+        let mut mmc3 = Mmc3::new(vec![0; 0x8000], vec![0; 0x2000], Mirroring::Vertical);
+
+        mmc3.cpu_write(0xC000, 2);
+        mmc3.cpu_write(0xC001, 0);
+
+        a12_low(&mut mmc3, 1); // too short
+        a12_rise(&mut mmc3);
+
+        assert_eq!(mmc3.irq_counter, 0);
     }
 }

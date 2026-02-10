@@ -11,8 +11,7 @@ impl PPU {
 
         for i in 0..8 {
             if self.sprite_x_counter[i] == 0 {
-                let in_left_clip = left_clip_enabled
-                    && (self.cycles < 8 || (self.cycles == 8 && self.sprite_x_latch[i] == 0));
+                let in_left_clip = left_clip_enabled && self.cycles <= 8;
                 let low_bit = (self.sprite_pattern_low[i] >> 7) & 1;
                 let high_bit = (self.sprite_pattern_high[i] >> 7) & 1;
                 let pixel = (high_bit << 1) | low_bit;

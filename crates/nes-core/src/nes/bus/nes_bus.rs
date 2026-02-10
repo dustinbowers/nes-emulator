@@ -201,9 +201,9 @@ impl CpuBusInterface for NesBus {
         let cart_irq = self.cart.as_ref().map(|c| c.irq_pending()).unwrap_or(false);
         let apu_irq = self.apu.irq_pending();
 
-        if cart_irq || apu_irq {
-            println!("{}", format!("cart_irq = {cart_irq}, apu_irq = {apu_irq}"));
-        }
+        // if cart_irq || apu_irq {
+        //     println!("{}", format!("cart_irq = {cart_irq}, apu_irq = {apu_irq}"));
+        // }
         cart_irq || apu_irq
     }
 }

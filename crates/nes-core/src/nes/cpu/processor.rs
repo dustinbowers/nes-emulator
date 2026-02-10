@@ -92,8 +92,7 @@ impl CPU {
             if self.active_interrupt.is_none() {
                 // Handle IRQ
                 let irq_line = unsafe { (*self.bus.unwrap()).irq_line() };
-                if irq_line {
-                    panic!("adsfasfsa");
+                if irq_line && !self.status.contains(Flags::INTERRUPT_DISABLE) {
                     self.active_interrupt = Some(interrupts::IRQ);
                 }
             }
