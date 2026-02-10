@@ -34,7 +34,8 @@ pub const RENDER_OPS: u64 = bit(PpuOperation::ShiftRegisters)
     | bit(PpuOperation::CopyVertV)
     | bit(PpuOperation::ClearSecondaryOam)
     | bit(PpuOperation::ResetSpriteEvaluation)
-    | bit(PpuOperation::EvaluateSprites);
+    | bit(PpuOperation::EvaluateSprites)
+    | bit(PpuOperation::FillSpriteRegister);
 
 pub const fn bit(op: PpuOperation) -> u64 {
     1u64 << (op as u8)

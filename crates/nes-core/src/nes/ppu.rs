@@ -49,6 +49,7 @@ pub struct PPU {
     frame_is_odd: bool,
     last_byte_read: DecayRegister,
     old_v: u16,
+    ppu_addr_latch: u16,
 
     pub palette_table: [u8; PALETTE_SIZE],
 
@@ -107,6 +108,7 @@ impl PPU {
             frame_is_odd: false,
             last_byte_read: DecayRegister::new(5_369_318),
             old_v: 0,
+            ppu_addr_latch: 0,
 
             ctrl_register: ControlRegister::new(),
             mask_register: MaskRegister::new(),
@@ -167,6 +169,7 @@ impl PPU {
         self.internal_data = 0;
         self.frame_is_odd = false;
         self.last_byte_read = DecayRegister::new(5_369_318);
+        self.ppu_addr_latch = 0;
 
         self.ctrl_register = ControlRegister::new();
         self.mask_register = MaskRegister::new();
@@ -234,8 +237,8 @@ impl PPU {
         // }
         self.old_v = v;
 
-        // Notify mapper after v update
-        self.notify_ppu_addr(v);
+        // Notify mapper after v update using the latched bus address
+        self.notify_ppu_addr(self.ppu_addr_latch);
 
         self.temp_counter += 1;
 
@@ -497,10 +500,11 @@ impl PPU {
             0x2005 => self.scroll_register.write_scroll(value),
             0x2006 => {
                 let commit = self.scroll_register.write_to_addr(value);
-                // if commit {
-                //     let scroll_addr = self.scroll_register.get_addr();
-                //     self.notify_ppu_addr(scroll_addr);
-                // }
+                if commit {
+                    let scroll_addr = self.scroll_register.get_addr();
+                    self.ppu_addr_latch = scroll_addr;
+                    self.notify_ppu_addr(scroll_addr);
+                }
             }
             0x2007 => self.write_memory(value),
             _ => {
@@ -611,6 +615,7 @@ impl PPU {
 
     fn read_memory(&mut self, increment: bool) -> u8 {
         let addr = self.scroll_register.get_addr();
+        self.ppu_addr_latch = addr & 0x3FFF;
 
         let result = match addr {
             0..=0x1FFF => {
@@ -659,6 +664,7 @@ impl PPU {
 
     fn write_memory(&mut self, value: u8) {
         let addr = self.scroll_register.get_addr();
+        self.ppu_addr_latch = addr & 0x3FFF;
 
         match addr {
             0x0000..=0x1FFF => {
@@ -709,8 +715,10 @@ impl PPU {
 
     /// `read_bus` directs memory reads to correct sources (without any buffering)
     fn read_bus(&mut self, addr: u16) -> u8 {
-        // let bus_addr = addr & 0x2FFF;
-        // self.notify_ppu_addr(bus_addr);
+        let bus_addr = addr & 0x3FFF;
+        if self.mask_register.rendering_enabled() {
+            self.ppu_addr_latch = bus_addr;
+        }
 
         match addr {
             // Pattern table (CHR ROM/RAM) $0000-$1FFF
@@ -775,6 +783,7 @@ impl PPU {
     fn increment_addr(&mut self) {
         self.scroll_register
             .increment_addr(self.ctrl_register.addr_increment());
+        self.ppu_addr_latch = self.scroll_register.get_addr();
     }
 
     pub fn mirror_palette_addr(&self, addr: u16) -> usize {

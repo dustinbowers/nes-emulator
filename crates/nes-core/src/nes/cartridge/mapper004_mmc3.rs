@@ -58,7 +58,7 @@ impl Mmc3 {
             prg_banks,
             chr_banks,
             bank_select: 0,
-            bank_registers: [0; 8],
+            bank_registers: [0, 0, 0, 0, 0, 0, 0, 1],
             prg_mode: false,
             chr_mode: false,
             irq_latch: 0,
@@ -184,7 +184,7 @@ impl Mmc3 {
             self.a12_low_cycles = self.a12_low_cycles.saturating_add(1);
         } else {
             // Rising edge?
-            if !self.last_ppu_a12 && self.a12_low_cycles >= 8 {
+            if !self.last_ppu_a12 && self.a12_low_cycles >= 6 {
                 if self.irq_reload || self.irq_counter == 0 {
                     self.irq_counter = self.irq_latch;
                 } else {

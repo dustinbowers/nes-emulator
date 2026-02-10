@@ -164,7 +164,7 @@ impl CPU {
             register_x: 0,
             register_y: 0,
             stack_pointer: CPU_STACK_RESET,
-            status: Flags::from_bits_truncate(0b0010_0010),
+            status: Flags::from_bits_truncate(0b0010_0110),
             program_counter: 0,
             current_op: CpuCycleState::default(),
             active_interrupt: None,
@@ -190,7 +190,7 @@ impl CPU {
         self.register_x = 0;
         self.register_y = 0;
         self.stack_pointer = CPU_STACK_RESET;
-        self.status = Flags::from_bits_truncate(0b0010_0010);
+        self.status = Flags::from_bits_truncate(0b0010_0110);
         self.active_interrupt = None;
         self.prev_nmi_line = false;
         self.nmi_armed = true;
