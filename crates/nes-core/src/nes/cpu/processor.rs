@@ -67,7 +67,7 @@ impl CPU {
                 return (false, false);
             }
 
-            // We're at instruction boundary with no active interrupts, so check for pending interrupts
+            // We're at instruction boundary with no active interrupts, so check for pending NMI
             if self.active_interrupt.is_none() {
                 let curr_nmi_line = self.nmi_line();
                 if !curr_nmi_line {
@@ -88,10 +88,11 @@ impl CPU {
                 }
             }
 
+            // Still no interrupt, now check for IRQs
             if self.active_interrupt.is_none() {
                 // Handle IRQ
-                if self.irq_pending && !self.status.contains(Flags::INTERRUPT_DISABLE) {
-                    self.irq_pending = false;
+                let irq_line = unsafe { (*self.bus.unwrap()).irq_line() };
+                if irq_line && !self.status.contains(Flags::INTERRUPT_DISABLE) {
                     self.active_interrupt = Some(interrupts::IRQ);
                 }
             }

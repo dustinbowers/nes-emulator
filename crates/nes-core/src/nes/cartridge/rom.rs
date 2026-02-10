@@ -3,6 +3,7 @@ use crate::nes::cartridge::mapper000_nrom::NromCart;
 use crate::nes::cartridge::mapper001_mmc1::Mmc1;
 use crate::nes::cartridge::mapper002_ux_rom::Mapper002UxRom;
 use crate::nes::cartridge::mapper003_cn_rom::Mapper003CnRom;
+use crate::nes::cartridge::mapper004_mmc3::Mmc3;
 use thiserror::Error;
 
 const NES_MAGIC_BYTES: &[u8; 4] = b"NES\x1A";
@@ -118,6 +119,10 @@ impl Rom {
             }
             3 => {
                 let cart = Mapper003CnRom::new(self.prg_rom, self.chr_rom, self.screen_mirroring);
+                Ok(Box::new(cart))
+            }
+            4 => {
+                let cart = Mmc3::new(self.prg_rom, self.chr_rom, self.screen_mirroring);
                 Ok(Box::new(cart))
             }
 

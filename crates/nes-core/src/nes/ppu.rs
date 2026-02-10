@@ -25,6 +25,7 @@ pub trait PpuBusInterface {
     fn ppu_bus_read(&mut self, addr: u16) -> u8;
     fn ppu_bus_write(&mut self, addr: u16, value: u8);
     fn mirroring(&mut self) -> Mirroring;
+    fn ppu_address(&mut self, addr: u16);
 }
 
 enum PaletteKind {
@@ -47,6 +48,8 @@ pub struct PPU {
     internal_data: u8,
     frame_is_odd: bool,
     last_byte_read: DecayRegister,
+    old_v: u16,
+    ppu_addr_latch: u16,
 
     pub palette_table: [u8; PALETTE_SIZE],
 
@@ -104,6 +107,8 @@ impl PPU {
             internal_data: 0,
             frame_is_odd: false,
             last_byte_read: DecayRegister::new(5_369_318),
+            old_v: 0,
+            ppu_addr_latch: 0,
 
             ctrl_register: ControlRegister::new(),
             mask_register: MaskRegister::new(),
@@ -164,6 +169,7 @@ impl PPU {
         self.internal_data = 0;
         self.frame_is_odd = false;
         self.last_byte_read = DecayRegister::new(5_369_318);
+        self.ppu_addr_latch = 0;
 
         self.ctrl_register = ControlRegister::new();
         self.mask_register = MaskRegister::new();
@@ -215,31 +221,35 @@ impl PPU {
     pub fn tick(&mut self) -> bool {
         let dot_ops = &self.schedule[self.scanline][self.cycles];
 
+        // Execute PPU pipeline ops
         for i in 0..dot_ops.len as usize {
             let op = dot_ops.ops[i];
             if self.is_op_enabled(op) {
                 self.exec_operation(op);
             }
         }
+
+        // Now v is stable for this dot
+        let v = self.scroll_register.v;
+        self.old_v = v;
         self.temp_counter += 1;
+
+        // Notify mapper after v update using the latched bus address
+        self.notify_ppu_addr(self.ppu_addr_latch);
 
         if self.status_register.vblank_active() {
             self.vblank_ticks += 1;
         }
 
+        // Odd frame skip
         if self.scanline == 261
             && self.cycles == 339
             && self.frame_is_odd
             && self.mask_register.rendering_enabled()
         {
-            // trace!(
-            //     "[ODD SKIP] SL=261 dot=339 frame_is_odd={} mask=0b{:08b}",
-            //     self.frame_is_odd,
-            //     self.mask_register.bits()
-            // );
-            // Skip dot 340 by advancing to dot 340 here; advance_dot will wrap to next scanline.
             self.cycles = 340;
         }
+
         self.advance_dot()
     }
 
@@ -277,7 +287,10 @@ impl PPU {
             }
             PpuOperation::RenderPixel => {
                 let color = self.render_dot();
-                self.frame_buffer[self.scanline * 256 + (self.cycles - 1)] = color;
+                let x = self.cycles - 1;
+                if x < 256 && self.scanline < 240 {
+                    self.frame_buffer[self.scanline * 256 + x] = color;
+                }
             }
             PpuOperation::IncFineY => {
                 self.scroll_register.increment_y();
@@ -443,9 +456,9 @@ impl PPU {
                 // side effects happen capturing status
                 if had_vblank {
                     self.status_register.reset_vblank_status();
-                    self.scroll_register.reset_latch();
                     self.nmi.on_event(NmiEvent::StatusReadClearsVBlank);
                 }
+                self.scroll_register.reset_latch();
 
                 // update open bus with what was read
                 self.last_byte_read.set(reg, result);
@@ -470,8 +483,8 @@ impl PPU {
     }
 
     pub fn write_register(&mut self, addr: u16, value: u8) {
-        assert!(addr >= 0x2000);
-        assert!(addr <= 0x3FFF);
+        debug_assert!(addr >= 0x2000);
+        debug_assert!(addr <= 0x3FFF);
         let reg = 0x2000 + (addr & 7); // mirror
 
         match reg {
@@ -480,7 +493,14 @@ impl PPU {
             0x2003 => self.oam_addr = value,
             0x2004 => self.write_to_oam_data(value),
             0x2005 => self.scroll_register.write_scroll(value),
-            0x2006 => self.scroll_register.write_to_addr(value),
+            0x2006 => {
+                let commit = self.scroll_register.write_to_addr(value);
+                if commit {
+                    let scroll_addr = self.scroll_register.get_addr();
+                    self.ppu_addr_latch = scroll_addr;
+                    self.notify_ppu_addr(scroll_addr);
+                }
+            }
             0x2007 => self.write_memory(value),
             _ => {
                 println!("Unhandled PPU write at: {addr:04X} = {value:02X}");
@@ -528,12 +548,12 @@ impl PPU {
         if show_bg
             && show_spr
             && scanline < 240
-            && (1..255).contains(&dot)
+            && dot >= 1
+            && dot <= 255
             && check_sprite_0
             && sprite_zero_rendered
             && self.sprite_x_latch[0] != 0xFF
             && bg_pixel != 0
-            && sprite_pixel != 0
             && !self
                 .status_register
                 .contains(StatusRegister::SPRITE_ZERO_HIT)
@@ -590,11 +610,13 @@ impl PPU {
 
     fn read_memory(&mut self, increment: bool) -> u8 {
         let addr = self.scroll_register.get_addr();
+        self.ppu_addr_latch = addr & 0x3FFF;
 
         let result = match addr {
             0..=0x1FFF => {
                 let result = self.internal_data;
-                self.internal_data = self.chr_read(addr);
+                // self.internal_data = self.chr_read(addr);
+                self.internal_data = self.read_bus(addr);
                 result
             }
             0x2000..=0x2FFF => {
@@ -637,6 +659,7 @@ impl PPU {
 
     fn write_memory(&mut self, value: u8) {
         let addr = self.scroll_register.get_addr();
+        self.ppu_addr_latch = addr & 0x3FFF;
 
         match addr {
             0x0000..=0x1FFF => {
@@ -668,7 +691,8 @@ impl PPU {
 impl PPU {
     fn read_palette_color(&mut self, palette: u8, pixel: u8, palette_kind: PaletteKind) -> u8 {
         if pixel == 0 {
-            return self.read_bus(0x3F00); // universal background color
+            let index = self.mirror_palette_addr(0x3F00);
+            return self.palette_table[index];
         }
 
         let base = match palette_kind {
@@ -680,11 +704,17 @@ impl PPU {
         if addr == 0x3F10 || addr == 0x3F14 || addr == 0x3F18 || addr == 0x3F1C {
             addr -= 0x10;
         }
-        self.read_bus(addr)
+        let index = self.mirror_palette_addr(addr);
+        self.palette_table[index]
     }
 
     /// `read_bus` directs memory reads to correct sources (without any buffering)
     fn read_bus(&mut self, addr: u16) -> u8 {
+        let bus_addr = addr & 0x3FFF;
+        if self.mask_register.rendering_enabled() {
+            self.ppu_addr_latch = bus_addr;
+        }
+
         match addr {
             // Pattern table (CHR ROM/RAM) $0000-$1FFF
             0x0000..=0x1FFF => self.chr_read(addr),
@@ -748,6 +778,7 @@ impl PPU {
     fn increment_addr(&mut self) {
         self.scroll_register
             .increment_addr(self.ctrl_register.addr_increment());
+        self.ppu_addr_latch = self.scroll_register.get_addr();
     }
 
     pub fn mirror_palette_addr(&self, addr: u16) -> usize {
@@ -804,6 +835,13 @@ impl PPU {
                 // always map to $2400 (NT1)
                 offset + NAME_TABLE_SIZE
             }
+        }
+    }
+
+    #[inline(always)]
+    fn notify_ppu_addr(&mut self, addr: u16) {
+        if let Some(bus) = self.bus {
+            unsafe { (*bus).ppu_address(addr) };
         }
     }
 }

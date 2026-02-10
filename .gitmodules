@@ -4,3 +4,6 @@
 [submodule "external/nes-test-roms"]
 	path = external/nes-test-roms
 	url = https://github.com/dustinbowers/nes-test-roms
+[submodule "external/AccuracyCoin"]
+	path = external/AccuracyCoin
+	url = https://github.com/100thCoin/AccuracyCoin

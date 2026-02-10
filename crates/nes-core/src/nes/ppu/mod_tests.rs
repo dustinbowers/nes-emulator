@@ -29,6 +29,10 @@ mod test {
         fn mirroring(&mut self) -> Mirroring {
             self.mirroring.clone()
         }
+
+        fn ppu_address(&mut self, addr: u16) {
+            todo!()
+        }
         // fn nmi(&mut self, _defer_one_instruction: bool) {
         //     self.triggered_nmi = true;
         // }
