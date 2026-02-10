@@ -81,55 +81,55 @@ impl PPU {
     }
 
     pub(super) fn sprite_fill_register(&mut self, sprite_num: usize, scanline: usize) {
+        let base = 4 * sprite_num;
+
+        let y = self.secondary_oam[base];
+        let tile_index = self.secondary_oam[base + 1];
+        let attributes = self.secondary_oam[base + 2];
+        let x = self.secondary_oam[base + 3];
+
+        let sprite_height = self.ctrl_register.sprite_size() as i16;
+        let render_scanline = scanline + 1;
+        let mut row = (render_scanline as i16) - (y as i16 + 1);
+
+        // Vertical flip
+        if attributes & 0x80 != 0 {
+            row = (sprite_height - 1) - row;
+        }
+
+        let pattern_addr = if sprite_height == 16 {
+            // 8x16
+            let table = (tile_index & 0x01) as u16;
+            let tile_num = (tile_index & 0xFE) as u16;
+            let fine_y = (row as u16) & 0x07;
+            let tile_offset = if row < 8 { 0 } else { 1 };
+
+            (table * 0x1000) + ((tile_num + tile_offset) * 16) + fine_y
+        } else {
+            // 8x8
+            let table_addr = self.ctrl_register.sprite_pattern_addr();
+            let fine_y = (row as u16) & 0x07;
+            table_addr + (tile_index as u16) * 16 + fine_y
+        };
+
+        // Always run sprite pattern fetches to keep mapper A12 timing accurate
+        let mut pattern_low = self.read_bus(pattern_addr);
+        let mut pattern_high = self.read_bus(pattern_addr + 8);
+
+        // Horizontal flip
+        let horizontal_flip = (attributes & 0x40) != 0;
+        if horizontal_flip {
+            pattern_low = pattern_low.reverse_bits();
+            pattern_high = pattern_high.reverse_bits();
+        }
+
         if sprite_num < self.sprite_count {
-            let base = 4 * sprite_num;
-
-            let y = self.secondary_oam[base];
-            let tile_index = self.secondary_oam[base + 1];
-            let attributes = self.secondary_oam[base + 2];
-            let x = self.secondary_oam[base + 3];
-
-            let sprite_height = self.ctrl_register.sprite_size() as i16;
-            let render_scanline = scanline + 1;
-            let mut row = (render_scanline as i16) - (y as i16 + 1);
-
-            // Vertical flip
-            if attributes & 0x80 != 0 {
-                row = (sprite_height - 1) - row;
-            }
-
-            let pattern_addr = if sprite_height == 16 {
-                // 8x16
-                let table = (tile_index & 0x01) as u16;
-                let tile_num = (tile_index & 0xFE) as u16;
-                let fine_y = (row as u16) & 0x07;
-                let tile_offset = if row < 8 { 0 } else { 1 };
-
-                (table * 0x1000) + ((tile_num + tile_offset) * 16) + fine_y
-            } else {
-                // 8x8
-                let table_addr = self.ctrl_register.sprite_pattern_addr();
-                let fine_y = (row as u16) & 0x07;
-                table_addr + (tile_index as u16) * 16 + fine_y
-            };
-
-            let mut pattern_low = self.read_bus(pattern_addr);
-            let mut pattern_high = self.read_bus(pattern_addr + 8);
-
-            // Horizontal flip
-            let horizontal_flip = (attributes & 0x40) != 0;
-            if horizontal_flip {
-                pattern_low = pattern_low.reverse_bits();
-                pattern_high = pattern_high.reverse_bits();
-            }
-
             self.sprite_x_counter[sprite_num] = x;
             self.sprite_x_latch[sprite_num] = x;
             self.sprite_attributes[sprite_num] = attributes;
             self.sprite_pattern_low[sprite_num] = pattern_low;
             self.sprite_pattern_high[sprite_num] = pattern_high;
         } else {
-            // TODO: First unused slot inherits Y from sprite #63 (quirk).
             // Clear unused sprite slots
             self.sprite_x_counter[sprite_num] = 0xFF; // Off-screen
             self.sprite_x_latch[sprite_num] = 0xFF;

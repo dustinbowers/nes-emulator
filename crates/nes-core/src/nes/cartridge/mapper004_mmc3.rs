@@ -184,7 +184,7 @@ impl Mmc3 {
             self.a12_low_cycles = self.a12_low_cycles.saturating_add(1);
         } else {
             // Rising edge?
-            if !self.last_ppu_a12 && self.a12_low_cycles >= 6 {
+            if !self.last_ppu_a12 && self.a12_low_cycles >= 8 {
                 if self.irq_reload || self.irq_counter == 0 {
                     self.irq_counter = self.irq_latch;
                 } else {
@@ -194,13 +194,10 @@ impl Mmc3 {
                         self.irq_pending = true;
                     }
                 }
-
                 self.irq_reload = false;
             }
-
             self.a12_low_cycles = 0;
         }
-
         self.last_ppu_a12 = a12;
     }
 }

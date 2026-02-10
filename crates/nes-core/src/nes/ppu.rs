@@ -231,16 +231,11 @@ impl PPU {
 
         // Now v is stable for this dot
         let v = self.scroll_register.v;
-
-        // if (self.old_v ^ v) & 0x1000 != 0 {
-        //     println!("A12 toggled at scanline {}, dot {}", self.scanline, self.cycles);
-        // }
         self.old_v = v;
+        self.temp_counter += 1;
 
         // Notify mapper after v update using the latched bus address
         self.notify_ppu_addr(self.ppu_addr_latch);
-
-        self.temp_counter += 1;
 
         if self.status_register.vblank_active() {
             self.vblank_ticks += 1;
