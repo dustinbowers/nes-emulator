@@ -44,7 +44,9 @@ pub struct NES {
 
     pub oam_transfer_cycles: usize,
 
-    pub cycle_acc: f64,
+    // pub cycle_acc: f64,
+    pub ppu_remainder: u64,
+    pub last_apu_sample_raw: f32,
 }
 
 impl Default for NES {
@@ -62,7 +64,10 @@ impl NES {
             master_clock: 0,
             dma_mode: DmaMode::None,
             oam_transfer_cycles: 0,
-            cycle_acc: 0.0,
+
+            // cycle_acc: 0.0,
+            ppu_remainder: 0,
+            last_apu_sample_raw: 0.0,
         }
     }
 

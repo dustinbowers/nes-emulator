@@ -96,9 +96,11 @@ impl FrameClock {
 
 pub struct APU {
     bus: Option<*mut dyn ApuBusInterface>,
-    // half_clock: bool,
+
     cpu_phase: ApuPhase,
     seq_phase: ApuPhase,
+
+    current_sample_raw: f32,
 
     pub pulse1: PulseChannel,
     pub pulse2: PulseChannel,
@@ -146,6 +148,9 @@ impl APU {
             bus: None,
             cpu_phase: ApuPhase::new(),
             seq_phase: ApuPhase::new(),
+
+            current_sample_raw: 0.0,
+
             // half_clock: false,
             pulse1: PulseChannel::new(true),
             pulse2: PulseChannel::new(false),
@@ -475,11 +480,13 @@ impl APU {
                 .insert(ApuStatusRegister::FRAME_INTERRUPT);
         }
 
+        self.current_sample_raw = self.sample();
+
         self.cpu_phase.toggle();
         self.seq_phase.toggle();
     }
 
-    pub fn sample(&mut self) -> f32 {
+    fn sample(&self) -> f32 {
         let pulse1 = if self.mute_pulse1 {
             0.0
         } else {
@@ -532,6 +539,25 @@ impl APU {
             sample = pulse_out + tnd_out;
         }
 
+        // sample = self
+        //     .high_pass_90
+        //     .high_pass(sample, 90.0, self.sample_rate as f32);
+        // sample = self
+        //     .high_pass_440
+        //     .high_pass(sample, 440.0, self.sample_rate as f32);
+        // sample = self
+        //     .low_pass_14k
+        //     .low_pass(sample, 14_000.0, self.sample_rate as f32);
+        sample
+    }
+
+    #[inline(always)]
+    pub fn get_last_sample(&self) -> f32 {
+        self.current_sample_raw
+    }
+
+    pub fn filter_raw_sample(&mut self, raw_sample: f32) -> f32 {
+        let mut sample = raw_sample;
         sample = self
             .high_pass_90
             .high_pass(sample, 90.0, self.sample_rate as f32);
@@ -544,6 +570,7 @@ impl APU {
         sample
     }
 
+    #[inline(always)]
     pub fn irq_line(&self) -> bool {
         let frame_interrupt = self
             .status_register

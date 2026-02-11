@@ -6,6 +6,8 @@ use cpal::{FromSample, Sample, SampleRate, SizedSample};
 use crossbeam_channel::{Receiver, Sender};
 use nes_core::prelude::*;
 
+const PPU_HZ: u64 = 5_369_318;
+
 pub struct EmuRuntime {
     nes: NES,
     input_state: InputState,
@@ -76,32 +78,43 @@ impl EmuRuntime {
             return;
         }
 
-        let sample_rate = sample_rate as f64;
-        // PPU cycles per audio sample (5.369318 MHz / 44.1 kHz)
-        let ppu_cycles_per_sample = 5369318.0 / sample_rate;
-        let mut cycle_acc = self.nes.cycle_acc;
+        let sr_u64 = sample_rate as u64;
+        self.nes.bus.apu.set_sample_rate(sample_rate as f64);
 
-        for audio_frame in data.chunks_mut(channels) {
-            cycle_acc += ppu_cycles_per_sample;
+        let base_ticks = PPU_HZ / sr_u64;
+        let frac = PPU_HZ % sr_u64; // Bresenham remainder
 
+        for frame in data.chunks_mut(channels) {
             // Update user input
             self.nes.bus.joypads[0].set_buttons(self.input_state.p1.load());
             self.nes.bus.joypads[1].set_buttons(self.input_state.p2.load());
 
-            while cycle_acc >= 1.0 {
+            // Determine how many PPU ticks to run this sample
+            let mut ticks = base_ticks;
+            self.nes.ppu_remainder += frac;
+            if self.nes.ppu_remainder >= sr_u64 {
+                self.nes.ppu_remainder -= sr_u64;
+                ticks += 1;
+            }
+
+            // deterministically sample with 2-tap average
+            let start = self.nes.bus.apu.get_last_sample();
+            for _ in 0..ticks {
                 if self.nes.tick() {
                     frame_buffer.write(self.nes.get_frame_buffer());
                 }
-                cycle_acc -= 1.0;
             }
 
-            let raw = self.nes.bus.apu.sample();
-            let sample = T::from_sample(raw);
+            let end = self.nes.bus.apu.get_last_sample();
+            let raw = 0.5 * (start + end);
 
-            for out in audio_frame.iter_mut() {
+            // run raw sample through filters
+            let out_f32 = self.nes.bus.apu.filter_raw_sample(raw);
+
+            let sample = T::from_sample(out_f32);
+            for out in frame.iter_mut() {
                 *out = sample;
             }
         }
-        self.nes.cycle_acc = cycle_acc;
     }
 }
