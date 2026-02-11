@@ -12,7 +12,7 @@ bitflags! {
         |+-------- Sprite 0 hit flag
         +--------- Vblank flag, cleared on read.
      */
-    pub struct StatusRegister: u8 {
+    pub struct ApuStatusRegister: u8 {
         // const UNUSED1          = 0b00000001;
         // const UNUSED2          = 0b00000010;
         // const UNUSED3          = 0b00000100;
@@ -24,33 +24,33 @@ bitflags! {
     }
 }
 
-impl StatusRegister {
+impl ApuStatusRegister {
     pub fn new() -> Self {
-        StatusRegister::from_bits_truncate(0)
+        ApuStatusRegister::from_bits_truncate(0)
     }
 
     pub fn set_vblank_started(&mut self) {
-        self.insert(StatusRegister::VBLANK_STARTED);
+        self.insert(ApuStatusRegister::VBLANK_STARTED);
     }
 
     pub fn reset_vblank_status(&mut self) {
-        self.remove(StatusRegister::VBLANK_STARTED);
+        self.remove(ApuStatusRegister::VBLANK_STARTED);
     }
 
     pub fn vblank_active(&mut self) -> bool {
-        self.contains(StatusRegister::VBLANK_STARTED)
+        self.contains(ApuStatusRegister::VBLANK_STARTED)
     }
 
     pub fn set_sprite_zero_hit(&mut self, status: bool) {
-        self.set(StatusRegister::SPRITE_ZERO_HIT, status);
+        self.set(ApuStatusRegister::SPRITE_ZERO_HIT, status);
     }
 
     pub fn set_sprite_overflow(&mut self, status: bool) {
-        self.set(StatusRegister::SPRITE_OVERFLOW, status);
+        self.set(ApuStatusRegister::SPRITE_OVERFLOW, status);
     }
 }
 
-impl Traceable for StatusRegister {
+impl Traceable for ApuStatusRegister {
     fn trace_name(&self) -> &'static str {
         "PPU_STATUS"
     }

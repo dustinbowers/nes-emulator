@@ -329,9 +329,9 @@ fn detect_revision(prg_rom: &[u8]) -> Mmc3Revision {
     const REV_B_MARKER: &[u8] = b"MMC3 IRQ COUNTER REVISION B";
 
     /* Source: nes-test-roms/mmc3_irq_tests/source/5.MMC3_rev_A.asm:
-        test_name:
-          .db   "MMC3 IRQ COUNTER REVISION A",0
-     */
+       test_name:
+         .db   "MMC3 IRQ COUNTER REVISION A",0
+    */
     if prg_rom
         .windows(REV_A_MARKER.len())
         .any(|window| window == REV_A_MARKER)
@@ -340,9 +340,9 @@ fn detect_revision(prg_rom: &[u8]) -> Mmc3Revision {
     }
 
     /* Source: nes-test-roms/mmc3_irq_tests/source/6.MMC3_rev_B.asm:
-        test_name:
-          .db   "MMC3 IRQ COUNTER REVISION B",0
-     */
+       test_name:
+         .db   "MMC3 IRQ COUNTER REVISION B",0
+    */
     if prg_rom
         .windows(REV_B_MARKER.len())
         .any(|window| window == REV_B_MARKER)

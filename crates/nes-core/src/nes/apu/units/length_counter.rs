@@ -13,11 +13,14 @@ impl LengthCounter {
         }
     }
 
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
         if self.enabled == false {
             self.value = 0;
-            self.halted = true;
         }
     }
 
@@ -26,16 +29,28 @@ impl LengthCounter {
     }
 
     pub fn set(&mut self, pos: u8) {
+        if !self.enabled {
+            return;
+        }
+
+        /* Source: nes-test-roms/apu_test/source/2-len_table.s
+           table:  .byte 10, 254, 20,  2, 40,  4, 80,  6
+                   .byte 160,  8, 60, 10, 14, 12, 26, 14
+                   .byte 12,  16, 24, 18, 48, 20, 96, 22
+                   .byte 192, 24, 72, 26, 16, 28, 32, 30
+        */
+        #[rustfmt::skip]
         const COUNT_LOOKUP: [u8; 32] = [
-            10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20,
-            96, 22, 192, 24, 72, 26, 16, 28, 32, 30,
+            10, 254, 20,  2, 40,  4, 80,  6,
+            160,  8, 60, 10, 14, 12, 26, 14,
+            12,  16, 24, 18, 48, 20, 96, 22,
+            192, 24, 72, 26, 16, 28, 32, 30,
         ];
         self.value = COUNT_LOOKUP[(pos & 0b1_1111) as usize];
-        self.enabled = self.value > 0;
     }
 
     pub fn clock(&mut self) {
-        if !self.halted && self.value > 0 {
+        if self.value > 0 && !self.halted {
             self.value -= 1;
         }
     }
@@ -63,6 +78,7 @@ mod tests {
     #[test]
     fn test_set_value() {
         let mut lc = setup_length_counter();
+        lc.set_enabled(true);
         lc.set(5);
         assert_eq!(lc.value, 4);
     }
@@ -70,6 +86,7 @@ mod tests {
     #[test]
     fn test_clock_to_zero() {
         let mut lc = setup_length_counter();
+        lc.set_enabled(true);
         lc.set(5); // position 5 in lookup table sets counter to 4
         assert_eq!(lc.value, 4);
         lc.clock();

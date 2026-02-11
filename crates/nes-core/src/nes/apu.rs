@@ -1,4 +1,5 @@
 use crate::nes::apu::filter::OnePole;
+use crate::nes::apu::status_register::ApuStatusRegister;
 use dmc_channel::DmcChannel;
 use noise_channel::NoiseChannel;
 use pulse_channel::PulseChannel;
@@ -10,12 +11,12 @@ mod dmc_channel;
 mod filter;
 mod noise_channel;
 mod pulse_channel;
+mod status_register;
 mod triangle_channel;
 mod units;
 
 pub trait ApuBusInterface {
     fn apu_bus_read(&mut self, addr: u16) -> u8;
-    fn irq(&mut self);
 }
 
 #[derive(Debug, Error)]
@@ -41,9 +42,63 @@ pub enum SequenceMode {
     Mode1,
 }
 
+pub enum FrameClock {
+    None,
+    Quarter,
+    QuarterAndHalf,
+}
+
+#[derive(Copy, Clone)]
+pub enum ApuPhase {
+    Even,
+    Odd,
+}
+
+impl ApuPhase {
+    pub fn new() -> Self {
+        ApuPhase::Even
+    }
+    pub fn toggle(&mut self) {
+        *self = match self {
+            ApuPhase::Even => ApuPhase::Odd,
+            ApuPhase::Odd => ApuPhase::Even,
+        }
+    }
+
+    pub fn is_even(&self) -> bool {
+        matches!(self, ApuPhase::Even)
+    }
+
+    pub fn is_odd(&self) -> bool {
+        matches!(self, ApuPhase::Odd)
+    }
+
+    pub fn opposite(&self) -> Self {
+        match self {
+            ApuPhase::Even => ApuPhase::Odd,
+            ApuPhase::Odd => ApuPhase::Even,
+        }
+    }
+}
+
+impl FrameClock {
+    pub fn is_quarter(&self) -> bool {
+        matches!(self, FrameClock::Quarter | FrameClock::QuarterAndHalf)
+    }
+    pub fn is_half(&self) -> bool {
+        matches!(self, FrameClock::QuarterAndHalf)
+    }
+
+    pub fn reset() -> Self {
+        FrameClock::QuarterAndHalf
+    }
+}
+
 pub struct APU {
     bus: Option<*mut dyn ApuBusInterface>,
-    half_clock: bool,
+    // half_clock: bool,
+    cpu_phase: ApuPhase,
+    seq_phase: ApuPhase,
 
     pub pulse1: PulseChannel,
     pub pulse2: PulseChannel,
@@ -51,26 +106,25 @@ pub struct APU {
     pub noise: NoiseChannel,
     pub dmc: DmcChannel,
 
+    pub status_register: ApuStatusRegister,
+
     pub mute_pulse1: bool,
     pub mute_pulse2: bool,
     pub mute_triangle: bool,
     pub mute_noise: bool,
     pub mute_dmc: bool,
 
-    pub enable_dmc: bool,
-    pub enable_noise: bool,
-    pub enable_triangle: bool,
-    pub enable_pulse2: bool,
-    pub enable_pulse1: bool,
-
     pub master_sequence_mode: SequenceMode,
     pub frame_clock_counter: u8,
     pub clock_counter: u32,
+    pending_quarter_clock: bool,
+    pending_half_clock: bool,
+    pending_clock_reset: bool,
+    pending_frame_reset_delay: u8,
 
-    pub irq_pending: bool,
-    pub irq_disable: bool,
-    pub dmc_interrupt: bool,
-    pub frame_interrupt: bool,
+    frame_irq_disable: bool,
+    frame_irq_rising: bool,
+    frame_irq_reassert: u8,
 
     sample_rate: f64,
     high_pass_90: OnePole,
@@ -90,12 +144,16 @@ impl APU {
     pub fn new() -> APU {
         APU {
             bus: None,
-            half_clock: false,
+            cpu_phase: ApuPhase::new(),
+            seq_phase: ApuPhase::new(),
+            // half_clock: false,
             pulse1: PulseChannel::new(true),
             pulse2: PulseChannel::new(false),
             triangle: TriangleChannel::new(),
             noise: NoiseChannel::new(),
             dmc: DmcChannel::new(),
+
+            status_register: ApuStatusRegister::new(),
 
             mute_pulse1: false,
             mute_pulse2: false,
@@ -103,20 +161,17 @@ impl APU {
             mute_noise: false,
             mute_dmc: false,
 
-            enable_dmc: false,
-            enable_noise: false,
-            enable_triangle: false,
-            enable_pulse2: false,
-            enable_pulse1: false,
-
             master_sequence_mode: SequenceMode::Mode0,
             frame_clock_counter: 0,
             clock_counter: 0,
+            pending_quarter_clock: false,
+            pending_half_clock: false,
+            pending_clock_reset: false,
+            pending_frame_reset_delay: 0,
 
-            irq_pending: false,
-            irq_disable: false,
-            dmc_interrupt: false,
-            frame_interrupt: false,
+            frame_irq_disable: false,
+            frame_irq_rising: false,
+            frame_irq_reassert: 0,
 
             sample_rate: 44100.0, // A safe default
             high_pass_90: OnePole::default(),
@@ -132,11 +187,15 @@ impl APU {
     }
 
     pub fn reset(&mut self) {
+        self.cpu_phase = ApuPhase::new();
+        self.seq_phase = ApuPhase::new();
         self.pulse1 = PulseChannel::new(true);
         self.pulse2 = PulseChannel::new(false);
         self.triangle = TriangleChannel::new();
         self.noise = NoiseChannel::new();
         self.dmc = DmcChannel::new();
+
+        self.status_register.update(0);
 
         self.mute_pulse1 = false;
         self.mute_pulse2 = false;
@@ -144,19 +203,17 @@ impl APU {
         self.mute_noise = false;
         self.mute_dmc = false;
 
-        self.enable_dmc = false;
-        self.enable_noise = false;
-        self.enable_triangle = false;
-        self.enable_pulse2 = false;
-        self.enable_pulse1 = false;
-
         self.master_sequence_mode = SequenceMode::Mode0;
         self.frame_clock_counter = 0;
         self.clock_counter = 0;
+        self.pending_quarter_clock = false;
+        self.pending_half_clock = false;
+        self.pending_clock_reset = false;
+        self.pending_frame_reset_delay = 0;
 
-        self.irq_disable = false;
-        self.dmc_interrupt = false;
-        self.frame_interrupt = false;
+        self.frame_irq_disable = false;
+        self.frame_irq_rising = false;
+        self.frame_irq_reassert = 0;
 
         // self.sample_rate = 0.0; // Preserve through resets
         self.high_pass_90 = OnePole::default();
@@ -170,31 +227,33 @@ impl APU {
         println!("APU::read({:04X})", addr);
         match addr {
             0x4015 => {
-                let mut output = 0;
-                output |= if self.dmc_interrupt { 0b1000_0000 } else { 0 };
-                output |= if self.frame_interrupt { 0b0100_0000 } else { 0 };
-                // bit 5 skipped
-                output |= if 1 == 0 { 0b0001_0000 } else { 0 };
-                output |= if self.noise.is_enabled() {
-                    0b0000_1000
-                } else {
-                    0
-                };
-                output |= if self.triangle.is_enabled() {
-                    0b0000_0100
-                } else {
-                    0
-                };
-                output |= if self.pulse2.is_enabled() {
-                    0b0000_0010
-                } else {
-                    0
-                };
-                output |= if self.pulse1.is_enabled() {
-                    0b0000_0001
-                } else {
-                    0
-                };
+                // Status Register
+                // Collect channel statuses
+                self.status_register.set(
+                    ApuStatusRegister::PULSE_CHANNEL_1,
+                    self.pulse1.length_active(),
+                );
+                self.status_register.set(
+                    ApuStatusRegister::PULSE_CHANNEL_2,
+                    self.pulse2.length_active(),
+                );
+                self.status_register.set(
+                    ApuStatusRegister::TRIANGLE_CHANNEL,
+                    self.triangle.length_active(),
+                );
+                self.status_register
+                    .set(ApuStatusRegister::NOISE_CHANNEL, self.noise.length_active());
+                self.status_register
+                    .set(ApuStatusRegister::DMC_CHANNEL, self.dmc.is_enabled());
+                let output = self.status_register.bits();
+
+                // Reading status register clears the frame interrupt flag (but not the DMC interrupt flag).
+                // Quirk: If an interrupt flag was set at the same moment of the read, it will read back as 1 but it will not be cleared.
+                if !self.frame_irq_rising {
+                    self.status_register
+                        .remove(ApuStatusRegister::FRAME_INTERRUPT);
+                }
+
                 output
             }
             _ => {
@@ -232,29 +291,34 @@ impl APU {
             0x4013 => self.dmc.write_4013(value),
 
             0x4015 => {
-                // Control / Status
-                self.enable_dmc = value & 1 << 4 != 0;
-                self.enable_noise = value & 1 << 3 != 0;
-                self.enable_triangle = value & 1 << 2 != 0;
-                self.enable_pulse2 = value & 1 << 1 != 0;
-                self.enable_pulse1 = value & 1 << 0 != 0;
-                // println!("APU::write({:04X}, {:08b})", addr, value);
+                // Status Register
+                let new_status = ApuStatusRegister::from_bits_truncate(value);
+                let enable_pulse1 = new_status.contains(ApuStatusRegister::PULSE_CHANNEL_1);
+                let enable_pulse2 = new_status.contains(ApuStatusRegister::PULSE_CHANNEL_2);
+                let enable_triangle = new_status.contains(ApuStatusRegister::TRIANGLE_CHANNEL);
+                let enable_noise = new_status.contains(ApuStatusRegister::NOISE_CHANNEL);
+                let enable_dmc = new_status.contains(ApuStatusRegister::DMC_CHANNEL);
 
-                if !self.enable_pulse1 {
-                    self.pulse1.disable();
-                }
-                if !self.enable_pulse2 {
-                    self.pulse2.disable();
-                }
-                if !self.enable_triangle {
-                    self.triangle.disable();
-                }
-                if !self.enable_noise {
-                    self.noise.disable();
-                }
-                if !self.enable_dmc {
-                    self.dmc.disable();
-                }
+                self.status_register
+                    .set(ApuStatusRegister::PULSE_CHANNEL_1, enable_pulse1);
+                self.status_register
+                    .set(ApuStatusRegister::PULSE_CHANNEL_2, enable_pulse2);
+                self.status_register
+                    .set(ApuStatusRegister::TRIANGLE_CHANNEL, enable_triangle);
+                self.status_register
+                    .set(ApuStatusRegister::NOISE_CHANNEL, enable_noise);
+                self.status_register
+                    .set(ApuStatusRegister::DMC_CHANNEL, enable_dmc);
+
+                self.pulse1.set_enabled(enable_pulse1);
+                self.pulse2.set_enabled(enable_pulse2);
+                self.triangle.set_enabled(enable_triangle);
+                self.noise.set_enabled(enable_noise);
+                self.dmc.set_enabled(enable_dmc);
+
+                // Writing to this register clears the DMC interrupt flag
+                self.status_register
+                    .remove(ApuStatusRegister::DMC_INTERRUPT);
             }
             0x4017 => {
                 // Frame Counter
@@ -267,14 +331,20 @@ impl APU {
                     false => SequenceMode::Mode0,
                     true => SequenceMode::Mode1,
                 };
-                self.irq_disable = value & 0b0100_0000 != 0;
-                self.frame_clock_counter = 0;
+                self.frame_irq_disable = value & 0b0100_0000 != 0;
 
-                // When bit 7 is set, reset frameclock counter and clock all channels
-                if self.master_sequence_mode == SequenceMode::Mode1 {
-                    self.pulse1.clock(true, true);
-                    self.pulse2.clock(true, true);
-                    self.triangle.clock(true);
+                // Writing to $4017 resets the frame counter and the quarter/half frame triggers happen
+                // simultaneously, but only on "odd" cycles (and only after the first "even" cycle after the
+                // write occurs) – thus, it happens either 2 or 3 cycles after the write (i.e. on the 2nd or
+                // 3rd cycle of the next instruction). After 2 or 3 clock cycles (depending on when the write
+                // is performed), the timer is reset.
+                self.pending_frame_reset_delay = if self.cpu_phase.is_odd() { 3 } else { 4 };
+
+                // If IRQs are disabled, clear interrupt flag and stop any IRQ asserts
+                if self.frame_irq_disable {
+                    self.status_register
+                        .remove(ApuStatusRegister::FRAME_INTERRUPT);
+                    self.frame_irq_reassert = 0;
                 }
             }
             _ => {
@@ -285,71 +355,128 @@ impl APU {
 
     /// Clocks every CPU cycle
     pub fn clock(&mut self) {
-        let mut quarter_frame_clock = false;
-        let mut half_frame_clock = false;
+        self.frame_irq_rising = false;
 
-        if !self.half_clock {
-            self.clock_counter += 1;
-            match self.master_sequence_mode {
-                SequenceMode::Mode0 => {
-                    // 4-step
-                    match self.clock_counter {
-                        3729 => {
-                            quarter_frame_clock = true;
-                        }
-                        7457 => {
-                            quarter_frame_clock = true;
-                            half_frame_clock = true;
-                        }
-                        11186 => {
-                            quarter_frame_clock = true;
-                        }
-                        14913 => {
-                            quarter_frame_clock = true;
-                            half_frame_clock = true;
-                            self.clock_counter = 0;
-
-                            if !self.irq_disable
-                                && let Some(bus_ptr) = self.bus
-                            {
-                                unsafe {
-                                    (*bus_ptr).irq();
-                                }
-                            }
-                        }
-                        _ => {}
-                    };
-                }
-                SequenceMode::Mode1 => {
-                    // 5-step
-                    match self.clock_counter {
-                        3729 => {
-                            quarter_frame_clock = true;
-                        }
-                        7457 => {
-                            quarter_frame_clock = true;
-                            half_frame_clock = true;
-                        }
-                        11186 => {
-                            quarter_frame_clock = true;
-                        }
-                        18640 => {
-                            quarter_frame_clock = true;
-                            half_frame_clock = true;
-                            self.clock_counter = 0;
-                        }
-                        _ => {}
-                    };
-                }
-            }
-
-            self.pulse1.clock(quarter_frame_clock, half_frame_clock);
-            self.pulse2.clock(quarter_frame_clock, half_frame_clock);
-            self.noise.clock(quarter_frame_clock, half_frame_clock);
+        // Frame clock triggers are delayed by 1 CPU cycle
+        let mut frame_clock = FrameClock::None;
+        if self.pending_quarter_clock || self.pending_half_clock {
+            frame_clock = match (self.pending_quarter_clock, self.pending_half_clock) {
+                (true, true) => FrameClock::QuarterAndHalf,
+                (true, false) => FrameClock::Quarter,
+                (false, true) => FrameClock::QuarterAndHalf,
+                _ => unreachable!(),
+            };
+            self.pending_quarter_clock = false;
+            self.pending_half_clock = false;
         }
 
-        self.triangle.clock(quarter_frame_clock);
-        self.half_clock = !self.half_clock;
+        // Note: `just_reset` stops the sequencer from immediately ticking forward if it's reset
+        //       in this cycle. We still need to strobe the channels though
+        let mut just_reset = false;
+        if self.pending_frame_reset_delay != 0 {
+            self.pending_frame_reset_delay -= 1;
+            if self.pending_frame_reset_delay == 0 {
+                self.clock_counter = 0;
+                just_reset = true;
+
+                // Re-phase sequencer according to CPU phase
+                self.seq_phase = self.cpu_phase.opposite();
+
+                // If entering 5-step mode, reset event clocks quarter and half at the beginning
+                if self.master_sequence_mode == SequenceMode::Mode1 {
+                    self.pending_quarter_clock = true;
+                    self.pending_half_clock = true;
+                }
+            }
+        }
+
+        let seq_tick = self.seq_phase.is_even();
+        if !just_reset && seq_tick {
+            if self.pending_clock_reset {
+                self.pending_clock_reset = false;
+                self.clock_counter = 0;
+            } else {
+                self.clock_counter += 1;
+                match self.master_sequence_mode {
+                    SequenceMode::Mode0 => {
+                        // 4-step
+                        match self.clock_counter {
+                            3728 => {
+                                self.pending_quarter_clock = true;
+                            }
+                            7456 => {
+                                self.pending_quarter_clock = true;
+                                self.pending_half_clock = true;
+                            }
+                            11185 => {
+                                self.pending_quarter_clock = true;
+                            }
+                            14914 => {
+                                self.pending_quarter_clock = true;
+                                self.pending_half_clock = true;
+
+                                // sequence ends
+                                self.pending_clock_reset = true;
+
+                                // IRQ on step boundary
+                                if !self.frame_irq_disable {
+                                    self.status_register
+                                        .insert(ApuStatusRegister::FRAME_INTERRUPT);
+                                    self.frame_irq_rising = true;
+
+                                    // Quirk: When IRQ is triggered, it asserts for 3 consecutive cycles
+                                    self.frame_irq_reassert = 2;
+                                }
+                            }
+                            _ => {}
+                        };
+                    }
+                    SequenceMode::Mode1 => {
+                        // 5-step
+                        match self.clock_counter {
+                            3728 => {
+                                self.pending_quarter_clock = true;
+                            }
+                            7456 => {
+                                self.pending_quarter_clock = true;
+                                self.pending_half_clock = true;
+                            }
+                            11185 => {
+                                self.pending_quarter_clock = true;
+                            }
+                            14914 => { /* no clocks */ }
+                            18640 => {
+                                self.pending_quarter_clock = true;
+                                self.pending_half_clock = true;
+
+                                // sequence ends
+                                self.pending_clock_reset = true;
+                            }
+                            _ => {}
+                        };
+                    }
+                }
+            }
+        }
+
+        let apu_tick = self.cpu_phase.is_even();
+        self.pulse1.clock(&frame_clock, apu_tick);
+        self.pulse2.clock(&frame_clock, apu_tick);
+        self.noise.clock(&frame_clock, apu_tick);
+        self.triangle.clock(&frame_clock, true);
+
+        // Handle consecutive IRQ reassert quirk
+        if self.frame_irq_disable {
+            self.frame_irq_reassert = 0; // If disabled, stop reasserts
+        } else if self.frame_irq_reassert != 0 {
+            self.frame_irq_reassert -= 1;
+            self.frame_irq_rising = true;
+            self.status_register
+                .insert(ApuStatusRegister::FRAME_INTERRUPT);
+        }
+
+        self.cpu_phase.toggle();
+        self.seq_phase.toggle();
     }
 
     pub fn sample(&mut self) -> f32 {
@@ -417,8 +544,16 @@ impl APU {
         sample
     }
 
-    pub fn irq_pending(&self) -> bool {
-        self.irq_pending
+    pub fn irq_line(&self) -> bool {
+        let frame_interrupt = self
+            .status_register
+            .contains(ApuStatusRegister::FRAME_INTERRUPT)
+            && !self.frame_irq_disable;
+
+        let dmc_interrupt = self
+            .status_register
+            .contains(ApuStatusRegister::DMC_INTERRUPT);
+
+        frame_interrupt || dmc_interrupt
     }
-    // fn clock_irq(&mut self) {}
 }

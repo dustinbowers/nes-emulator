@@ -1,6 +1,7 @@
 use super::units::envelope::Envelope;
 use super::units::length_counter::LengthCounter;
 use super::units::sequence_timer::SequenceTimer;
+use crate::nes::apu::FrameClock;
 
 pub enum NoiseMode {
     Long,
@@ -62,12 +63,15 @@ impl NoiseChannel {
 }
 
 impl NoiseChannel {
-    pub fn disable(&mut self) {
-        self.length_counter.set_enabled(false);
-        self.length_counter.set_halt(true);
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.length_counter.set_enabled(enabled);
     }
 
-    pub fn is_enabled(&self) -> bool {
+    pub fn disable(&mut self) {
+        self.length_counter.set_enabled(false);
+    }
+
+    pub fn length_active(&self) -> bool {
         self.length_counter.output() > 0
     }
 
@@ -88,20 +92,19 @@ impl NoiseChannel {
         self.shifter = (feedback << 14) | (self.shifter >> 1);
     }
 
-    pub fn clock(&mut self, quarter_frame_clock: bool, half_frame_clock: bool) {
-        if quarter_frame_clock {
+    pub fn clock(&mut self, frame_clock: &FrameClock, timer_tick: bool) {
+        if timer_tick && self.seq_timer.clock() {
+            self.shift_noise();
+        }
+
+        if frame_clock.is_quarter() {
             self.envelope.clock();
         }
 
-        if half_frame_clock {
+        if frame_clock.is_half() {
             self.length_counter.clock();
         }
-
-        if self.seq_timer.clock() {
-            self.shift_noise();
-        }
     }
-
     pub fn sample(&self) -> u8 {
         if self.length_counter.output() == 0 || (self.shifter & 0b1) != 0 {
             0

@@ -80,8 +80,19 @@ impl DmcChannel {
         self.bytes_remaining = self.sample_length;
     }
 
-    pub fn disable(&mut self) {
-        // TODO
+    pub fn set_enabled(&mut self, enabled: bool) {
+        // If the DMC bit is clear, the DMC bytes remaining will be set to 0 and the
+        // DMC will silence when it empties.
+        self.bytes_remaining = 0;
+
+        // TODO:
+        // If the DMC bit is set, the DMC sample will be restarted only if its bytes
+        // remaining is 0. If there are bits remaining in the 1-byte sample buffer,
+        // these will finish playing before the next sample is fetched.
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.bytes_remaining > 0
     }
 
     pub fn clock(&mut self) {
