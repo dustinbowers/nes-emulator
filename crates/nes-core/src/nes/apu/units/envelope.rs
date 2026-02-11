@@ -44,15 +44,12 @@ impl Envelope {
         } else {
             VolumeMode::Constant
         };
+        self.period = value & 0b0000_1111;
     }
 
     /// Called by the quarter-frame clock
     pub fn clock(&mut self) {
-        if self.start {
-            self.start = false;
-            self.decay = 15;
-            self.divider = self.period;
-        } else if self.divider == 0 {
+        if self.divider == 0 {
             self.divider = self.period;
             if self.decay > 0 {
                 self.decay -= 1;
@@ -83,6 +80,10 @@ impl Envelope {
     }
     pub fn set_start_flag(&mut self, start: bool) {
         self.start = start;
+        if start {
+            self.decay = 15;
+            self.divider = self.period;
+        }
     }
     pub fn get_start_flag(&self) -> bool {
         self.start

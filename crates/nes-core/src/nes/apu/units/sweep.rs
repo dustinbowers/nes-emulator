@@ -39,33 +39,26 @@ impl Sweep {
     }
 
     pub fn clock(&mut self, timer: &mut u16) {
-        let mut apply_change = false;
+        let divider_zero = self.divider == 0;
 
-        if self.divider == 0 && self.enabled && self.shift > 0 && !self.is_muting(*timer) {
-            apply_change = true;
-        }
-
-        if apply_change {
+        if divider_zero && self.enabled && self.shift > 0 {
             let change = *timer >> self.shift;
+
             let target = if self.negate {
                 match self.pulse_type {
-                    PulseType::Pulse1 => {
-                        if change > *timer - 1 {
-                            0
-                        } else {
-                            *timer - change - 1
-                        }
-                        // (*timer).wrapping_sub(change).wrapping_sub(1)
-                    }
-                    PulseType::Pulse2 => (*timer).saturating_sub(change),
+                    PulseType::Pulse1 => timer.wrapping_sub(change).wrapping_sub(1),
+                    PulseType::Pulse2 => timer.wrapping_sub(change),
                 }
             } else {
-                *timer + change
+                timer.wrapping_add(change)
             };
-            *timer = target;
+
+            if target <= 0x7FF && target >= 8 {
+                *timer = target;
+            }
         }
 
-        if self.divider == 0 || self.reload {
+        if divider_zero || self.reload {
             self.divider = self.period;
             self.reload = false;
         } else {

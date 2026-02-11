@@ -82,8 +82,10 @@ impl PulseChannel {
                T: Upper timer bits.
     */
     pub fn write_4003(&mut self, value: u8) {
-        let length_counter_load = (value & 0b1111_1000) >> 3;
-        self.length_counter.set(length_counter_load);
+        if self.length_counter.is_enabled() {
+            let length_counter_load = (value & 0b1111_1000) >> 3;
+            self.length_counter.set(length_counter_load);
+        }
 
         self.seq_timer.set_reload_high(value & 0b111);
         // println!(
@@ -121,7 +123,8 @@ impl PulseChannel {
         };
         if advance_waveform {
             // Advance duty cycle
-            self.sequence = (self.sequence << 1) | (self.sequence >> 7);
+            // self.sequence = (self.sequence << 1) | (self.sequence >> 7);
+            self.sequence = (self.sequence >> 1) | ((self.sequence & 1) << 7);
         }
 
         // Clock envelope

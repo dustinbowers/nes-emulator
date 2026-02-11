@@ -13,6 +13,10 @@ impl LengthCounter {
         }
     }
 
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
         if self.enabled == false {
@@ -30,11 +34,11 @@ impl LengthCounter {
         }
 
         /* Source: nes-test-roms/apu_test/source/2-len_table.s
-            table:  .byte 10, 254, 20,  2, 40,  4, 80,  6
-                    .byte 160,  8, 60, 10, 14, 12, 26, 14
-                    .byte 12,  16, 24, 18, 48, 20, 96, 22
-                    .byte 192, 24, 72, 26, 16, 28, 32, 30
-         */
+           table:  .byte 10, 254, 20,  2, 40,  4, 80,  6
+                   .byte 160,  8, 60, 10, 14, 12, 26, 14
+                   .byte 12,  16, 24, 18, 48, 20, 96, 22
+                   .byte 192, 24, 72, 26, 16, 28, 32, 30
+        */
         #[rustfmt::skip]
         const COUNT_LOOKUP: [u8; 32] = [
             10, 254, 20,  2, 40,  4, 80,  6,
@@ -46,7 +50,7 @@ impl LengthCounter {
     }
 
     pub fn clock(&mut self) {
-        if !self.halted && self.value > 0 {
+        if self.value > 0 && !self.halted {
             self.value -= 1;
         }
     }
