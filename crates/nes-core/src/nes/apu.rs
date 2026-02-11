@@ -123,7 +123,8 @@ pub struct APU {
     pending_frame_reset_delay: u8,
 
     frame_irq_disable: bool,
-    frame_interrupt_rising: bool,
+    frame_irq_rising: bool,
+    frame_irq_reassert: u8,
 
     sample_rate: f64,
     high_pass_90: OnePole,
@@ -169,7 +170,8 @@ impl APU {
             pending_frame_reset_delay: 0,
 
             frame_irq_disable: false,
-            frame_interrupt_rising: false,
+            frame_irq_rising: false,
+            frame_irq_reassert: 0,
 
             sample_rate: 44100.0, // A safe default
             high_pass_90: OnePole::default(),
@@ -210,7 +212,8 @@ impl APU {
         self.pending_frame_reset_delay = 0;
 
         self.frame_irq_disable = false;
-        self.frame_interrupt_rising = false;
+        self.frame_irq_rising = false;
+        self.frame_irq_reassert = 0;
 
         // self.sample_rate = 0.0; // Preserve through resets
         self.high_pass_90 = OnePole::default();
@@ -246,7 +249,7 @@ impl APU {
 
                 // Reading status register clears the frame interrupt flag (but not the DMC interrupt flag).
                 // Quirk: If an interrupt flag was set at the same moment of the read, it will read back as 1 but it will not be cleared.
-                if !self.frame_interrupt_rising {
+                if !self.frame_irq_rising {
                     self.status_register
                         .remove(ApuStatusRegister::FRAME_INTERRUPT);
                 }
@@ -337,10 +340,11 @@ impl APU {
                 // is performed), the timer is reset.
                 self.pending_frame_reset_delay = if self.cpu_phase.is_odd() { 3 } else { 4 };
 
-                // If IRQs are disabled, the frame interrupt flag is cleared
+                // If IRQs are disabled, clear interrupt flag and stop any IRQ asserts
                 if self.frame_irq_disable {
                     self.status_register
                         .remove(ApuStatusRegister::FRAME_INTERRUPT);
+                    self.frame_irq_reassert = 0;
                 }
             }
             _ => {
@@ -351,7 +355,7 @@ impl APU {
 
     /// Clocks every CPU cycle
     pub fn clock(&mut self) {
-        self.frame_interrupt_rising = false;
+        self.frame_irq_rising = false;
 
         // Frame clock triggers are delayed by 1 CPU cycle
         let mut frame_clock = FrameClock::None;
@@ -418,7 +422,10 @@ impl APU {
                                 if !self.frame_irq_disable {
                                     self.status_register
                                         .insert(ApuStatusRegister::FRAME_INTERRUPT);
-                                    self.frame_interrupt_rising = true;
+                                    self.frame_irq_rising = true;
+
+                                    // Quirk: When IRQ is triggered, it asserts for 3 consecutive cycles
+                                    self.frame_irq_reassert = 2;
                                 }
                             }
                             _ => {}
@@ -457,6 +464,16 @@ impl APU {
         self.pulse2.clock(&frame_clock, apu_tick);
         self.noise.clock(&frame_clock, apu_tick);
         self.triangle.clock(&frame_clock, true);
+
+        // Handle consecutive IRQ reassert quirk
+        if self.frame_irq_disable {
+            self.frame_irq_reassert = 0; // If disabled, stop reasserts
+        } else if self.frame_irq_reassert != 0 {
+            self.frame_irq_reassert -= 1;
+            self.frame_irq_rising = true;
+            self.status_register
+                .insert(ApuStatusRegister::FRAME_INTERRUPT);
+        }
 
         self.cpu_phase.toggle();
         self.seq_phase.toggle();
