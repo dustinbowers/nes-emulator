@@ -125,7 +125,7 @@ impl NES {
                 }
             }
 
-            // APU Runs at CPU speed
+            // APU is clocked at CPU speed
             self.bus.apu.clock();
         }
 

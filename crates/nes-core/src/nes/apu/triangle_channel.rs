@@ -1,5 +1,6 @@
 use super::units::length_counter::LengthCounter;
 use super::units::sequence_timer::SequenceTimer;
+use crate::nes::apu::FrameClock;
 
 pub struct TriangleChannel {
     sequence_timer: SequenceTimer,
@@ -64,18 +65,14 @@ impl TriangleChannel {
         self.length_counter.set_enabled(false);
     }
 
-    pub fn is_enabled(&self) -> bool {
+    pub fn length_active(&self) -> bool {
         self.length_counter.output() > 0
     }
 
-    pub fn clock(&mut self, quarter_frame_clock: bool, half_frame_clock: bool, timer_tick: bool) {
-        let advance_waveform = if timer_tick {
-            self.sequence_timer.clock()
-        } else {
-            false
-        };
+    pub fn clock(&mut self, frame_clock: &FrameClock, timer_tick: bool) {
         // triangle advances only if both length counter and linear counter are non-zero,
         // and the timer period is at least 2
+        let advance_waveform = timer_tick && self.sequence_timer.clock();
         if advance_waveform
             && self.linear_counter_value > 0
             && self.length_counter.output() > 0
@@ -84,7 +81,7 @@ impl TriangleChannel {
             self.sequence_index = (self.sequence_index + 1) % 32;
         }
 
-        if quarter_frame_clock {
+        if frame_clock.is_quarter() {
             if self.linear_counter_reload_flag {
                 self.linear_counter_value = self.linear_counter_reload_value;
             } else if self.linear_counter_value > 0 {
@@ -95,10 +92,9 @@ impl TriangleChannel {
             if !self.linear_counter_control_flag {
                 self.linear_counter_reload_flag = false;
             }
-            // println!("TriangleChannel: seq_ind {}\tlinear_ct: {}\tlength_ct:{}", self.sequence_index, self.linear_counter_value, self.length_counter.output());
         }
 
-        if half_frame_clock {
+        if frame_clock.is_half() {
             self.length_counter.clock();
         }
     }

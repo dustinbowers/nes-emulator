@@ -2,6 +2,7 @@ use super::units::envelope::Envelope;
 use super::units::length_counter::LengthCounter;
 use super::units::sequence_timer::SequenceTimer;
 use super::units::sweep::{PulseType, Sweep};
+use crate::nes::apu::FrameClock;
 
 pub struct PulseChannel {
     seq_timer: SequenceTimer,
@@ -109,31 +110,25 @@ impl PulseChannel {
     //     self.length_counter.set_enabled(false);
     // }
 
-    pub fn is_enabled(&self) -> bool {
+    pub fn length_active(&self) -> bool {
         self.length_counter.output() > 0
     }
 
     /// Clocked every APU cycle (1/2 CPU)
-    pub fn clock(&mut self, quarter_frame_clock: bool, half_frame_clock: bool, timer_tick: bool) {
+    pub fn clock(&mut self, frame_clock: &FrameClock, timer_tick: bool) {
         // Check if timer clocks waveform
-        let advance_waveform = if timer_tick {
-            self.seq_timer.clock()
-        } else {
-            false
-        };
-        if advance_waveform {
+        if timer_tick && self.seq_timer.clock() {
             // Advance duty cycle
-            // self.sequence = (self.sequence << 1) | (self.sequence >> 7);
             self.sequence = (self.sequence >> 1) | ((self.sequence & 1) << 7);
         }
 
         // Clock envelope
-        if quarter_frame_clock {
+        if frame_clock.is_quarter() {
             self.envelope.clock();
         }
 
         // Clock length counter and sweep
-        if half_frame_clock {
+        if frame_clock.is_half() {
             self.length_counter.clock();
             let mut seq_timer_reload = self.seq_timer.get_reload();
             self.sweep.clock(&mut seq_timer_reload);
