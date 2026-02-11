@@ -15,7 +15,7 @@ https://dustinbowers.com/demos/nes-emulator
 - 6502 CPU emulation with memory-cycle-accurate timing
 - Dot-based microcoded PPU implementation
 - Limited APU support
-- Small collection of supported mappers (currently NROM, MMC1, UxROM, CNROM)
+- Small collection of supported mappers (currently NROM, MMC1, MMC3, UxROM, CNROM)
 - Native desktop application
 - WebAssembly browser version
 - Test suite for CPU opcodes (single-step tests) and `nes-test-roms`
