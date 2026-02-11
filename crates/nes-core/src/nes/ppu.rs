@@ -9,7 +9,7 @@ use registers::control_register::ControlRegister;
 use registers::decay_register::DecayRegister;
 use registers::mask_register::MaskRegister;
 use registers::scroll_register::ScrollRegister;
-use registers::status_register::StatusRegister;
+use registers::status_register::ApuStatusRegister;
 use scheduler::PpuOperation;
 
 mod background;
@@ -53,10 +53,10 @@ pub struct PPU {
 
     pub palette_table: [u8; PALETTE_SIZE],
 
-    pub ctrl_register: ControlRegister,  // $2000 (W)
-    pub mask_register: MaskRegister,     // $2001 (w)
-    pub status_register: StatusRegister, // $2002 (R)
-    pub scroll_register: ScrollRegister, // $2005 / $2006 - (write latched)
+    pub ctrl_register: ControlRegister,     // $2000 (W)
+    pub mask_register: MaskRegister,        // $2001 (w)
+    pub status_register: ApuStatusRegister, // $2002 (R)
+    pub scroll_register: ScrollRegister,    // $2005 / $2006 - (write latched)
     pub frame_buffer: [u8; 256 * 240],
 
     pub oam_addr: u8,                            // $2003 (W)
@@ -113,7 +113,7 @@ impl PPU {
             ctrl_register: ControlRegister::new(),
             mask_register: MaskRegister::new(),
             scroll_register: ScrollRegister::new(),
-            status_register: StatusRegister::new(),
+            status_register: ApuStatusRegister::new(),
 
             frame_buffer: [0u8; 256 * 240],
 
@@ -173,7 +173,7 @@ impl PPU {
 
         self.ctrl_register = ControlRegister::new();
         self.mask_register = MaskRegister::new();
-        self.status_register = StatusRegister::new();
+        self.status_register = ApuStatusRegister::new();
         self.scroll_register = ScrollRegister::new();
 
         self.frame_buffer = [0u8; 256 * 240];
@@ -514,7 +514,7 @@ impl PPU {
         // Tick the PPU until VBLANK
         while !self
             .status_register
-            .contains(StatusRegister::VBLANK_STARTED)
+            .contains(ApuStatusRegister::VBLANK_STARTED)
         {
             self.tick();
         }
@@ -556,7 +556,7 @@ impl PPU {
             && bg_pixel != 0
             && !self
                 .status_register
-                .contains(StatusRegister::SPRITE_ZERO_HIT)
+                .contains(ApuStatusRegister::SPRITE_ZERO_HIT)
         {
             self.status_register.set_sprite_zero_hit(true);
         }
@@ -856,7 +856,7 @@ impl Traceable for PPU {
             self.scanline,
             self.cycles,
             self.status_register
-                .contains(StatusRegister::VBLANK_STARTED),
+                .contains(ApuStatusRegister::VBLANK_STARTED),
             self.frame_is_odd,
             self.global_ppu_ticks,
             self.status_register.bits()

@@ -15,7 +15,7 @@ bitflags! {
         |+-------- Frame interrupt asserted
         +--------- DMC interrupt asserted
      */
-    pub struct StatusRegister: u8 {
+    pub struct ApuStatusRegister: u8 {
         const PULSE_CHANNEL_1 =  0b0000_0001;
         const PULSE_CHANNEL_2 =  0b0000_0010;
         const TRIANGLE_CHANNEL = 0b0000_0100;
@@ -27,12 +27,12 @@ bitflags! {
     }
 }
 
-impl StatusRegister {
+impl ApuStatusRegister {
     pub fn new() -> Self {
-        StatusRegister::from_bits_truncate(0)
+        ApuStatusRegister::from_bits_truncate(0)
     }
 
     pub fn update(&mut self, data: u8) {
-        *self = StatusRegister::from_bits_truncate(data);
+        *self = ApuStatusRegister::from_bits_truncate(data);
     }
 }
