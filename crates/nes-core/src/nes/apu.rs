@@ -110,7 +110,7 @@ pub struct APU {
     pub clock_counter: u32,
     pending_quarter_clock: bool,
     pending_half_clock: bool,
-    pending_frame_reset: bool,
+    pending_frame_reset_delay: u8,
 
     frame_irq_disable: bool,
     frame_interrupt_rising: bool,
@@ -154,7 +154,7 @@ impl APU {
             clock_counter: 0,
             pending_quarter_clock: false,
             pending_half_clock: false,
-            pending_frame_reset: false,
+            pending_frame_reset_delay: 0,
 
             frame_irq_disable: false,
             frame_interrupt_rising: false,
@@ -193,7 +193,7 @@ impl APU {
         self.clock_counter = 0;
         self.pending_quarter_clock = false;
         self.pending_half_clock = false;
-        self.pending_frame_reset = false;
+        self.pending_frame_reset_delay = 0;
 
         self.frame_irq_disable = false;
         self.frame_interrupt_rising = false;
@@ -315,20 +315,11 @@ impl APU {
                 // write occurs) – thus, it happens either 2 or 3 cycles after the write (i.e. on the 2nd or
                 // 3rd cycle of the next instruction). After 2 or 3 clock cycles (depending on when the write
                 // is performed), the timer is reset.
-                self.pending_frame_reset = true;
+                self.pending_frame_reset_delay = if self.phase.is_odd() { 2 } else { 3 };
 
                 // If IRQs are disabled, the frame interrupt flag is cleared
                 if self.frame_irq_disable {
                     self.status_register.remove(StatusRegister::FRAME_INTERRUPT);
-                }
-
-                // When bit 7 is set, reset frame clock counter and clock all channels
-                if self.master_sequence_mode == SequenceMode::Mode1 {
-                    let frame_clock = FrameClock::reset();
-                    self.pulse1.clock(&frame_clock, false);
-                    self.pulse2.clock(&frame_clock, false);
-                    self.triangle.clock(&frame_clock, false);
-                    self.noise.clock(&frame_clock, false);
                 }
             }
             _ => {
@@ -339,7 +330,6 @@ impl APU {
 
     /// Clocks every CPU cycle
     pub fn clock(&mut self) {
-        self.phase.toggle();
         self.frame_interrupt_rising = false;
 
         // Frame clock triggers are delayed by 1 CPU cycle
@@ -355,12 +345,20 @@ impl APU {
             self.pending_half_clock = false;
         }
 
-        if self.pending_frame_reset {
-            self.clock_counter = 0;
-            self.pending_frame_reset = false;
+        if self.pending_frame_reset_delay != 0 {
+            self.pending_frame_reset_delay -= 1;
+            if self.pending_frame_reset_delay == 0 {
+                self.clock_counter = 0;
+
+                // If entering 5-step mode, reset event clocks quarter and half at the beginning
+                if self.master_sequence_mode == SequenceMode::Mode1 {
+                    self.pending_quarter_clock = true;
+                    self.pending_half_clock = true;
+                }
+            }
         }
 
-        if self.phase.is_odd() {
+        if self.phase.is_even() {
             self.clock_counter += 1;
             match self.master_sequence_mode {
                 SequenceMode::Mode0 => {
@@ -416,11 +414,12 @@ impl APU {
             }
         }
 
-        let apu_tick = self.phase.is_odd();
+        let apu_tick = self.phase.is_even();
         self.pulse1.clock(&frame_clock, apu_tick);
         self.pulse2.clock(&frame_clock, apu_tick);
         self.noise.clock(&frame_clock, apu_tick);
         self.triangle.clock(&frame_clock, true);
+        self.phase.toggle();
     }
 
     pub fn sample(&mut self) -> f32 {
