@@ -183,7 +183,7 @@ The script automatically adds the buffer frames to each test's duration to accou
   - ✅ iNES 1.0 Mapper 001 - MMC1
   - ✅ iNES 1.0 Mapper 002 - UxROM
   - ✅ iNES 1.0 Mapper 003 - CNROM
-  - ⬜ iNES 1.0 Mapper 004 - MMC3
+  - ✅ iNES 1.0 Mapper 004 - MMC3
   - ⬜ iNES 1.0 Mapper 005 - MMC5
   - ⬜ ...plus more...
 - ⬜ Fix CPU<->PPU timing/sync bugs 
