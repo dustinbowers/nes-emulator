@@ -48,6 +48,7 @@ pub enum FrameClock {
     QuarterAndHalf,
 }
 
+#[derive(Copy, Clone)]
 pub enum ApuPhase {
     Even,
     Odd,
@@ -89,7 +90,8 @@ impl FrameClock {
 pub struct APU {
     bus: Option<*mut dyn ApuBusInterface>,
     // half_clock: bool,
-    phase: ApuPhase,
+    cpu_phase: ApuPhase,
+    seq_phase: ApuPhase,
 
     pub pulse1: PulseChannel,
     pub pulse2: PulseChannel,
@@ -133,7 +135,8 @@ impl APU {
     pub fn new() -> APU {
         APU {
             bus: None,
-            phase: ApuPhase::new(),
+            cpu_phase: ApuPhase::new(),
+            seq_phase: ApuPhase::new(),
             // half_clock: false,
             pulse1: PulseChannel::new(true),
             pulse2: PulseChannel::new(false),
@@ -173,7 +176,8 @@ impl APU {
     }
 
     pub fn reset(&mut self) {
-        self.phase = ApuPhase::new();
+        self.cpu_phase = ApuPhase::new();
+        self.seq_phase = ApuPhase::new();
         self.pulse1 = PulseChannel::new(true);
         self.pulse2 = PulseChannel::new(false);
         self.triangle = TriangleChannel::new();
@@ -315,7 +319,7 @@ impl APU {
                 // write occurs) – thus, it happens either 2 or 3 cycles after the write (i.e. on the 2nd or
                 // 3rd cycle of the next instruction). After 2 or 3 clock cycles (depending on when the write
                 // is performed), the timer is reset.
-                self.pending_frame_reset_delay = if self.phase.is_odd() { 2 } else { 3 };
+                self.pending_frame_reset_delay = if self.cpu_phase.is_odd() { 3 } else { 4 };
 
                 // If IRQs are disabled, the frame interrupt flag is cleared
                 if self.frame_irq_disable {
@@ -345,10 +349,19 @@ impl APU {
             self.pending_half_clock = false;
         }
 
+        let mut just_reset = false;
         if self.pending_frame_reset_delay != 0 {
             self.pending_frame_reset_delay -= 1;
             if self.pending_frame_reset_delay == 0 {
                 self.clock_counter = 0;
+                just_reset = true;
+
+                // Re-phase sequencer according to CPU phase
+                self.seq_phase = if self.cpu_phase.is_even() {
+                    ApuPhase::Odd
+                } else {
+                    ApuPhase::Even
+                };
 
                 // If entering 5-step mode, reset event clocks quarter and half at the beginning
                 if self.master_sequence_mode == SequenceMode::Mode1 {
@@ -358,7 +371,8 @@ impl APU {
             }
         }
 
-        if self.phase.is_even() {
+        let seq_tick = self.seq_phase.is_even();
+        if !just_reset && seq_tick {
             self.clock_counter += 1;
             match self.master_sequence_mode {
                 SequenceMode::Mode0 => {
@@ -414,12 +428,14 @@ impl APU {
             }
         }
 
-        let apu_tick = self.phase.is_even();
+        let apu_tick = self.cpu_phase.is_even();
         self.pulse1.clock(&frame_clock, apu_tick);
         self.pulse2.clock(&frame_clock, apu_tick);
         self.noise.clock(&frame_clock, apu_tick);
         self.triangle.clock(&frame_clock, true);
-        self.phase.toggle();
+
+        self.cpu_phase.toggle();
+        self.seq_phase.toggle();
     }
 
     pub fn sample(&mut self) -> f32 {
