@@ -1,6 +1,7 @@
 use crate::app::action::Action;
 use crate::app::app::UiCtx;
 use crate::app::ui::views::UiView;
+use crate::emu::commands::AudioChannel;
 use crate::emu::host::EmuHost;
 use nes_core::prelude::JoypadButton;
 
@@ -40,7 +41,36 @@ pub fn handle_hotkeys(egui_ctx: &egui::Context, ui_ctx: &mut UiCtx, view: &UiVie
 
     let input = egui_ctx.input(|i| i.clone());
 
-    if matches!(view, UiView::Playing(..)) && input.key_pressed(egui::Key::P) {
-        ui_ctx.actions.push(Action::TogglePause);
+    // Play screen hotkeys
+    if matches!(view, UiView::Playing(..)) {
+        if input.key_pressed(egui::Key::P) {
+            ui_ctx.actions.push(Action::TogglePause);
+        }
+
+        if input.key_pressed(egui::Key::Num1) {
+            ui_ctx
+                .actions
+                .push(Action::ToggleAudioChannel(AudioChannel::Pulse1));
+        }
+        if input.key_pressed(egui::Key::Num2) {
+            ui_ctx
+                .actions
+                .push(Action::ToggleAudioChannel(AudioChannel::Pulse2));
+        }
+        if input.key_pressed(egui::Key::Num3) {
+            ui_ctx
+                .actions
+                .push(Action::ToggleAudioChannel(AudioChannel::Triangle));
+        }
+        if input.key_pressed(egui::Key::Num4) {
+            ui_ctx
+                .actions
+                .push(Action::ToggleAudioChannel(AudioChannel::Noise));
+        }
+        if input.key_pressed(egui::Key::Num5) {
+            ui_ctx
+                .actions
+                .push(Action::ToggleAudioChannel(AudioChannel::DMC));
+        }
     }
 }

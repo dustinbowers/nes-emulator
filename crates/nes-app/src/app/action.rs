@@ -2,7 +2,7 @@ use crate::app::app::App;
 use crate::app::event::AppEventSource;
 use crate::app::ui::views::UiView;
 use crate::app::ui::views::rom_select_view::RomSelectView;
-use crate::emu::commands::EmuCommand;
+use crate::emu::commands::{AudioChannel, EmuCommand};
 
 pub enum Action {
     Start,
@@ -11,6 +11,8 @@ pub enum Action {
     AcknowledgeError,
     TogglePause,
     SetPaused(bool),
+
+    ToggleAudioChannel(AudioChannel),
 }
 
 impl<E: AppEventSource> App<E> {
@@ -45,6 +47,10 @@ impl<E: AppEventSource> App<E> {
                 self.log("[Apply Action::Pause]");
                 self.paused = p;
                 self.send_command(EmuCommand::Pause(self.paused));
+            }
+
+            Action::ToggleAudioChannel(channel) => {
+                self.send_command(EmuCommand::ToggleAudioChannel(channel));
             }
         }
     }

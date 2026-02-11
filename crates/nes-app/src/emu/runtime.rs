@@ -1,4 +1,4 @@
-use crate::emu::commands::EmuCommand;
+use crate::emu::commands::{AudioChannel, EmuCommand};
 use crate::emu::emu_input::InputState;
 use crate::emu::event::EmuEvent;
 use crate::shared::frame_buffer::SharedFrameHandle;
@@ -29,6 +29,7 @@ impl EmuRuntime {
         }
     }
 
+    /// Handle EmuCommands received from the App UI thread
     pub fn process_commands(&mut self) {
         while let Ok(command) = self.command_rx.try_recv() {
             match command {
@@ -46,6 +47,13 @@ impl EmuRuntime {
                 EmuCommand::Pause(p) => {
                     self.paused = p;
                 }
+                EmuCommand::ToggleAudioChannel(audio_channel) => match audio_channel {
+                    AudioChannel::Pulse1 => self.nes.bus.apu.mute_pulse1 ^= true,
+                    AudioChannel::Pulse2 => self.nes.bus.apu.mute_pulse2 ^= true,
+                    AudioChannel::Triangle => self.nes.bus.apu.mute_triangle ^= true,
+                    AudioChannel::Noise => self.nes.bus.apu.mute_noise ^= true,
+                    AudioChannel::DMC => self.nes.bus.apu.mute_dmc ^= true,
+                },
             }
         }
     }

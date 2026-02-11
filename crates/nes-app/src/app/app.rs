@@ -95,6 +95,7 @@ impl<E: AppEventSource> App<E> {
         self
     }
 
+    /// Handle events from the Emulator Runtime
     fn handle_emu_events(&mut self) {
         let Some(emu) = self.emu_host.as_ref() else {
             return;
@@ -108,6 +109,7 @@ impl<E: AppEventSource> App<E> {
         }
     }
 
+    /// Send commands to the Emulator Runtime
     pub(crate) fn send_command(&self, cmd: EmuCommand) {
         if let Some(emu) = &self.emu_host {
             emu.send(cmd);
@@ -145,6 +147,7 @@ impl<E: AppEventSource> App<E> {
 impl<E: AppEventSource> eframe::App for App<E> {
     /// Serves as the main UI loop
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Handle External events received from the browser (for WASM builds)
         if let Err(e) = self.handle_external_events() {
             self.set_error(e);
             return;
@@ -159,7 +162,6 @@ impl<E: AppEventSource> eframe::App for App<E> {
         }
 
         let mut actions = Vec::<Action>::new();
-
         {
             // Build context
             let mut ui_ctx = UiCtx {
