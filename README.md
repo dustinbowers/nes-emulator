@@ -14,7 +14,7 @@ https://dustinbowers.com/demos/nes-emulator
 
 - 6502 CPU emulation with memory-cycle-accurate timing
 - Dot-based microcoded PPU implementation
-- Limited APU support
+- Limited APU support (DMC coming soon!)
 - Small collection of supported mappers (currently NROM, MMC1, MMC3, UxROM, CNROM)
 - Native desktop application
 - WebAssembly browser version
@@ -87,10 +87,11 @@ make wasm-serve
 ## ROM Compatibility
 
 Supports iNES 1.0 format ROMs with the following mappers:
-- Mapper 0 (NROM)
-- Mapper 1 (MMC1)
-- Mapper 2 (UxROM)
-- Mapper 3 (CNROM)
+- Mapper 000 (NROM)
+- Mapper 001 (MMC1)
+- Mapper 002 (UxROM)
+- Mapper 003 (CNROM)
+- Mapper 004 (MMC3)
 
 ## Automated ROM Testing
 
