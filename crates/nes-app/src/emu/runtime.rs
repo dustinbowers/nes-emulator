@@ -145,6 +145,11 @@ impl EmuRuntime {
             }
         }
 
+        // Apply high- and low-pass filter chain
+        for s in &mut self.scratch_buf[..frames] {
+            *s = self.nes.bus.apu.filter_raw_sample(*s).clamp(-1.0, 1.0);
+        }
+
         // fill output channels
         for (i, frame) in data.chunks_mut(channels).enumerate() {
             let s = T::from_sample(self.scratch_buf[i]);

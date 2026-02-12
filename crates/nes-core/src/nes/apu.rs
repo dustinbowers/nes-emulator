@@ -566,15 +566,6 @@ impl APU {
             sample = pulse_out + tnd_out;
         }
 
-        // sample = self
-        //     .high_pass_90
-        //     .high_pass(sample, 90.0, self.sample_rate as f32);
-        // sample = self
-        //     .high_pass_440
-        //     .high_pass(sample, 440.0, self.sample_rate as f32);
-        // sample = self
-        //     .low_pass_14k
-        //     .low_pass(sample, 14_000.0, self.sample_rate as f32);
         sample
     }
 
@@ -583,19 +574,19 @@ impl APU {
     //     self.current_sample_raw
     // }
 
-    // pub fn filter_raw_sample(&mut self, raw_sample: f32) -> f32 {
-    //     let mut sample = raw_sample;
-    //     sample = self
-    //         .high_pass_90
-    //         .high_pass(sample, 90.0, self.sample_rate as f32);
-    //     sample = self
-    //         .high_pass_440
-    //         .high_pass(sample, 440.0, self.sample_rate as f32);
-    //     sample = self
-    //         .low_pass_14k
-    //         .low_pass(sample, 14_000.0, self.sample_rate as f32);
-    //     sample
-    // }
+    pub fn filter_raw_sample(&mut self, raw_sample: f32) -> f32 {
+        let mut sample = raw_sample;
+        sample = self
+            .high_pass_90
+            .high_pass(sample, 90.0, self.sample_rate as f32);
+        sample = self
+            .high_pass_440
+            .high_pass(sample, 440.0, self.sample_rate as f32);
+        sample = self
+            .low_pass_14k
+            .low_pass(sample, 14_000.0, self.sample_rate as f32);
+        sample
+    }
 
     #[inline(always)]
     pub fn irq_line(&self) -> bool {

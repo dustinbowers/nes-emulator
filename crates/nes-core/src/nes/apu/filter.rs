@@ -1,6 +1,5 @@
 use std::f32::consts::PI;
 
-#[deprecated]
 #[derive(Clone, Copy)]
 pub struct OnePole {
     prev_in: f32,
