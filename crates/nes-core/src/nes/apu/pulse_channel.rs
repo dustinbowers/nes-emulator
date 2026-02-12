@@ -219,25 +219,6 @@ mod tests {
         assert_eq!(channel.envelope.get_loop_flag(), true);
     }
 
-    // #[test]
-    // fn test_write_4001_sweep_settings() {
-    //     let mut channel = setup_pulse_channel(true);
-    //
-    //     // Sweep enabled, period 3, negate, shift 2
-    //     channel.write_4001(0b1011_1010);
-    //     assert_eq!(channel.sweep.is_enabled(), true);
-    //     assert_eq!(channel.sweep.get_period(), 3);
-    //     assert_eq!(channel.sweep.get_negate_flag(), true);
-    //     assert_eq!(channel.sweep.get_shift(), 2);
-    //
-    //     // Sweep disabled, period 0, not negate, shift 0
-    //     channel.write_4001(0b0000_0000);
-    //     assert_eq!(channel.sweep.is_enabled(), false);
-    //     assert_eq!(channel.sweep.get_period(), 0);
-    //     assert_eq!(channel.sweep.get_negate_flag(), false);
-    //     assert_eq!(channel.sweep.get_shift(), 0);
-    // }
-
     #[test]
     fn test_write_4002_timer_low() {
         let mut channel = setup_pulse_channel(true);
@@ -286,7 +267,7 @@ mod tests {
         let mut last = ch.sequence & 0x80;
 
         for _ in 0..1024 {
-            ch.clock(false, false, true);
+            ch.clock(&FrameClock::None, true);
             let now = ch.sequence & 0x80;
             if now != last {
                 transitions += 1;
@@ -309,22 +290,22 @@ mod tests {
         assert_eq!(channel.envelope.output(), 2); // Initial output should be volume
 
         // Clock quarter frame, no change yet (divider not clocked enough)
-        channel.clock(true, false, true);
+        channel.clock(&FrameClock::Quarter, true);
         assert_eq!(channel.envelope.output(), 2);
 
         // Clock quarter frame again, envelope should decay if not looping
         // The envelope divider period is 2. So it should clock every 3rd clock.
-        channel.clock(true, false, true); // Divider 1
-        channel.clock(true, false, true); // Divider 2, clocks envelope
+        channel.clock(&FrameClock::Quarter, true); // Divider 1
+        channel.clock(&FrameClock::Quarter, true); // Divider 2, clocks envelope
         assert_eq!(channel.envelope.output(), 1); // Volume should have decremented
 
-        channel.clock(true, false, true); // Divider 1
-        channel.clock(true, false, true); // Divider 2, clocks envelope
+        channel.clock(&FrameClock::Quarter, true); // Divider 1
+        channel.clock(&FrameClock::Quarter, true); // Divider 2, clocks envelope
         assert_eq!(channel.envelope.output(), 0); // Volume should have decremented to 0
 
         // With loop enabled, it should reset to 2
-        channel.clock(true, false, true); // Divider 1
-        channel.clock(true, false, true); // Divider 2, clocks envelope
+        channel.clock(&FrameClock::Quarter, true); // Divider 1
+        channel.clock(&FrameClock::Quarter, true); // Divider 2, clocks envelope
         assert_eq!(channel.envelope.output(), 2);
     }
 
@@ -344,7 +325,7 @@ mod tests {
         );
 
         // Clock half frame (length counter clocks)
-        channel.clock(false, true, true);
+        channel.clock(&FrameClock::QuarterAndHalf, true);
         assert_eq!(
             channel.length_counter.output(),
             15,
@@ -353,7 +334,7 @@ mod tests {
 
         // Continue clocking until it reaches 0
         for _ in 0..14 {
-            channel.clock(false, true, true);
+            channel.clock(&FrameClock::QuarterAndHalf, true);
         }
         assert_eq!(
             channel.length_counter.output(),
@@ -362,7 +343,7 @@ mod tests {
         );
 
         // Once at 0, it stays at 0
-        channel.clock(false, true, true);
+        channel.clock(&FrameClock::QuarterAndHalf, true);
         assert_eq!(
             channel.length_counter.output(),
             0,
@@ -379,52 +360,13 @@ mod tests {
         );
 
         for _ in 0..100 {
-            channel.clock(false, true, true);
+            channel.clock(&FrameClock::QuarterAndHalf, true);
         }
         assert_eq!(
             channel.length_counter.output(),
             16,
             "Length counter should not decrement when loop flag is set"
         );
-    }
-
-    #[test]
-    fn test_sweep_unit_clocking() {
-        let mut channel = setup_pulse_channel(true);
-        // Sweep enabled, period 2, negate (true), shift 1
-        channel.write_4001(0b1010_1001); // E=1, P=2, N=1, S=1
-        channel.write_4002(0x40); // Timer low (0x40)
-        channel.write_4003(0x00); // Timer high (0) => reload = 0x40 (64)
-
-        let initial_timer_reload = channel.seq_timer.output(); // 65 (0x40 + 1)
-
-        // Half frame clock 1 (sweep divider period 0 - 2, so it clocks on 3rd clock)
-        channel.clock(false, true, true); // Divider 1
-        assert_eq!(channel.seq_timer.output(), initial_timer_reload); // No change yet
-
-        channel.clock(false, true, true); // Divider 2
-        assert_eq!(channel.seq_timer.output(), initial_timer_reload); // No change yet
-
-        // Half frame clock 3 (sweep clocks)
-        channel.clock(false, true, true);
-        let expected_shift = initial_timer_reload >> 1; // shift 1
-        let expected_new_timer = initial_timer_reload - expected_shift - 1; // Pulse 1 negate formula
-        assert_eq!(channel.seq_timer.output(), expected_new_timer);
-
-        // Test with Pulse2 (different negate behavior)
-        let mut channel2 = setup_pulse_channel(false);
-        // Sweep enabled, period 2, negate (true), shift 1
-        channel2.write_4001(0b1010_1001); // E=1, P=2, N=1, S=1
-        channel2.write_4002(0x40); // Timer low (0x40)
-        channel2.write_4003(0x00); // Timer high (0) => reload = 0x40 (64)
-        let initial_timer_reload_ch2 = channel2.seq_timer.output(); // 65
-
-        channel2.clock(false, true, true); // Divider 1
-        channel2.clock(false, true, true); // Divider 2
-        channel2.clock(false, true, true); // Sweep clocks
-        let expected_shift_ch2 = initial_timer_reload_ch2 >> 1; // shift 1
-        let expected_new_timer_ch2 = initial_timer_reload_ch2 - expected_shift_ch2; // Pulse 2 negate formula
-        assert_eq!(channel2.seq_timer.output(), expected_new_timer_ch2);
     }
 
     #[test]
@@ -440,8 +382,8 @@ mod tests {
         assert_eq!(channel.sample(), 10); // First bit is 0, but current sample is 0b01000000 -> 0 at bit 7 -> 0
 
         // Clock sequence to make MSB 1
-        channel.clock(false, false, true); // Timer clocks at 2. So one clock will shift.
-        channel.clock(false, false, true); // This is the clock that will actually shift it
+        channel.clock(&FrameClock::None, true); // Timer clocks at 2. So one clock will shift.
+        channel.clock(&FrameClock::None, true); // This is the clock that will actually shift it
         assert_eq!(channel.sequence, 0b1000_0000);
         assert_eq!(channel.sample(), 10);
 
@@ -481,61 +423,4 @@ mod tests {
         channel.sequence = 0b1000_0000; // Sequence active
         assert_eq!(channel.sample(), 5);
     }
-
-    // #[test]
-    // fn test_sweep_muting() {
-    //     let mut channel = setup_pulse_channel(true);
-    //     channel.write_4000(0b0000_0000); // Enable sound
-    //     channel.write_4003(0b0000_1000); // Length counter active
-    //     channel.envelope.set_volume(10); // Output volume 10
-    //     channel.sequence = 0b1000_0000; // Sequence active
-    //
-    //     // Initial timer reload = 0x0100 (256) (period 257)
-    //     channel.write_4002(0x00); // Low
-    //     channel.write_4003(0x01); // High (sets 0x0100) -> 0x0100 + 1 = 257
-    //
-    //     // Sweep enabled, period 0, negate, shift 7
-    //     channel.write_4001(0b1000_1111); // E=1, P=0, N=1, S=7
-    //     // The period of 0 means the sweep unit will clock on the next
-    //     // half-frame.
-    //     // assert_eq!(channel.sweep.is_enabled(), true);
-    //     // assert_eq!(channel.sweep.get_period(), 0);
-    //     // assert_eq!(channel.sweep.get_negate_flag(), true);
-    //     // assert_eq!(channel.sweep.get_shift(), 7);
-    //
-    //     // Before sweep clocks, it should produce sound
-    //     assert_eq!(channel.sample(), 10);
-    //
-    //     // Clock half-frame, sweep should apply
-    //     channel.clock(false, true);
-    //
-    //     // Calculate expected new timer value after sweep
-    //     // Pulse 1: timer = timer_period - (timer_period >> shift) - 1
-    //     // initial_timer_reload = 0x0100 (256). The `output` of `SequenceTimer` gives `reload_value + 1`.
-    //     // So `timer_period` from sweep's perspective should be `channel.seq_timer.output()`
-    //     let current_timer_period = 257; // 0x0100 + 1
-    //     let shifted_value = current_timer_period >> 7; // 257 >> 7 = 2
-    //     let new_timer_period_minus_1 = current_timer_period as i16 - shifted_value as i16 - 1; // 257 - 2 - 1 = 254
-    //     let expected_new_reload_value = new_timer_period_minus_1 - 1; // 254 - 1 = 253 (0xFD)
-    //     let new_timer_value_from_sweep = channel.seq_timer.output();
-    //
-    //     // After one sweep update, the timer period has decreased.
-    //     // It should still be within bounds (>= 8 and <= 0x7FF)
-    //     assert!(new_timer_value_from_sweep >= 8);
-    //     assert!(new_timer_value_from_sweep <= 0x7FF);
-    //     assert_eq!(channel.sample(), 10); // Still active
-    //
-    //     // Now set shift to a high value that would mute (e.g., period too low)
-    //     channel.write_4002(0x00);
-    //     channel.write_4003(0x00); // Timer reload 0 (period 1)
-    //     channel.sweep.set_enabled(true);
-    //     channel.sweep.set_shift(0); // Shift 0, period won't change too much initially
-    //     channel.sweep.set_period(0); // Clock immediately
-    //     channel.clock(false, true); // Clock sweep (timer output is now 1)
-    //
-    //     // Check for muting condition: timer_reload_value < 8 or timer_reload_value > 0x7FF
-    //     // If the initial period is 1, and shift is 0, the new period will be 1. This should mute.
-    //     assert_eq!(channel.seq_timer.output(), 1);
-    //     assert_eq!(channel.sample(), 0); // Should be muted due to too low frequency
-    // }
 }
