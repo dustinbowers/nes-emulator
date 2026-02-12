@@ -79,7 +79,7 @@ impl EmuRuntime {
             }
             ran += 1;
         }
-        self.nes.bus.apu.end_frame(ran);
+        self.nes.bus.apu.end_frame();
     }
 
     pub fn tick_audio<T>(

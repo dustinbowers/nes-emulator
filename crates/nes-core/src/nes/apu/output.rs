@@ -50,8 +50,9 @@ impl ApuOutput {
         self.t_cpu += 1;
     }
 
-    pub fn end_frame(&mut self, cpu_cycles: u32) {
-        self.blip.end_frame(cpu_cycles);
+    pub fn end_frame(&mut self) {
+        let clocks = self.t_cpu;
+        self.blip.end_frame(clocks);
         self.t_cpu = 0;
     }
 

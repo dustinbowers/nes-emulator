@@ -611,8 +611,8 @@ impl APU {
         frame_interrupt || dmc_interrupt
     }
 
-    pub fn end_frame(&mut self, cpu_cycles: u32) {
-        self.output.end_frame(cpu_cycles);
+    pub fn end_frame(&mut self) {
+        self.output.end_frame();
     }
 
     pub fn samples_available(&self) -> usize {

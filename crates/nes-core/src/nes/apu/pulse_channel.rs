@@ -4,6 +4,14 @@ use super::units::sequence_timer::SequenceTimer;
 use super::units::sweep::{PulseType, Sweep};
 use crate::nes::apu::FrameClock;
 
+// See: https://www.nesdev.org/wiki/APU_Pulse#Pulse_channel_output_to_mixer
+const DUTY_TABLE: [[u8; 8]; 4] = [
+    [0, 1, 0, 0, 0, 0, 0, 0],
+    [0, 1, 1, 0, 0, 0, 0, 0],
+    [0, 1, 1, 1, 1, 0, 0, 0],
+    [1, 0, 0, 1, 1, 1, 1, 1],
+];
+
 pub struct PulseChannel {
     seq_timer: SequenceTimer,
     length_counter: LengthCounter,
@@ -11,7 +19,7 @@ pub struct PulseChannel {
     sweep: Sweep,
 
     duty_cycle: u8,
-    sequence: u8,
+    duty_step: u8,
 }
 
 impl PulseChannel {
@@ -26,7 +34,7 @@ impl PulseChannel {
             sweep: Sweep::new(pulse_type),
             envelope: Envelope::new(),
             duty_cycle: 0,
-            sequence: 0,
+            duty_step: 0,
             length_counter: LengthCounter::new(),
         }
     }
@@ -44,7 +52,6 @@ impl PulseChannel {
     */
     pub fn write_4000(&mut self, value: u8) {
         self.duty_cycle = (value & 0b1100_0000) >> 6;
-        self.update_sequence();
 
         let length_counter_halt = value & 0b0010_0000 != 0;
         self.length_counter.set_halt(length_counter_halt);
@@ -87,7 +94,7 @@ impl PulseChannel {
         self.seq_timer.reset();
 
         // reset duty sequencer phase
-        self.update_sequence();
+        self.duty_step = 0;
     }
 }
 
@@ -100,22 +107,12 @@ impl PulseChannel {
         self.length_counter.output() > 0
     }
 
-    fn update_sequence(&mut self) {
-        self.sequence = match self.duty_cycle {
-            0 => 0b0000_0001,
-            1 => 0b0000_0011,
-            2 => 0b0000_1111,
-            3 => 0b1111_1100,
-            _ => unreachable!(),
-        };
-    }
-
     /// Clocked every APU cycle (1/2 CPU)
     pub fn clock(&mut self, frame_clock: &FrameClock, timer_tick: bool) {
         // Check if timer clocks waveform
         if timer_tick && self.seq_timer.clock() {
             // Advance duty cycle
-            self.sequence = (self.sequence >> 1) | ((self.sequence & 1) << 7);
+            self.duty_step = (self.duty_step + 1) & 7;
         }
 
         // Clock envelope
@@ -133,7 +130,11 @@ impl PulseChannel {
     }
 
     pub fn sample(&self) -> u8 {
-        let seq_active = (self.sequence & 0b1000_0000) != 0;
+        // let seq_active = (self.duty_step & 0b1000_0000) != 0;
+        let duty_cycle = self.duty_cycle as usize;
+        let duty_step = self.duty_step as usize;
+        let seq_active = DUTY_TABLE[duty_cycle][duty_step] != 0;
+
         let vol = self.envelope.output();
         let len = self.length_counter.output();
         let reload = self.seq_timer.get_reload();
@@ -183,7 +184,7 @@ mod tests {
     fn test_initial_state() {
         let mut ch1 = PulseChannel::new(true);
         assert_eq!(ch1.duty_cycle, 0);
-        assert_eq!(ch1.sequence, 0);
+        assert_eq!(ch1.duty_step, 0);
         assert_eq!(ch1.seq_timer.output(), 0);
         assert_eq!(ch1.length_counter.output(), 0);
         assert_eq!(ch1.envelope.output(), 0); // Envelope should be off initially
@@ -191,36 +192,11 @@ mod tests {
 
         let mut ch2 = PulseChannel::new(false);
         assert_eq!(ch2.duty_cycle, 0);
-        assert_eq!(ch2.sequence, 0);
+        assert_eq!(ch2.duty_step, 0);
         assert_eq!(ch2.seq_timer.output(), 0);
         assert_eq!(ch2.length_counter.output(), 0);
         assert_eq!(ch2.envelope.output(), 0); // Envelope should be off initially
         assert_eq!(ch2.sample(), 0);
-    }
-
-    #[test]
-    fn test_write_4000_duty_cycle_and_sequence() {
-        let mut ch = make_constant_pulse(true, 2);
-
-        // Duty cycle 0
-        ch.write_4000(0b0000_0000);
-        assert_eq!(ch.duty_cycle, 0);
-        assert_eq!(ch.sequence, 0b0000_0001);
-
-        // Duty cycle 1
-        ch.write_4000(0b0100_0000);
-        assert_eq!(ch.duty_cycle, 1);
-        assert_eq!(ch.sequence, 0b0000_0011);
-
-        // Duty cycle 2
-        ch.write_4000(0b1000_0000);
-        assert_eq!(ch.duty_cycle, 2);
-        assert_eq!(ch.sequence, 0b0000_1111);
-
-        // Duty cycle 3
-        ch.write_4000(0b1100_0000);
-        assert_eq!(ch.duty_cycle, 3);
-        assert_eq!(ch.sequence, 0b1111_1100);
     }
 
     #[test]
@@ -238,6 +214,60 @@ mod tests {
         assert_eq!(ch.envelope.get_volume_mode(), VolumeMode::Envelope);
         assert_eq!(ch.envelope.get_divider_period(), 5);
         assert_eq!(ch.envelope.get_loop_flag(), true);
+    }
+
+    #[test]
+    fn write_4000_sets_duty_and_resets_phase() {
+        let mut ch = PulseChannel::new(true);
+        ch.set_enabled(true);
+
+        ch.write_4000(0b1000_0000 | 0b0001_1111); // duty=2 constant vol
+        assert_eq!(ch.duty_cycle, 2);
+        assert_eq!(ch.duty_step, 0);
+    }
+
+    #[test]
+    fn duty_step_advances_mod_8_on_timer_events() {
+        let mut ch = PulseChannel::new(true);
+        ch.set_enabled(true);
+
+        ch.write_4000(0b0100_0000 | 0b0001_1111); // duty=1, constant vol
+        ch.write_4002(8);
+        ch.write_4003(0b0001_1000);
+
+        let start = ch.duty_step;
+
+        // force exactly one sequencer event
+        let reload = ch.seq_timer.get_reload();
+        for _ in 0..(reload + 1) {
+            ch.clock(&FrameClock::None, true);
+        }
+
+        assert_eq!(ch.duty_step, (start + 1) & 7);
+    }
+
+    #[test]
+    fn sample_matches_duty_table_over_8_steps() {
+        let mut ch = PulseChannel::new(true);
+        ch.set_enabled(true);
+
+        // constant volume=15 so sample>0 means duty output=1
+        ch.write_4000((2 << 6) | 0b0001_1111); // duty=2
+        ch.write_4002(8);
+        ch.write_4003(0b0001_1000);
+
+        let mut bits = Vec::new();
+        for _ in 0..8 {
+            bits.push((ch.sample() > 0) as u8);
+
+            // advance exactly one duty step
+            let reload = ch.seq_timer.get_reload();
+            for _ in 0..(reload + 1) {
+                ch.clock(&FrameClock::None, true);
+            }
+        }
+
+        assert_eq!(bits, DUTY_TABLE[2]);
     }
 
     #[test]
@@ -269,23 +299,46 @@ mod tests {
     }
 
     #[test]
+    fn write_4003_resets_phase_to_zero() {
+        let mut ch = PulseChannel::new(true);
+        ch.set_enabled(true);
+
+        ch.write_4000((3 << 6) | 0b0001_1111);
+        ch.write_4002(8);
+        ch.write_4003(0b0001_1000);
+
+        // advance a couple steps
+        for _ in 0..2 {
+            let reload = ch.seq_timer.get_reload();
+            for _ in 0..(reload + 1) {
+                ch.clock(&FrameClock::None, true);
+            }
+        }
+        assert_ne!(ch.duty_step, 0);
+
+        // retrigger
+        ch.write_4003(0b0001_1000);
+        assert_eq!(ch.duty_step, 0);
+    }
+
+    #[test]
     fn sequencer_advances_every_reload_plus_one_timer_clocks() {
         let mut ch = make_constant_pulse(true, 2);
         ch.set_enabled(true);
         ch.write_4000(0b0001_1111); // constant volume
         ch.write_4002(0x00);
         ch.write_4003(0x01); // reload = 256
-        ch.sequence = 0b1000_0000;
+        ch.duty_step = 0b1000_0000;
 
         // Shouldn't advance for the next 256 clocks
         for _ in 0..256 {
             ch.clock(&FrameClock::None, true);
-            assert_eq!(ch.sequence, 0b1000_0000);
+            assert_eq!(ch.duty_step, 0b1000_0000);
         }
 
         // Next clock advances once
         ch.clock(&FrameClock::None, true);
-        assert_ne!(ch.sequence, 0b1000_0000);
+        assert_ne!(ch.duty_step, 0b1000_0000);
     }
 
     #[test]
