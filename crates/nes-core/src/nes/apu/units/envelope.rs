@@ -1,3 +1,20 @@
+const ENV_LOOP: u8 = 0b0010_0000;
+const ENV_CONST: u8 = 0b0001_0000;
+const ENV_VOLUME: u8 = 0b0000_1111;
+
+#[inline]
+fn env_volume(v: u8) -> u8 {
+    v & ENV_VOLUME
+}
+#[inline]
+fn env_loop(v: u8) -> bool {
+    (v & ENV_LOOP) != 0
+}
+#[inline]
+fn env_const(v: u8) -> bool {
+    (v & ENV_CONST) != 0
+}
+
 pub struct Envelope {
     start: bool,
     divider: u8,
@@ -34,26 +51,37 @@ impl Envelope {
         self.divider = self.period;
     }
 
+    /// Called with value in this shape: --LC_VVVV
     pub fn set(&mut self, value: u8) {
-        self.period = value & 0b0000_1111; // lower 4 bits
-        self.constant_volume = self.period;
-        self.loop_flag = (value & 0b0010_0000) != 0; // bit 5
-        self.volume_mode = if (value & 0b0001_0000) == 0 {
-            // bit 4
-            VolumeMode::Envelope
-        } else {
+        let v = env_volume(value);
+        self.period = v;
+        self.constant_volume = v;
+
+        self.volume_mode = if env_const(value) {
             VolumeMode::Constant
+        } else {
+            VolumeMode::Envelope
         };
-        self.period = value & 0b0000_1111;
+
+        self.loop_flag = env_loop(value);
     }
 
     /// Called by the quarter-frame clock
     pub fn clock(&mut self) {
-        if self.divider == 0 {
+        // If start is set, just reload and wait for next clock to advance
+        if self.start {
+            self.start = false;
+            self.decay = 15;
             self.divider = self.period;
+            return;
+        }
+
+        if self.divider == 0 {
+            self.divider = self.period; // reload divider
             if self.decay > 0 {
                 self.decay -= 1;
             } else if self.loop_flag {
+                // if decay == 0 && loop enabled
                 self.decay = 15;
             }
         } else {
@@ -61,11 +89,20 @@ impl Envelope {
         }
     }
 
+    pub fn set_start_flag(&mut self, start: bool) {
+        self.start = start;
+    }
+
+    pub fn set_volume(&mut self, volume: u8) {
+        let v = env_volume(volume);
+        self.period = v;
+        self.constant_volume = v;
+    }
+
     pub fn output(&self) -> u8 {
-        if self.volume_mode == VolumeMode::Constant {
-            self.constant_volume
-        } else {
-            self.decay
+        match self.volume_mode {
+            VolumeMode::Envelope => self.decay,
+            VolumeMode::Constant => self.constant_volume,
         }
     }
 
@@ -78,18 +115,9 @@ impl Envelope {
     pub fn get_loop_flag(&self) -> bool {
         self.loop_flag
     }
-    pub fn set_start_flag(&mut self, start: bool) {
-        self.start = start;
-        if start {
-            self.decay = 15;
-            self.divider = self.period;
-        }
-    }
+
     pub fn get_start_flag(&self) -> bool {
         self.start
-    }
-    pub fn set_volume(&mut self, volume: u8) {
-        self.period = volume;
     }
 }
 
@@ -97,188 +125,117 @@ impl Envelope {
 mod tests {
     use super::*;
 
-    /// Helper to clock envelope multiple times and collect outputs
-    fn clock_envelope(env: &mut Envelope, clocks: usize) -> Vec<u8> {
-        let mut outputs = Vec::with_capacity(clocks);
-        for _ in 0..clocks {
-            outputs.push(env.output());
+    fn step(env: &mut Envelope, n: usize) -> Vec<u8> {
+        let mut out = Vec::with_capacity(n);
+        for _ in 0..n {
+            out.push(env.output());
             env.clock();
         }
-        outputs
+        out
     }
 
     #[test]
-    fn test_envelope_start() {
-        let mut env = Envelope::new();
-        env.set(0b0001_1111); // period = 15, disable = true
-        env.start();
-
-        // When started, decay resets to 15 and divider to period
-        assert_eq!(env.decay, 15);
-        assert_eq!(env.divider, env.period);
-        assert!(!env.start);
-    }
-
-    #[test]
-    fn test_envelope_clock_countdown() {
+    fn start_is_consumed_on_next_clock_and_resets_decay_and_divider() {
         let mut env = Envelope::new();
         env.set(0b0000_0100); // period = 4
-        env.start();
+        env.decay = 7;
+        env.divider = 1;
 
-        // Each decay step takes period + 1 = 5 clocks
-        let outputs = clock_envelope(&mut env, 25);
+        env.set_start_flag(true);
 
-        // Check first few decay steps
-        assert_eq!(outputs[0], 15); // immediately after start
-        assert_eq!(outputs[4], 15); // last clock with decay = 15
-        assert_eq!(outputs[5], 14); // first clock with decay = 14
-        assert_eq!(outputs[9], 14); // last clock with decay = 14
-        assert_eq!(outputs[10], 13); // first clock with decay = 13
+        // before clock, nothing forced yet
+        assert_eq!(env.get_start_flag(), true);
+
+        env.clock();
+
+        assert_eq!(env.get_start_flag(), false);
+        assert_eq!(env.decay, 15);
+        assert_eq!(env.divider, 4);
     }
 
     #[test]
-    fn test_envelope_loop_flag() {
+    fn start_clock_does_not_also_step_decay() {
         let mut env = Envelope::new();
-        env.set(0b0010_0011); // period = 3, loop_flag = true, disable = false
-        env.start();
+        env.set(0b0000_0000); // period = 0 (would step every clock)
+        env.set_start_flag(true);
 
-        // Each decay step takes period + 1 = 4 clocks, 16 decay steps = 64 clocks
-        let outputs = clock_envelope(&mut env, 70);
+        // first clock consumes start and loads decay=15
+        env.clock();
+        assert_eq!(env.decay, 15);
 
-        // Check that after hitting 0, it loops back to 15
-        assert!(outputs.contains(&0));
-        assert!(outputs.contains(&15));
-
-        // Ensure it actually loops multiple times
-        let first_zero_index = outputs.iter().position(|&x| x == 0).unwrap();
-        let next_fifteen_index = outputs
-            .iter()
-            .skip(first_zero_index)
-            .position(|&x| x == 15)
-            .unwrap();
-        assert!(next_fifteen_index > 0);
+        // second clock (period=0) should decrement decay to 14
+        env.clock();
+        assert_eq!(env.decay, 14);
     }
 
     #[test]
-    fn test_envelope_constant_volume() {
+    fn envelope_decrements_every_period_plus_one_clocks() {
         let mut env = Envelope::new();
-        env.set(0b0001_1010); // period = 10, disable = true
-        env.start();
+        env.set(0b0000_0011); // period = 3
+        env.set_start_flag(true);
+        env.clock(); // consume start
 
-        let outputs = clock_envelope(&mut env, 20);
+        // decay=15 and period=3, decrement happens every 4 clocks
+        // 3->2->1->0 (no change), next clock reloads divider and decrements decay
+        let outs = step(&mut env, 10);
 
-        // When disable is true, output is constant_volume, not decay
-        for &o in &outputs {
-            assert_eq!(o, env.constant_volume);
-        }
+        // outs[0] is after start consumed, before any further clocks
+        assert_eq!(outs[0], 15); // 3
+        assert_eq!(outs[1], 15); // 2
+        assert_eq!(outs[2], 15); // 1
+        assert_eq!(outs[3], 15); // 0
+        assert_eq!(outs[4], 14); // first decrement
     }
 
     #[test]
-    fn test_envelope_disable_false_decay() {
+    fn period_zero_decrements_every_clock_after_start_consumed() {
         let mut env = Envelope::new();
-        env.set(0b0000_0101); // period = 5, disable = false
-        env.start();
+        env.set(0b0000_0000);
+        env.set_start_flag(true);
+        env.clock(); // consume start => decay=15
 
-        let outputs = clock_envelope(&mut env, 40);
-
-        // Decay should decrement at the correct times
-        let mut last_decay = outputs[0];
-        for &curr_decay in &outputs[1..] {
-            if curr_decay != last_decay {
-                // Decay should decrease by 1 each (period + 1) clocks
-                assert!(curr_decay < last_decay);
-            }
-            last_decay = curr_decay;
-        }
+        let outs = step(&mut env, 6);
+        assert_eq!(outs, vec![15, 14, 13, 12, 11, 10]);
     }
 
     #[test]
-    fn test_envelope_looping_multiple_times() {
+    fn loop_flag_reloads_decay_from_zero_to_15() {
         let mut env = Envelope::new();
-        env.set(0b0010_0100); // period = 4, loop_flag = true, disable = false
-        env.start();
+        env.set(0b0010_0000 | 0b0000_0001); // loop=1, period=1
+        env.set_start_flag(true);
+        env.clock(); // consume start => 15
 
-        // Clock enough to wrap at least twice
-        let outputs = clock_envelope(&mut env, 150);
+        // period=1 => decrement every 2 clocks
+        // need enough clocks to hit 0 then wrap
+        let outs = step(&mut env, 80);
 
-        // Find first zero
-        let first_zero_index = outputs.iter().position(|&v| v == 0).unwrap();
-        // Find next 15 after first zero
-        let next_fifteen_index = outputs
-            .iter()
-            .enumerate()
-            .skip(first_zero_index)
-            .find(|&(_, &v)| v == 15)
-            .unwrap()
-            .0;
-
+        assert!(outs.contains(&0), "never reached 0");
+        // after reaching 0, it should eventually go back to 15
+        let i0 = outs.iter().position(|&v| v == 0).unwrap();
         assert!(
-            first_zero_index < next_fifteen_index,
-            "Envelope did not loop back to 15 after hitting 0"
+            outs[i0..].contains(&15),
+            "never looped back to 15 after reaching 0"
         );
     }
 
     #[test]
-    fn test_start_flag_consumed_on_clock() {
+    fn constant_volume_output_ignores_decay() {
         let mut env = Envelope::new();
-        env.set(0b0000_0011); // period = 3
+        env.set(0b0001_1010); // constant mode, volume=10
         env.set_start_flag(true);
+        env.clock(); // consume start
 
-        // Before clock
-        assert_eq!(env.decay, 0);
-
-        // First quarter-frame clock
-        env.clock();
-
-        assert_eq!(env.decay, 15);
-        assert_eq!(env.divider, 3);
-        assert!(!env.get_start_flag());
+        let outs = step(&mut env, 20);
+        assert!(outs.iter().all(|&v| v == 10));
     }
 
     #[test]
-    fn test_envelope_period_zero() {
+    fn set_volume_masks_to_4_bits_and_updates_constant_volume() {
         let mut env = Envelope::new();
-        env.set(0b0000_0000); // period = 0
-        env.set_start_flag(true);
-        env.clock();
+        env.set(0b0001_0000); // constant mode
+        env.set_volume(0xFE); // should become 14
 
-        // Divider reloads to 0 every time → decay changes every clock
-        let outputs = clock_envelope(&mut env, 20);
-
-        // Should monotonically decrease every clock
-        for i in 1..outputs.len() {
-            assert!(
-                outputs[i] <= outputs[i - 1],
-                "Decay did not decrement every clock with period=0"
-            );
-        }
-    }
-
-    #[test]
-    fn test_output_sampled_before_clock() {
-        let mut env = Envelope::new();
-        env.set(0b0000_0001); // period = 1
-        env.set_start_flag(true);
-
-        // First output before any clock
-        let o0 = env.output();
-        env.clock();
-        let o1 = env.output();
-
-        assert_eq!(o0, 0);
-        assert_eq!(o1, 15);
-    }
-
-    #[test]
-    fn test_constant_volume_ignores_decay() {
-        let mut env = Envelope::new();
-        env.set(0b0001_1111); // constant volume = 15
-        env.set_start_flag(true);
-        env.clock();
-
-        let outputs = clock_envelope(&mut env, 40);
-
-        assert!(outputs.iter().all(|&o| o == 15));
-        assert!(env.decay < 15); // decay still ran internally
+        assert_eq!(env.output(), 14);
+        assert_eq!(env.get_divider_period(), 14);
     }
 }

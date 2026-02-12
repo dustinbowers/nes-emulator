@@ -4,6 +4,14 @@ use super::units::sequence_timer::SequenceTimer;
 use super::units::sweep::{PulseType, Sweep};
 use crate::nes::apu::FrameClock;
 
+// See: https://www.nesdev.org/wiki/APU_Pulse#Pulse_channel_output_to_mixer
+const DUTY_TABLE: [[u8; 8]; 4] = [
+    [0, 1, 0, 0, 0, 0, 0, 0],
+    [0, 1, 1, 0, 0, 0, 0, 0],
+    [0, 1, 1, 1, 1, 0, 0, 0],
+    [1, 0, 0, 1, 1, 1, 1, 1],
+];
+
 pub struct PulseChannel {
     seq_timer: SequenceTimer,
     length_counter: LengthCounter,
@@ -11,7 +19,7 @@ pub struct PulseChannel {
     sweep: Sweep,
 
     duty_cycle: u8,
-    sequence: u8,
+    duty_step: u8,
 }
 
 impl PulseChannel {
@@ -26,7 +34,7 @@ impl PulseChannel {
             sweep: Sweep::new(pulse_type),
             envelope: Envelope::new(),
             duty_cycle: 0,
-            sequence: 0,
+            duty_step: 0,
             length_counter: LengthCounter::new(),
         }
     }
@@ -44,13 +52,6 @@ impl PulseChannel {
     */
     pub fn write_4000(&mut self, value: u8) {
         self.duty_cycle = (value & 0b1100_0000) >> 6;
-        self.sequence = match self.duty_cycle {
-            0 => 0b0000_0001,
-            1 => 0b0000_0011,
-            2 => 0b0000_1111,
-            3 => 0b1111_1100,
-            _ => 0b0100_0000,
-        };
 
         let length_counter_halt = value & 0b0010_0000 != 0;
         self.length_counter.set_halt(length_counter_halt);
@@ -83,21 +84,17 @@ impl PulseChannel {
                T: Upper timer bits.
     */
     pub fn write_4003(&mut self, value: u8) {
-        if self.length_counter.is_enabled() {
-            let length_counter_load = (value & 0b1111_1000) >> 3;
-            self.length_counter.set(length_counter_load);
-        }
+        let length_counter_load = (value & 0b1111_1000) >> 3;
+        self.length_counter.load_index(length_counter_load);
 
         self.seq_timer.set_reload_high(value & 0b111);
-        // println!(
-        //     "4003 write: length={}, timer_high={}, reload_value={}",
-        //     length_counter_load,
-        //     value & 0x07,
-        //     self.seq_timer.reload_value
-        // );
-        // Restart envelope + sequence
+
+        // restart envelope and sequencer
         self.envelope.set_start_flag(true);
         self.seq_timer.reset();
+
+        // reset duty sequencer phase
+        self.duty_step = 0;
     }
 }
 
@@ -105,10 +102,6 @@ impl PulseChannel {
     pub fn set_enabled(&mut self, enabled: bool) {
         self.length_counter.set_enabled(enabled);
     }
-
-    // pub fn disable(&mut self) {
-    //     self.length_counter.set_enabled(false);
-    // }
 
     pub fn length_active(&self) -> bool {
         self.length_counter.output() > 0
@@ -119,7 +112,7 @@ impl PulseChannel {
         // Check if timer clocks waveform
         if timer_tick && self.seq_timer.clock() {
             // Advance duty cycle
-            self.sequence = (self.sequence >> 1) | ((self.sequence & 1) << 7);
+            self.duty_step = (self.duty_step + 1) & 7;
         }
 
         // Clock envelope
@@ -137,12 +130,17 @@ impl PulseChannel {
     }
 
     pub fn sample(&self) -> u8 {
-        let seq_active = (self.sequence & 0b1000_0000) != 0;
+        // let seq_active = (self.duty_step & 0b1000_0000) != 0;
+        let duty_cycle = self.duty_cycle as usize;
+        let duty_step = self.duty_step as usize;
+        let seq_active = DUTY_TABLE[duty_cycle][duty_step] != 0;
+
         let vol = self.envelope.output();
         let len = self.length_counter.output();
+        let reload = self.seq_timer.get_reload();
 
         // pulse is silenced if the timer period (11-bit reload) is < 8
-        if !seq_active || len == 0 || self.seq_timer.get_reload() < 8 {
+        if !seq_active || len == 0 || reload < 8 || self.sweep.is_muting(reload) {
             0
         } else {
             vol
@@ -155,387 +153,234 @@ mod tests {
     use super::super::units::envelope::VolumeMode;
     use super::*;
 
-    // Helper function to create a new PulseChannel for testing
-    fn setup_pulse_channel(is_channel1: bool) -> PulseChannel {
-        PulseChannel::new(is_channel1)
+    fn make_constant_pulse(ch1: bool, duty: u8) -> PulseChannel {
+        let mut p = PulseChannel::new(ch1);
+        p.set_enabled(true);
+
+        // DDLC_VVVV : constant volume mode (C=1), volume=15, length halt doesn't matter here
+        // Set duty bits
+        let v = (duty << 6) | 0b0001_1111;
+        p.write_4000(v);
+
+        // Timer = 8 (>=8 so not auto-silenced), and load a length
+        p.write_4002(8);
+        p.write_4003(0b0001_1000); // length index=3, timer_hi=0
+        p
+    }
+
+    fn advance_one_step(p: &mut PulseChannel) {
+        let reload = p.seq_timer.get_reload();
+        for _ in 0..(reload + 1) {
+            p.clock(&FrameClock::None, true);
+        }
+    }
+
+    /// Return 1 if channel volume > 0, otherwise 0
+    fn bit(p: &PulseChannel) -> u8 {
+        (p.sample() > 0) as u8
     }
 
     #[test]
     fn test_initial_state() {
-        let channel1 = setup_pulse_channel(true);
-        assert_eq!(channel1.duty_cycle, 0);
-        assert_eq!(channel1.sequence, 0);
-        assert_eq!(channel1.seq_timer.output(), 0);
-        assert_eq!(channel1.length_counter.output(), 0);
-        assert_eq!(channel1.envelope.output(), 0); // Envelope should be off initially
-        // assert_eq!(channel1.sweep.is_enabled(), false);
-        // assert_eq!(channel1.sweep.get_period(), 0);
-        // assert_eq!(channel1.sweep.get_shift(), 0);
-        assert_eq!(channel1.sample(), 0);
+        let mut ch1 = PulseChannel::new(true);
+        assert_eq!(ch1.duty_cycle, 0);
+        assert_eq!(ch1.duty_step, 0);
+        assert_eq!(ch1.seq_timer.output(), 0);
+        assert_eq!(ch1.length_counter.output(), 0);
+        assert_eq!(ch1.envelope.output(), 0); // Envelope should be off initially
+        assert_eq!(ch1.sample(), 0);
 
-        let channel2 = setup_pulse_channel(false);
-        assert_eq!(channel2.duty_cycle, 0);
-    }
-
-    #[test]
-    fn test_write_4000_duty_cycle_and_sequence() {
-        let mut channel = setup_pulse_channel(true);
-
-        // Duty cycle 0 (0b0100_0000)
-        channel.write_4000(0b0000_0000);
-        assert_eq!(channel.duty_cycle, 0);
-        assert_eq!(channel.sequence, 0b0100_0000);
-
-        // Duty cycle 1 (0b0110_0000)
-        channel.write_4000(0b0100_0000);
-        assert_eq!(channel.duty_cycle, 1);
-        assert_eq!(channel.sequence, 0b0110_0000);
-
-        // Duty cycle 2 (0b0111_1000)
-        channel.write_4000(0b1000_0000);
-        assert_eq!(channel.duty_cycle, 2);
-        assert_eq!(channel.sequence, 0b1111_0000);
-
-        // Duty cycle 3 (0b1011_1111)
-        channel.write_4000(0b1100_0000);
-        assert_eq!(channel.duty_cycle, 3);
-        assert_eq!(channel.sequence, 0b1001_1111);
+        let mut ch2 = PulseChannel::new(false);
+        assert_eq!(ch2.duty_cycle, 0);
+        assert_eq!(ch2.duty_step, 0);
+        assert_eq!(ch2.seq_timer.output(), 0);
+        assert_eq!(ch2.length_counter.output(), 0);
+        assert_eq!(ch2.envelope.output(), 0); // Envelope should be off initially
+        assert_eq!(ch2.sample(), 0);
     }
 
     #[test]
     fn test_write_4000_envelope_settings() {
-        let mut channel = setup_pulse_channel(true);
+        let mut ch = make_constant_pulse(true, 2);
 
         // Constant volume, volume 10
-        channel.write_4000(0b0001_1010);
-        assert_eq!(channel.envelope.get_volume_mode(), VolumeMode::Constant);
-        assert_eq!(channel.envelope.get_divider_period(), 10);
-        assert_eq!(channel.envelope.output(), 10); // Volume should be 10 for constant mode
+        ch.write_4000(0b0001_1010);
+        assert_eq!(ch.envelope.get_volume_mode(), VolumeMode::Constant);
+        assert_eq!(ch.envelope.get_divider_period(), 10);
+        assert_eq!(ch.envelope.output(), 10); // Volume should be 10 for constant mode
 
         // Envelope mode, period 5, loop enabled
-        channel.write_4000(0b0010_0101);
-        assert_eq!(channel.envelope.get_volume_mode(), VolumeMode::Envelope);
-        assert_eq!(channel.envelope.get_divider_period(), 5);
-        assert_eq!(channel.envelope.get_loop_flag(), true);
-    }
-
-    // #[test]
-    // fn test_write_4001_sweep_settings() {
-    //     let mut channel = setup_pulse_channel(true);
-    //
-    //     // Sweep enabled, period 3, negate, shift 2
-    //     channel.write_4001(0b1011_1010);
-    //     assert_eq!(channel.sweep.is_enabled(), true);
-    //     assert_eq!(channel.sweep.get_period(), 3);
-    //     assert_eq!(channel.sweep.get_negate_flag(), true);
-    //     assert_eq!(channel.sweep.get_shift(), 2);
-    //
-    //     // Sweep disabled, period 0, not negate, shift 0
-    //     channel.write_4001(0b0000_0000);
-    //     assert_eq!(channel.sweep.is_enabled(), false);
-    //     assert_eq!(channel.sweep.get_period(), 0);
-    //     assert_eq!(channel.sweep.get_negate_flag(), false);
-    //     assert_eq!(channel.sweep.get_shift(), 0);
-    // }
-
-    #[test]
-    fn test_write_4002_timer_low() {
-        let mut channel = setup_pulse_channel(true);
-        channel.write_4002(0x12);
-        assert_eq!(channel.seq_timer.get_reload_low_bits(), 0x12);
+        ch.write_4000(0b0010_0101);
+        assert_eq!(ch.envelope.get_volume_mode(), VolumeMode::Envelope);
+        assert_eq!(ch.envelope.get_divider_period(), 5);
+        assert_eq!(ch.envelope.get_loop_flag(), true);
     }
 
     #[test]
-    fn test_write_4003_length_counter_and_timer_high() {
-        let mut channel = setup_pulse_channel(true);
-        channel.set_enabled(true);
-
-        // Write timer low bits first
-        channel.write_4002(0x0F); // Timer low 0b00001111
-
-        // Write 4003: Length=10 (0b01010), Timer high=5 (0b101)
-        channel.write_4003(0b0101_0101); // 0x55
-
-        // Check the length counter output
-        assert_eq!(channel.length_counter.output(), 60); // Length counter should be set to 10
-
-        // Check the timer high bits
-        assert_eq!(channel.seq_timer.get_reload_high_bits(), 0b101);
-
-        // Check the timer reload value
-        assert_eq!(channel.seq_timer.output(), (0b101 << 8) | 0x0F); // reload_value = (high << 8) | low
-
-        // When 0x4003 is written, the timer is reset,
-        // so the current timer value becomes reload_value.
-        assert_eq!(channel.seq_timer.output(), (0b101 << 8) | 0x0F); // Ensure timer is reset to reload value
-
-        // Also, envelope is started
-        assert_eq!(channel.envelope.get_start_flag(), true);
-    }
-
-    #[test]
-    fn test_pulse_frequency_divide_by_two() {
+    fn write_4000_sets_duty_and_resets_phase() {
         let mut ch = PulseChannel::new(true);
+        ch.set_enabled(true);
 
-        ch.write_4000(0b0000_1111); // constant volume
-        ch.write_4002(0x00);
-        ch.write_4003(0x01); // timer = 256
-        ch.sequence = 0b1000_0000;
+        ch.write_4000(0b1000_0000 | 0b0001_1111); // duty=2 constant vol
+        assert_eq!(ch.duty_cycle, 2);
+        assert_eq!(ch.duty_step, 0);
+    }
 
-        let mut transitions = 0;
-        let mut last = ch.sequence & 0x80;
+    #[test]
+    fn duty_step_advances_mod_8_on_timer_events() {
+        let mut ch = PulseChannel::new(true);
+        ch.set_enabled(true);
 
-        for _ in 0..1024 {
-            ch.clock(false, false, true);
-            let now = ch.sequence & 0x80;
-            if now != last {
-                transitions += 1;
-                last = now;
+        ch.write_4000(0b0100_0000 | 0b0001_1111); // duty=1, constant vol
+        ch.write_4002(8);
+        ch.write_4003(0b0001_1000);
+
+        let start = ch.duty_step;
+
+        // force exactly one sequencer event
+        let reload = ch.seq_timer.get_reload();
+        for _ in 0..(reload + 1) {
+            ch.clock(&FrameClock::None, true);
+        }
+
+        assert_eq!(ch.duty_step, (start + 1) & 7);
+    }
+
+    #[test]
+    fn sample_matches_duty_table_over_8_steps() {
+        let mut ch = PulseChannel::new(true);
+        ch.set_enabled(true);
+
+        // constant volume=15 so sample>0 means duty output=1
+        ch.write_4000((2 << 6) | 0b0001_1111); // duty=2
+        ch.write_4002(8);
+        ch.write_4003(0b0001_1000);
+
+        let mut bits = Vec::new();
+        for _ in 0..8 {
+            bits.push((ch.sample() > 0) as u8);
+
+            // advance exactly one duty step
+            let reload = ch.seq_timer.get_reload();
+            for _ in 0..(reload + 1) {
+                ch.clock(&FrameClock::None, true);
             }
         }
 
-        // With correct divide-by-2 behavior, this should be ~half
-        assert!(transitions < 10, "Waveform advancing too fast");
+        assert_eq!(bits, DUTY_TABLE[2]);
     }
 
     #[test]
-    fn test_envelope_clocking() {
-        let mut channel = setup_pulse_channel(true);
-        // Envelope mode, period 2, initial volume 5, loop enabled
-        channel.write_4000(0b0010_0010); // Duty 0, L=1, C=0, VVVV=2
-        channel.write_4003(0x00); // Trigger envelope restart
-
-        // Initial state after trigger
-        assert_eq!(channel.envelope.output(), 2); // Initial output should be volume
-
-        // Clock quarter frame, no change yet (divider not clocked enough)
-        channel.clock(true, false, true);
-        assert_eq!(channel.envelope.output(), 2);
-
-        // Clock quarter frame again, envelope should decay if not looping
-        // The envelope divider period is 2. So it should clock every 3rd clock.
-        channel.clock(true, false, true); // Divider 1
-        channel.clock(true, false, true); // Divider 2, clocks envelope
-        assert_eq!(channel.envelope.output(), 1); // Volume should have decremented
-
-        channel.clock(true, false, true); // Divider 1
-        channel.clock(true, false, true); // Divider 2, clocks envelope
-        assert_eq!(channel.envelope.output(), 0); // Volume should have decremented to 0
-
-        // With loop enabled, it should reset to 2
-        channel.clock(true, false, true); // Divider 1
-        channel.clock(true, false, true); // Divider 2, clocks envelope
-        assert_eq!(channel.envelope.output(), 2);
+    fn test_write_4002_timer_low() {
+        let mut ch = make_constant_pulse(true, 2);
+        ch.write_4002(0x12);
+        assert_eq!(ch.seq_timer.get_reload_low_bits(), 0x12);
     }
 
     #[test]
-    fn test_length_counter_clocking() {
-        let mut channel = setup_pulse_channel(true);
-        channel.set_enabled(true);
+    fn write_4003_length_counter_and_timer_high() {
+        let mut ch = make_constant_pulse(true, 2);
+        ch.set_enabled(true);
 
-        // Load length counter with value, L=1 (16)
-        channel.write_4003(0b0000_1000);
-        channel.write_4000(0b0000_0000); // Enable sound
+        // Write timer low bits first
+        ch.write_4002(0x0F); // Timer low 0b00001111
 
-        assert_eq!(
-            channel.length_counter.output(),
-            16,
-            "Initial length counter value should be 16"
-        );
+        // Write 4003: Length=10 (0b01010), Timer high=5 (0b101)
+        ch.write_4003(0b0101_0101); // 0x55
 
-        // Clock half frame (length counter clocks)
-        channel.clock(false, true, true);
-        assert_eq!(
-            channel.length_counter.output(),
-            15,
-            "Length counter should decrement to 15"
-        );
+        assert_eq!(ch.length_counter.output(), 60); // Length counter should be set to 10
+        assert_eq!(ch.seq_timer.get_reload_high_bits(), 0b101);
+        assert_eq!(ch.seq_timer.output(), (0b101 << 8) | 0x0F); // reload_value = (high << 8) | low
 
-        // Continue clocking until it reaches 0
-        for _ in 0..14 {
-            channel.clock(false, true, true);
+        // When 0x4003 is written, the timer is reset,
+        // so the current timer value becomes reload_value.
+        assert_eq!(ch.seq_timer.output(), (0b101 << 8) | 0x0F); // Ensure timer is reset to reload value
+        assert_eq!(ch.envelope.get_start_flag(), true);
+    }
+
+    #[test]
+    fn write_4003_resets_phase_to_zero() {
+        let mut ch = PulseChannel::new(true);
+        ch.set_enabled(true);
+
+        ch.write_4000((3 << 6) | 0b0001_1111);
+        ch.write_4002(8);
+        ch.write_4003(0b0001_1000);
+
+        // advance a couple steps
+        for _ in 0..2 {
+            let reload = ch.seq_timer.get_reload();
+            for _ in 0..(reload + 1) {
+                ch.clock(&FrameClock::None, true);
+            }
         }
-        assert_eq!(
-            channel.length_counter.output(),
-            0,
-            "Length counter should be 0 after 16 clocks"
-        );
+        assert_ne!(ch.duty_step, 0);
 
-        // Once at 0, it stays at 0
-        channel.clock(false, true, true);
-        assert_eq!(
-            channel.length_counter.output(),
-            0,
-            "Length counter should remain at 0"
-        );
+        // retrigger
+        ch.write_4003(0b0001_1000);
+        assert_eq!(ch.duty_step, 0);
+    }
 
-        // Test with loop flag (L bit in 0x4000)
-        channel.write_4000(0b0100_0000); // Duty 1, L=1
-        channel.write_4003(0b0000_1000); // Reset length counter
-        assert_eq!(
-            channel.length_counter.output(),
-            16,
-            "Length counter should reset to 16"
-        );
+    #[test]
+    fn sequencer_advances_every_reload_plus_one_timer_clocks() {
+        let mut ch = make_constant_pulse(true, 2);
+        ch.set_enabled(true);
+        ch.write_4000(0b0001_1111); // constant volume
+        ch.write_4002(0x00);
+        ch.write_4003(0x01); // reload = 256
+        ch.duty_step = 0b1000_0000;
 
-        for _ in 0..100 {
-            channel.clock(false, true, true);
+        // Shouldn't advance for the next 256 clocks
+        for _ in 0..256 {
+            ch.clock(&FrameClock::None, true);
+            assert_eq!(ch.duty_step, 0b1000_0000);
         }
-        assert_eq!(
-            channel.length_counter.output(),
-            16,
-            "Length counter should not decrement when loop flag is set"
-        );
+
+        // Next clock advances once
+        ch.clock(&FrameClock::None, true);
+        assert_ne!(ch.duty_step, 0b1000_0000);
     }
 
     #[test]
-    fn test_sweep_unit_clocking() {
-        let mut channel = setup_pulse_channel(true);
-        // Sweep enabled, period 2, negate (true), shift 1
-        channel.write_4001(0b1010_1001); // E=1, P=2, N=1, S=1
-        channel.write_4002(0x40); // Timer low (0x40)
-        channel.write_4003(0x00); // Timer high (0) => reload = 0x40 (64)
+    fn write_4003_resets_duty_phase() {
+        let mut ch = make_constant_pulse(true, 2); // duty2 = 0b0000_1111
 
-        let initial_timer_reload = channel.seq_timer.output(); // 65 (0x40 + 1)
+        // move into 1s of duty phase
+        advance_one_step(&mut ch); // 0b0001_1110
+        advance_one_step(&mut ch); // 0b0011_1100
+        advance_one_step(&mut ch); // 0b0111_1000
+        advance_one_step(&mut ch); // 0b1111_0000
+        assert_eq!(bit(&ch), 1, "should be in high part of duty cycle");
 
-        // Half frame clock 1 (sweep divider period 0 - 2, so it clocks on 3rd clock)
-        channel.clock(false, true, true); // Divider 1
-        assert_eq!(channel.seq_timer.output(), initial_timer_reload); // No change yet
+        // retrigger the note
+        ch.write_4003(0b0001_1000);
 
-        channel.clock(false, true, true); // Divider 2
-        assert_eq!(channel.seq_timer.output(), initial_timer_reload); // No change yet
-
-        // Half frame clock 3 (sweep clocks)
-        channel.clock(false, true, true);
-        let expected_shift = initial_timer_reload >> 1; // shift 1
-        let expected_new_timer = initial_timer_reload - expected_shift - 1; // Pulse 1 negate formula
-        assert_eq!(channel.seq_timer.output(), expected_new_timer);
-
-        // Test with Pulse2 (different negate behavior)
-        let mut channel2 = setup_pulse_channel(false);
-        // Sweep enabled, period 2, negate (true), shift 1
-        channel2.write_4001(0b1010_1001); // E=1, P=2, N=1, S=1
-        channel2.write_4002(0x40); // Timer low (0x40)
-        channel2.write_4003(0x00); // Timer high (0) => reload = 0x40 (64)
-        let initial_timer_reload_ch2 = channel2.seq_timer.output(); // 65
-
-        channel2.clock(false, true, true); // Divider 1
-        channel2.clock(false, true, true); // Divider 2
-        channel2.clock(false, true, true); // Sweep clocks
-        let expected_shift_ch2 = initial_timer_reload_ch2 >> 1; // shift 1
-        let expected_new_timer_ch2 = initial_timer_reload_ch2 - expected_shift_ch2; // Pulse 2 negate formula
-        assert_eq!(channel2.seq_timer.output(), expected_new_timer_ch2);
+        // retrigger should reset duty phase to step 0
+        assert_eq!(bit(&ch), 0, "should be in low part of duty cycle");
     }
 
     #[test]
-    fn test_sample_output_conditions() {
-        let mut channel = setup_pulse_channel(true);
-        channel.set_enabled(true);
+    fn reload_below_8_silences() {
+        let mut ch = make_constant_pulse(true, 3);
+        ch.write_4002(7); // timer reload < 8
+        ch.write_4003(0b0001_1000);
 
-        // Case 1: Sequence not active (current bit is 0)
-        channel.write_4000(0b0000_0000); // Duty 0, sequence 0b01000000
-        channel.write_4002(0x01); // Timer low
-        channel.write_4003(0x00); // Timer high 0, length counter 0
-        channel.envelope.set_volume(10); // Set envelope to 10 for testing
-        assert_eq!(channel.sample(), 10); // First bit is 0, but current sample is 0b01000000 -> 0 at bit 7 -> 0
-
-        // Clock sequence to make MSB 1
-        channel.clock(false, false, true); // Timer clocks at 2. So one clock will shift.
-        channel.clock(false, false, true); // This is the clock that will actually shift it
-        assert_eq!(channel.sequence, 0b1000_0000);
-        assert_eq!(channel.sample(), 10);
-
-        // Case 2: Length counter is 0
-        channel.write_4000(0b0000_0000); // Reset for next test
-        channel.write_4002(0x00);
-        channel.write_4003(0x00); // Length counter loads 0
-        channel.envelope.set_volume(10); // Set volume
-        channel.sequence = 0b1000_0000; // Ensure sequence is active
-        assert_eq!(channel.length_counter.output(), 0);
-        assert_eq!(channel.sample(), 0); // Should be muted
-
-        // Case 3: Timer output is less than 8 (i.e., too high frequency)
-        // A timer reload value of N results in a period of N+1.
-        // A period of < 8 (reload value < 7) results in silence.
-        channel.write_4000(0b0000_0000);
-        channel.write_4003(0b0000_1000); // Length counter != 0
-        channel.envelope.set_volume(10);
-        channel.sequence = 0b1000_0000;
-
-        // Set timer to reload_value = 0 (period 1)
-        channel.write_4002(0x00);
-        assert_eq!(channel.seq_timer.output(), 1); // Current timer value is reload + 1
-        assert!(channel.seq_timer.output() < 8);
-        assert_eq!(channel.sample(), 0); // Muted
-
-        // Set timer to reload_value = 7 (period 8)
-        channel.write_4002(0x07);
-        assert_eq!(channel.seq_timer.output(), 8);
-        assert_eq!(channel.sample(), 10); // Not muted
-
-        // Case 4: All conditions met
-        channel.write_4000(0b0000_0000); // Duty 0, L=0, C=0, VVVV=0 (envelope active)
-        channel.envelope.set_volume(5); // Set envelope to 5
-        channel.write_4003(0b0000_1000); // Length counter load = 16
-        channel.write_4002(0x10); // Timer reload 16 (period 17)
-        channel.sequence = 0b1000_0000; // Sequence active
-        assert_eq!(channel.sample(), 5);
+        // channel should be forced silent
+        assert_eq!(ch.sample(), 0);
     }
 
-    // #[test]
-    // fn test_sweep_muting() {
-    //     let mut channel = setup_pulse_channel(true);
-    //     channel.write_4000(0b0000_0000); // Enable sound
-    //     channel.write_4003(0b0000_1000); // Length counter active
-    //     channel.envelope.set_volume(10); // Output volume 10
-    //     channel.sequence = 0b1000_0000; // Sequence active
-    //
-    //     // Initial timer reload = 0x0100 (256) (period 257)
-    //     channel.write_4002(0x00); // Low
-    //     channel.write_4003(0x01); // High (sets 0x0100) -> 0x0100 + 1 = 257
-    //
-    //     // Sweep enabled, period 0, negate, shift 7
-    //     channel.write_4001(0b1000_1111); // E=1, P=0, N=1, S=7
-    //     // The period of 0 means the sweep unit will clock on the next
-    //     // half-frame.
-    //     // assert_eq!(channel.sweep.is_enabled(), true);
-    //     // assert_eq!(channel.sweep.get_period(), 0);
-    //     // assert_eq!(channel.sweep.get_negate_flag(), true);
-    //     // assert_eq!(channel.sweep.get_shift(), 7);
-    //
-    //     // Before sweep clocks, it should produce sound
-    //     assert_eq!(channel.sample(), 10);
-    //
-    //     // Clock half-frame, sweep should apply
-    //     channel.clock(false, true);
-    //
-    //     // Calculate expected new timer value after sweep
-    //     // Pulse 1: timer = timer_period - (timer_period >> shift) - 1
-    //     // initial_timer_reload = 0x0100 (256). The `output` of `SequenceTimer` gives `reload_value + 1`.
-    //     // So `timer_period` from sweep's perspective should be `channel.seq_timer.output()`
-    //     let current_timer_period = 257; // 0x0100 + 1
-    //     let shifted_value = current_timer_period >> 7; // 257 >> 7 = 2
-    //     let new_timer_period_minus_1 = current_timer_period as i16 - shifted_value as i16 - 1; // 257 - 2 - 1 = 254
-    //     let expected_new_reload_value = new_timer_period_minus_1 - 1; // 254 - 1 = 253 (0xFD)
-    //     let new_timer_value_from_sweep = channel.seq_timer.output();
-    //
-    //     // After one sweep update, the timer period has decreased.
-    //     // It should still be within bounds (>= 8 and <= 0x7FF)
-    //     assert!(new_timer_value_from_sweep >= 8);
-    //     assert!(new_timer_value_from_sweep <= 0x7FF);
-    //     assert_eq!(channel.sample(), 10); // Still active
-    //
-    //     // Now set shift to a high value that would mute (e.g., period too low)
-    //     channel.write_4002(0x00);
-    //     channel.write_4003(0x00); // Timer reload 0 (period 1)
-    //     channel.sweep.set_enabled(true);
-    //     channel.sweep.set_shift(0); // Shift 0, period won't change too much initially
-    //     channel.sweep.set_period(0); // Clock immediately
-    //     channel.clock(false, true); // Clock sweep (timer output is now 1)
-    //
-    //     // Check for muting condition: timer_reload_value < 8 or timer_reload_value > 0x7FF
-    //     // If the initial period is 1, and shift is 0, the new period will be 1. This should mute.
-    //     assert_eq!(channel.seq_timer.output(), 1);
-    //     assert_eq!(channel.sample(), 0); // Should be muted due to too low frequency
-    // }
+    #[test]
+    fn sweep_overflow_mutes_output() {
+        let mut ch = make_constant_pulse(true, 3);
+
+        // set timer to max
+        ch.seq_timer.set_reload(0x7FF);
+        ch.seq_timer.reset();
+
+        // enable sweep, shift=1, negate=0
+        ch.write_4001(0b1000_0001);
+
+        // channel should be silenced
+        assert_eq!(ch.sample(), 0);
+    }
 }

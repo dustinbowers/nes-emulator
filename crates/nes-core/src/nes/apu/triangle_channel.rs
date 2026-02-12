@@ -47,7 +47,7 @@ impl TriangleChannel {
 
     pub fn write_400b(&mut self, value: u8) {
         let length_counter_load = value >> 3; // upper 5 bits
-        self.length_counter.set(length_counter_load);
+        self.length_counter.load_index(length_counter_load);
 
         let timer_high = (value & 0b0000_0111) as u8; // lower 3 bits
         self.sequence_timer.set_reload_high(timer_high);
