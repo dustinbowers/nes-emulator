@@ -55,7 +55,7 @@ impl NoiseChannel {
 
     pub fn write_400f(&mut self, value: u8) {
         let length_counter_load = value >> 3;
-        self.length_counter.set(length_counter_load);
+        self.length_counter.load_index(length_counter_load);
 
         // writing 400F sets envelope start flag; actual reset happens on next quarter-frame
         self.envelope.set_start_flag(true);

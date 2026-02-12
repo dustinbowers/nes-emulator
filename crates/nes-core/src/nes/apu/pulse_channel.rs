@@ -85,7 +85,7 @@ impl PulseChannel {
     pub fn write_4003(&mut self, value: u8) {
         if self.length_counter.is_enabled() {
             let length_counter_load = (value & 0b1111_1000) >> 3;
-            self.length_counter.set(length_counter_load);
+            self.length_counter.load_index(length_counter_load);
         }
 
         self.seq_timer.set_reload_high(value & 0b111);
