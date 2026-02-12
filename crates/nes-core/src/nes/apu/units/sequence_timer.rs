@@ -24,6 +24,7 @@ impl SequenceTimer {
     pub fn set_reload_low(&mut self, lo: u8) {
         self.timer_low = lo;
         self.reload_value = (self.timer_high as u16) << 8 | (self.timer_low as u16);
+        self.reload_value &= 0b0111_1111_1111;
     }
 
     /// Called with value from writes to $400B (only low 3 bits are used)
