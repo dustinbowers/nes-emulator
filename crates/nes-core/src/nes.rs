@@ -16,6 +16,9 @@ use bus::nes_bus::NesBus;
 use cartridge::Cartridge;
 use cartridge::rom::{Rom, RomError};
 
+pub const PPU_HZ: u64 = 5_369_318;
+pub const CPU_HZ_NTSC: f64 = PPU_HZ as f64 / 3.0;
+
 const OAM_DMA_START_CYCLES: usize = 0;
 const OAM_DMA_DONE_CYCLES: usize = 512;
 
@@ -94,14 +97,18 @@ impl NES {
     ///
     /// # Returns
     ///
-    /// Returns `true` if a new frame is ready to be rendered, and `false` otherwise
-    pub fn tick(&mut self) -> bool {
+    /// Returns a `(bool, bool)` tuple
+    /// - First value is `true` if this tick triggered a CPU tick, and `false` otherwise
+    /// - Second value is `true` if a new frame is ready to be rendered, and `false` otherwise
+    pub fn tick(&mut self) -> (bool, bool) {
         // CPU runs at 1/3 PPU speed
+        let mut cpu_tick = false;
         if self.master_clock.is_multiple_of(3) {
             match self.dma_mode {
                 DmaMode::None => {
                     if self.bus.cpu.rdy {
                         self.bus.cpu.tick();
+                        cpu_tick = true;
                     } else {
                         // Start OAM DMA
                         self.dma_mode = DmaMode::Oam;
@@ -138,7 +145,7 @@ impl NES {
         let frame_ready = self.bus.ppu.tick();
 
         self.master_clock += 1;
-        frame_ready
+        (cpu_tick, frame_ready)
     }
 
     pub fn get_frame_buffer(&self) -> &[u8; 256 * 240] {

@@ -6,14 +6,14 @@ use cpal::{FromSample, Sample, SampleRate, SizedSample};
 use crossbeam_channel::{Receiver, Sender};
 use nes_core::prelude::*;
 
-const PPU_HZ: u64 = 5_369_318;
-
 pub struct EmuRuntime {
     nes: NES,
     input_state: InputState,
     command_rx: Receiver<EmuCommand>,
     event_tx: Sender<EmuEvent>,
     paused: bool,
+
+    scratch_buf: Vec<f32>,
 }
 
 impl EmuRuntime {
@@ -28,6 +28,7 @@ impl EmuRuntime {
             command_rx,
             event_tx,
             paused: false,
+            scratch_buf: Vec::new(),
         }
     }
 
@@ -60,6 +61,28 @@ impl EmuRuntime {
         }
     }
 
+    fn run_cpu_cycles(&mut self, cpu_cycles: u32, frame_buffer: &SharedFrameHandle) {
+        let mut ran = 0;
+        while ran < cpu_cycles {
+            // Run the PPU until we hit a CPU tick
+            loop {
+                let (cpu_tick, frame_ready) = self.nes.tick();
+                if frame_ready {
+                    frame_buffer.write(self.nes.get_frame_buffer());
+                }
+
+                self.nes.bus.joypads[0].set_buttons(self.input_state.p1.load());
+                self.nes.bus.joypads[1].set_buttons(self.input_state.p2.load());
+
+                if cpu_tick {
+                    break;
+                }
+            }
+            ran += 1;
+        }
+        self.nes.bus.apu.end_frame(ran);
+    }
+
     pub fn tick_audio<T>(
         &mut self,
         data: &mut [T],
@@ -70,50 +93,44 @@ impl EmuRuntime {
         T: Sample + SizedSample + FromSample<f32>,
     {
         if self.paused {
-            for audio_frame in data.chunks_mut(channels) {
-                for out in audio_frame.iter_mut() {
-                    *out = T::from_sample(0.0);
-                }
+            for out in data.iter_mut() {
+                *out = T::from_sample(0.0);
             }
             return;
         }
 
-        let sr_u64 = sample_rate as u64;
+        let frames = data.len() / channels;
         self.nes.bus.apu.set_sample_rate(sample_rate as f64);
 
-        let base_ticks = PPU_HZ / sr_u64;
-        let frac = PPU_HZ % sr_u64; // Bresenham remainder
+        if self.scratch_buf.len() < frames {
+            self.scratch_buf.resize(frames, 0.0);
+        }
 
-        for frame in data.chunks_mut(channels) {
-            // Update user input
-            self.nes.bus.joypads[0].set_buttons(self.input_state.p1.load());
-            self.nes.bus.joypads[1].set_buttons(self.input_state.p2.load());
+        // run cpu until blip buffer has enough frames
+        while self.nes.bus.apu.samples_available() < frames {
+            let need = (frames - self.nes.bus.apu.samples_available()) as u32;
+            let cpu_cycles = self.nes.bus.apu.clocks_needed(need);
+            self.run_cpu_cycles(cpu_cycles, frame_buffer);
+        }
 
-            // Determine how many PPU ticks to run this sample
-            let mut ticks = base_ticks;
-            self.nes.ppu_remainder += frac;
-            if self.nes.ppu_remainder >= sr_u64 {
-                self.nes.ppu_remainder -= sr_u64;
-                ticks += 1;
+        let got = self
+            .nes
+            .bus
+            .apu
+            .read_samples_f32(&mut self.scratch_buf[..frames]);
+
+        // If for some reason we get less than needed, fill remaining with silence
+        if got < frames {
+            for s in &mut self.scratch_buf[got..frames] {
+                *s = 0.0;
             }
+        }
 
-            // deterministically sample with 2-tap average
-            let start = self.nes.bus.apu.get_last_sample();
-            for _ in 0..ticks {
-                if self.nes.tick() {
-                    frame_buffer.write(self.nes.get_frame_buffer());
-                }
-            }
-
-            let end = self.nes.bus.apu.get_last_sample();
-            let raw = 0.5 * (start + end);
-
-            // run raw sample through filters
-            let out_f32 = self.nes.bus.apu.filter_raw_sample(raw);
-
-            let sample = T::from_sample(out_f32);
+        // fill output channels
+        for (i, frame) in data.chunks_mut(channels).enumerate() {
+            let s = T::from_sample(self.scratch_buf[i]);
             for out in frame.iter_mut() {
-                *out = sample;
+                *out = s;
             }
         }
     }

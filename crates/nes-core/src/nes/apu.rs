@@ -1,4 +1,6 @@
+use crate::nes::CPU_HZ_NTSC;
 use crate::nes::apu::filter::OnePole;
+use crate::nes::apu::output::ApuOutput;
 use crate::nes::apu::status_register::ApuStatusRegister;
 use dmc_channel::DmcChannel;
 use noise_channel::NoiseChannel;
@@ -10,10 +12,14 @@ use triangle_channel::TriangleChannel;
 mod dmc_channel;
 mod filter;
 mod noise_channel;
+mod output;
 mod pulse_channel;
 mod status_register;
 mod triangle_channel;
 mod units;
+
+const BLIP_GAIN: f32 = 5.0; // tune somewhere approx. 4..16
+const DAC_SCALE: f32 = 32768.0; // i16 range
 
 pub trait ApuBusInterface {
     fn apu_bus_read(&mut self, addr: u16) -> u8;
@@ -100,8 +106,10 @@ pub struct APU {
     cpu_phase: ApuPhase,
     seq_phase: ApuPhase,
 
-    current_sample_raw: f32,
+    output: ApuOutput,
+    last_dac: i32,
 
+    // current_sample_raw: f32,
     pub pulse1: PulseChannel,
     pub pulse2: PulseChannel,
     pub triangle: TriangleChannel,
@@ -149,7 +157,9 @@ impl APU {
             cpu_phase: ApuPhase::new(),
             seq_phase: ApuPhase::new(),
 
-            current_sample_raw: 0.0,
+            output: ApuOutput::new(CPU_HZ_NTSC, 44_100, 4096),
+            last_dac: 0,
+            // current_sample_raw: 0.0,
 
             // half_clock: false,
             pulse1: PulseChannel::new(true),
@@ -189,11 +199,16 @@ impl APU {
 
     pub fn set_sample_rate(&mut self, sample_rate: f64) {
         self.sample_rate = sample_rate;
+        self.output.set_sample_rate(self.sample_rate as u32);
     }
 
     pub fn reset(&mut self) {
         self.cpu_phase = ApuPhase::new();
         self.seq_phase = ApuPhase::new();
+
+        self.output.reset();
+        self.last_dac = 0;
+
         self.pulse1 = PulseChannel::new(true);
         self.pulse2 = PulseChannel::new(false);
         self.triangle = TriangleChannel::new();
@@ -480,10 +495,22 @@ impl APU {
                 .insert(ApuStatusRegister::FRAME_INTERRUPT);
         }
 
-        self.current_sample_raw = self.sample();
-
+        self.clock_apu_output();
         self.cpu_phase.toggle();
         self.seq_phase.toggle();
+    }
+
+    fn clock_apu_output(&mut self) {
+        let sample = self.sample();
+        let dac = (sample * DAC_SCALE * BLIP_GAIN).round() as i32;
+
+        let delta = dac - self.last_dac;
+        if delta != 0 {
+            self.output.add_delta(delta);
+            self.last_dac = dac;
+        }
+
+        self.output.step_cpu_cycle();
     }
 
     fn sample(&self) -> f32 {
@@ -551,24 +578,24 @@ impl APU {
         sample
     }
 
-    #[inline(always)]
-    pub fn get_last_sample(&self) -> f32 {
-        self.current_sample_raw
-    }
+    // #[inline(always)]
+    // pub fn get_last_sample(&self) -> f32 {
+    //     self.current_sample_raw
+    // }
 
-    pub fn filter_raw_sample(&mut self, raw_sample: f32) -> f32 {
-        let mut sample = raw_sample;
-        sample = self
-            .high_pass_90
-            .high_pass(sample, 90.0, self.sample_rate as f32);
-        sample = self
-            .high_pass_440
-            .high_pass(sample, 440.0, self.sample_rate as f32);
-        sample = self
-            .low_pass_14k
-            .low_pass(sample, 14_000.0, self.sample_rate as f32);
-        sample
-    }
+    // pub fn filter_raw_sample(&mut self, raw_sample: f32) -> f32 {
+    //     let mut sample = raw_sample;
+    //     sample = self
+    //         .high_pass_90
+    //         .high_pass(sample, 90.0, self.sample_rate as f32);
+    //     sample = self
+    //         .high_pass_440
+    //         .high_pass(sample, 440.0, self.sample_rate as f32);
+    //     sample = self
+    //         .low_pass_14k
+    //         .low_pass(sample, 14_000.0, self.sample_rate as f32);
+    //     sample
+    // }
 
     #[inline(always)]
     pub fn irq_line(&self) -> bool {
@@ -582,5 +609,22 @@ impl APU {
             .contains(ApuStatusRegister::DMC_INTERRUPT);
 
         frame_interrupt || dmc_interrupt
+    }
+
+    pub fn end_frame(&mut self, cpu_cycles: u32) {
+        self.output.end_frame(cpu_cycles);
+    }
+
+    pub fn samples_available(&self) -> usize {
+        self.output.samples_available()
+    }
+
+    pub fn read_samples_f32(&mut self, out: &mut [f32]) -> usize {
+        self.output.read_samples_f32(out)
+    }
+
+    /// CPU cycles needed to generate `N` more samples at current rates
+    pub fn clocks_needed(&self, sample_count: u32) -> u32 {
+        self.output.clocks_needed(sample_count)
     }
 }
