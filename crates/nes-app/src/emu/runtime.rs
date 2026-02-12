@@ -14,6 +14,7 @@ pub struct EmuRuntime {
     paused: bool,
 
     scratch_buf: Vec<f32>,
+    last_sample_rate: Option<u32>,
 }
 
 impl EmuRuntime {
@@ -29,6 +30,7 @@ impl EmuRuntime {
             event_tx,
             paused: false,
             scratch_buf: Vec::new(),
+            last_sample_rate: None,
         }
     }
 
@@ -71,9 +73,6 @@ impl EmuRuntime {
                     frame_buffer.write(self.nes.get_frame_buffer());
                 }
 
-                self.nes.bus.joypads[0].set_buttons(self.input_state.p1.load());
-                self.nes.bus.joypads[1].set_buttons(self.input_state.p2.load());
-
                 if cpu_tick {
                     break;
                 }
@@ -100,16 +99,36 @@ impl EmuRuntime {
         }
 
         let frames = data.len() / channels;
-        self.nes.bus.apu.set_sample_rate(sample_rate as f64);
+        // Only update APU SR when it changes
+        if self.last_sample_rate != Some(sample_rate) {
+            self.nes.bus.apu.set_sample_rate(sample_rate as f64);
+            self.last_sample_rate = Some(sample_rate);
+        }
 
         if self.scratch_buf.len() < frames {
             self.scratch_buf.resize(frames, 0.0);
         }
 
+        // update user input
+        self.nes.bus.joypads[0].set_buttons(self.input_state.p1.load());
+        self.nes.bus.joypads[1].set_buttons(self.input_state.p2.load());
+
+        // Let the emulator run ahead a little bit to provide a
+        // buffer in case the audio thread gets bogged down
+        let target_available = frames * 3;
+
         // run cpu until blip buffer has enough frames
-        while self.nes.bus.apu.samples_available() < frames {
-            let need = (frames - self.nes.bus.apu.samples_available()) as u32;
-            let cpu_cycles = self.nes.bus.apu.clocks_needed(need);
+        while self.nes.bus.apu.samples_available() < target_available {
+            let samples_available = self.nes.bus.apu.samples_available() as u32;
+            let need_samples = target_available as u32 - samples_available;
+
+            let mut cpu_cycles = self.nes.bus.apu.clocks_needed(need_samples);
+
+            // avoid stalling if clocks_needed() is zero
+            if cpu_cycles == 0 {
+                cpu_cycles = 1;
+            }
+
             self.run_cpu_cycles(cpu_cycles, frame_buffer);
         }
 
