@@ -14,6 +14,8 @@ pub struct TriangleChannel {
     linear_counter_reload_flag: bool,
     sequence_index: u8,
 
+    last_sample: u8,
+
     // $4008
     linear_counter_control_flag: bool, // C (1 bit)
     linear_counter_reload_value: u8,   // RRRR RRR (7 bits)
@@ -28,6 +30,8 @@ impl TriangleChannel {
 
             linear_counter_reload_flag: false,
             sequence_index: 0,
+
+            last_sample: 0,
 
             linear_counter_control_flag: false,
             linear_counter_reload_value: 0,
@@ -74,10 +78,10 @@ impl TriangleChannel {
         self.length_counter.output() > 0
     }
 
-    pub fn clock(&mut self, frame_clock: &FrameClock, timer_tick: bool) {
+    pub fn clock(&mut self, frame_clock: &FrameClock) {
         // triangle advances only if both length counter and linear counter are non-zero,
         // and the timer period is at least 2
-        let advance_waveform = timer_tick && self.sequence_timer.clock();
+        let advance_waveform = self.sequence_timer.clock();
         if advance_waveform
             && self.linear_counter_value > 0
             && self.length_counter.output() > 0
@@ -104,13 +108,15 @@ impl TriangleChannel {
         }
     }
 
-    pub fn sample(&self) -> u8 {
+    pub fn sample(&mut self) -> u8 {
         if self.linear_counter_value == 0
             || self.length_counter.output() == 0
             || self.sequence_timer.get_reload() < 2 {
-            0
+            self.last_sample
         } else {
-            TRIANGLE_TABLE[self.sequence_index as usize]
+            let s = TRIANGLE_TABLE[self.sequence_index as usize];
+            self.last_sample = s;
+            s
         }
     }
 }

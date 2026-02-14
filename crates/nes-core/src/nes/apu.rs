@@ -137,9 +137,10 @@ pub struct APU {
     frame_irq_reassert: u8,
 
     sample_rate: f64,
-    high_pass_90: OnePole,
-    high_pass_440: OnePole,
-    low_pass_14k: OnePole,
+    low_pass_0: OnePole,
+    high_pass_0: OnePole,
+    high_pass_1: OnePole,
+    high_pass_2: OnePole,
 
     pub error: Option<ApuError>,
 }
@@ -189,9 +190,11 @@ impl APU {
             frame_irq_reassert: 0,
 
             sample_rate: 44100.0, // A safe default
-            high_pass_90: OnePole::default(),
-            high_pass_440: OnePole::default(),
-            low_pass_14k: OnePole::default(),
+
+            low_pass_0: OnePole::default(),
+            high_pass_0: OnePole::default(),
+            high_pass_1: OnePole::default(),
+            high_pass_2: OnePole::default(),
 
             error: None,
         }
@@ -236,9 +239,10 @@ impl APU {
         self.frame_irq_reassert = 0;
 
         // self.sample_rate = 0.0; // Preserve through resets
-        self.high_pass_90 = OnePole::default();
-        self.high_pass_440 = OnePole::default();
-        self.low_pass_14k = OnePole::default();
+        self.low_pass_0 = OnePole::default();
+        self.high_pass_0 = OnePole::default();
+        self.high_pass_1 = OnePole::default();
+        self.high_pass_2 = OnePole::default();
 
         self.error = None;
     }
@@ -268,7 +272,7 @@ impl APU {
                 let output = self.status_register.bits();
 
                 // Reading status register clears the frame interrupt flag (but not the DMC interrupt flag).
-                // Quirk: If an interrupt flag was set at the same moment of the read, it will read back as 1 but it will not be cleared.
+                // Quirk: If an interrupt flag was set at the same moment of the read, it will read back as 1, but it will not be cleared.
                 if !self.frame_irq_rising {
                     self.status_register
                         .remove(ApuStatusRegister::FRAME_INTERRUPT);
@@ -483,7 +487,8 @@ impl APU {
         self.pulse1.clock(&frame_clock, apu_tick);
         self.pulse2.clock(&frame_clock, apu_tick);
         self.noise.clock(&frame_clock, apu_tick);
-        self.triangle.clock(&frame_clock, true);
+        self.triangle.clock(&frame_clock);
+        self.dmc.clock();
 
         // Handle consecutive IRQ reassert quirk
         if self.frame_irq_disable {
@@ -513,7 +518,7 @@ impl APU {
         self.output.step_cpu_cycle();
     }
 
-    fn sample(&self) -> f32 {
+    fn sample(&mut self) -> f32 {
         let pulse1 = if self.mute_pulse1 {
             0.0
         } else {
@@ -569,22 +574,32 @@ impl APU {
         sample
     }
 
-    // #[inline(always)]
-    // pub fn get_last_sample(&self) -> f32 {
-    //     self.current_sample_raw
-    // }
-
     pub fn filter_raw_sample(&mut self, raw_sample: f32) -> f32 {
+        // L. Spiro's recommended set of filters
+        let freq_lp0 = 17_000.0;
+        let freq_hp0 = 285.17092929859564;
+        let freq_hp1 = 85.509330674952423;
+        let freq_hp2 = 7.3617262313390981;
+
+        // Per NesDev wiki:
+        // let freq_lp0 = 14_000.0;
+        // let freq_hp0 = 90.0;
+        // let freq_hp1 = 440.0;
+        // // let freq_hp2 = 440.0; // unused
+
         let mut sample = raw_sample;
         sample = self
-            .high_pass_90
-            .high_pass(sample, 90.0, self.sample_rate as f32);
+            .high_pass_0
+            .high_pass(sample, freq_hp0, self.sample_rate as f32);
         sample = self
-            .high_pass_440
-            .high_pass(sample, 440.0, self.sample_rate as f32);
+            .high_pass_1
+            .high_pass(sample, freq_hp1, self.sample_rate as f32);
         sample = self
-            .low_pass_14k
-            .low_pass(sample, 14_000.0, self.sample_rate as f32);
+            .high_pass_2
+            .high_pass(sample, freq_hp2, self.sample_rate as f32);
+        sample = self
+            .low_pass_0
+            .low_pass(sample, freq_lp0, self.sample_rate as f32);
         sample
     }
 

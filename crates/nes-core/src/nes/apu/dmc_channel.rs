@@ -1,40 +1,48 @@
+use crate::nes::apu::units::dmc_output::DmcOutput;
 use super::units::sequence_timer::SequenceTimer;
+
+const RATE_TABLE: [u16; 16] = [
+    428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
+];
 
 pub struct DmcChannel {
     seq_timer: SequenceTimer,
+    output: DmcOutput,
+
+    enabled: bool,
 
     irq_enabled: bool,
+    irq_pending: bool,
     loop_flag: bool,
-    // output: DmcOutput,
-
-    // rate: i16,
-    register: u8,
-    level: u8,
-    current_bit: u8,
 
     sample_address: u16,
     current_address: u16,
 
-    sample_length: u8,
-    bytes_remaining: u8,
+    sample_length: u16,
+    bytes_remaining: u16,
+
+    sample_buffer: Option<u8>,
 }
 
 impl DmcChannel {
     pub fn new() -> DmcChannel {
         DmcChannel {
             seq_timer: SequenceTimer::new(),
-            irq_enabled: false,
-            loop_flag: false,
-            // output: DmcOutput::new(),
-            register: 0,
-            level: 0,
-            current_bit: 0,
+            output: DmcOutput::new(),
 
-            // rate: 0,
+            enabled: false,
+
+            irq_enabled: false,
+            irq_pending: false,
+            loop_flag: false,
+
             sample_address: 0,
             sample_length: 0,
+
             current_address: 0,
             bytes_remaining: 0,
+
+            sample_buffer: None,
         }
     }
 
@@ -48,10 +56,6 @@ impl DmcChannel {
         self.loop_flag = value & 0b0100_0000 != 0;
 
         let rate_index = value & 0b0000_1111;
-        const RATE_TABLE: [u16; 16] = [
-            428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
-        ];
-        // self.rate = RATE_TABLE[rate_index as usize];
         self.seq_timer.set_reload(RATE_TABLE[rate_index as usize]);
     }
 
@@ -59,8 +63,7 @@ impl DmcChannel {
         /* $4011:       -DDD.DDDD Direct load (write)
               bits 6-0	-DDD.DDDD The DMC output level is set to D, an unsigned value.
         */
-        // self.output.direct_load(value & 0b0111_1111);
-        self.level = value & 0b0111_1111;
+        self.output.direct_load(value & 0x7F);
     }
 
     pub fn write_4012(&mut self, value: u8) {
@@ -70,7 +73,7 @@ impl DmcChannel {
 
     pub fn write_4013(&mut self, value: u8) {
         // $4013    LLLL.LLLL Sample length (write)
-        self.sample_length = (value * 16) + 1;
+        self.sample_length = (value as u16 * 16) + 1;
     }
 }
 
@@ -83,12 +86,19 @@ impl DmcChannel {
     pub fn set_enabled(&mut self, enabled: bool) {
         // If the DMC bit is clear, the DMC bytes remaining will be set to 0 and the
         // DMC will silence when it empties.
-        self.bytes_remaining = 0;
+        if self.enabled && !enabled {
+            self.bytes_remaining = 0;
+        }
 
-        // TODO:
         // If the DMC bit is set, the DMC sample will be restarted only if its bytes
         // remaining is 0. If there are bits remaining in the 1-byte sample buffer,
         // these will finish playing before the next sample is fetched.
+        else if !self.enabled && enabled {
+            if self.bytes_remaining == 0 {
+                // TODO: queue restart when current output finishes
+            }
+        }
+        self.enabled = enabled;
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -97,36 +107,50 @@ impl DmcChannel {
 
     pub fn clock(&mut self) {
         let advance_output = self.seq_timer.clock();
-        if self.bytes_remaining > 0 {
-            self.seq_timer.reset();
-        }
+        let need_byte = self.output.clock();
 
-        if advance_output {
-            self.current_bit += 1;
-            if self.current_bit >= 8 {
-                // TODO: pause CPU and load another byte
-                self.current_bit = 0;
-                self.bytes_remaining -= 1;
+        // If sample buffer is empty with more remaining, fetch a byte via DMA
+        if self.enabled
+            && self.sample_buffer.is_some()
+            && self.bytes_remaining > 0 {
+            // TODO: DMA read from current address
+            let byte = 0; // todo
 
-                // Loop if enabled
-                if self.bytes_remaining == 0 && self.loop_flag {
-                    self.bytes_remaining = self.sample_length;
+            self.sample_buffer = Some(byte);
+
+            self.current_address = if self.current_address == 0xFFFF {
+                0x8000
+            } else {
+                self.current_address + 1
+            };
+
+            self.bytes_remaining -= 1;
+
+            if self.bytes_remaining == 0 {
+                if self.loop_flag {
                     self.current_address = self.sample_address;
+                    self.bytes_remaining = self.sample_length;
+                } else if self.irq_enabled {
+                    self.irq_pending = true;
                 }
             }
+        }
 
-            let level_up = (self.register >> self.current_bit) & 0b1 != 0;
-            if self.level >= 2 && self.level <= 125 {
-                if level_up {
-                    self.level += 2;
-                } else {
-                    self.level -= 2;
+        // tick timer
+        let advance_timer = self.seq_timer.clock();
+        if advance_timer {
+            self.seq_timer.reset();
+            let shift_empty = self.output.clock();
+
+            if shift_empty {
+                if let Some(byte) = self.sample_buffer.take() {
+                    self.output.load_shift_register(byte);
                 }
             }
         }
     }
 
     pub fn sample(&self) -> u8 {
-        self.level
+        self.output.level()
     }
 }
