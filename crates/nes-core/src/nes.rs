@@ -12,8 +12,6 @@ mod oam_dma;
 #[cfg(feature = "testing-utils")]
 pub mod test_utils;
 
-// use super::trace;
-use crate::nes::cpu::CpuMode;
 use crate::nes::dmc_dma::DmcDma;
 use crate::nes::oam_dma::{OamDma, OamDmaOp};
 use crate::trace;
@@ -83,9 +81,6 @@ impl NES {
             oam_dma: OamDma::new(),
             oam_byte: 0,
 
-            // oam_transfer_cycles: 0,
-
-            // cycle_acc: 0.0,
             ppu_remainder: 0,
             last_apu_sample_raw: 0.0,
         }

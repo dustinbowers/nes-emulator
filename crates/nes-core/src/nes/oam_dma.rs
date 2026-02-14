@@ -9,7 +9,7 @@ pub struct OamDma {
     page: u8,
     cycle: u16,
     latch: u8,
-    needs_dummy: bool,
+    dummy_cycles: u8,
 }
 
 impl OamDma {
@@ -19,7 +19,7 @@ impl OamDma {
             page: 0,
             cycle: 0,
             latch: 0,
-            needs_dummy: false,
+            dummy_cycles: 0,
         }
     }
 
@@ -32,7 +32,7 @@ impl OamDma {
         self.active = true;
         self.page = page;
         self.cycle = 0;
-        self.needs_dummy = cpu_odd_cycle;
+        self.dummy_cycles = if cpu_odd_cycle { 2 } else { 1 };
     }
 
     pub fn step(&mut self) -> OamDmaOp {
@@ -40,8 +40,8 @@ impl OamDma {
             return OamDmaOp::Dummy;
         }
 
-        if self.needs_dummy {
-            self.needs_dummy = false;
+        if self.dummy_cycles > 0 {
+            self.dummy_cycles -= 1;
             return OamDmaOp::Dummy;
         }
 
