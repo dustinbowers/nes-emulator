@@ -1,32 +1,24 @@
 use super::super::trace;
 use super::opcodes::Opcode;
-use super::{CPU, CpuCycleState, CpuError, CpuMode, Flags, interrupts, opcodes};
-use crate::trace_cpu_event;
+use super::{CPU, CpuCycleState, CpuError, Flags, interrupts, opcodes};
 use std::collections::HashMap;
 
 impl CPU {
     #[allow(dead_code)]
     pub fn run(&mut self) {
         loop {
-            let (_, should_break) = self.tick();
-            if should_break {
+            let (_stalled, _instr_done, is_breaking) = self.tick(true);
+            if is_breaking {
                 break;
             }
         }
-    }
-
-    fn toggle_mode(&mut self) {
-        self.cpu_mode = match &self.cpu_mode {
-            CpuMode::Read => CpuMode::Write,
-            CpuMode::Write => CpuMode::Read,
-        };
     }
 
     pub(super) fn advance_program_counter(&mut self) {
         self.program_counter = self.program_counter.wrapping_add(1);
     }
 
-    pub(super) fn read_program_counter(&self) -> u8 {
+    pub(super) fn read_program_counter(&mut self) -> u8 {
         self.bus_read(self.program_counter)
     }
 
@@ -36,6 +28,28 @@ impl CPU {
         byte
     }
 
+    pub fn tick(&mut self, rdy_line: bool) -> (bool, bool, bool) {
+        self.rdy_line = rdy_line;
+        self.stalled_this_tick = false;
+
+        // snapshot to revert to if CPU stalls on read
+        let saved_pc = self.program_counter;
+        let saved_op = self.current_op.clone();
+        let saved_active_interrupt = self.active_interrupt;
+
+        let (done, is_breaking) = self.tick_inner();
+
+        // rollback last tick when rdy_line is low and CPU hits a read cycle
+        if self.stalled_this_tick {
+            self.program_counter = saved_pc;
+            self.current_op = saved_op;
+            self.active_interrupt = saved_active_interrupt;
+            return (true, false, false);
+        }
+
+        (false, done, is_breaking)
+    }
+
     /// Runs one CPU cycle
     ///
     /// # Returns
@@ -43,30 +57,11 @@ impl CPU {
     /// A tuple `(bool, bool)`:
     /// * The first element is true if current instruction is complete
     /// * The second element is true if CPU is breaking (due to JAM/KIL instruction)
-    pub fn tick(&mut self) -> (bool, bool) {
-        self.cycle += 1;
-        if self.cycle >= 3_000_000 {
-            self.cycle -= 3_000_000; // Prevent overflow
-        }
+    fn tick_inner(&mut self) -> (bool, bool) {
+        self.cycle = (self.cycle + 1) % 3_000_000;
 
         // Load next opcode if empty
         if self.current_op.opcode.is_none() {
-            // DMAs schedule halts, which triggers a set of events:
-            // - CPU waits for "Read" state
-            // - CPU halts for 1 cycle to enter DMA mode
-            if self.halt_scheduled {
-                match self.cpu_mode {
-                    CpuMode::Read => {
-                        self.rdy = false; // This pauses CPU execution while DMA runs
-                        self.halt_scheduled = false;
-                    }
-                    CpuMode::Write => {
-                        self.toggle_mode();
-                    }
-                }
-                return (false, false);
-            }
-
             // We're at instruction boundary with no active interrupts, so check for pending NMI
             if self.active_interrupt.is_none() {
                 let curr_nmi_line = self.nmi_line();
@@ -151,8 +146,4 @@ impl CPU {
 
         (done, false)
     }
-
-    // fn start_interrupt(&mut self, interrupt: Interrupt) {
-    //     self.current_op.interrupt = Some(interrupt);
-    // }
 }

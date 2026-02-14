@@ -59,6 +59,12 @@ pub enum AddressingMode {
     None,
 }
 
+pub enum BusOpKind {
+    None,
+    Read,
+    Write,
+}
+
 #[derive(Default, Debug, PartialEq, Clone, Copy)]
 pub enum AccessType {
     None,
@@ -69,7 +75,7 @@ pub enum AccessType {
     Register,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum CpuMode {
     Read,
     Write,
@@ -111,10 +117,9 @@ enum ExecPhase {
     Done,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 struct CpuCycleState {
     opcode: Option<&'static Opcode>,
-    // interrupt: Option<Interrupt>,
     micro_cycle: u8,
     access_type: AccessType,
     exec_phase: ExecPhase,
@@ -129,9 +134,9 @@ struct CpuCycleState {
 pub struct CPU {
     pub bus: Option<*mut dyn CpuBusInterface>,
     pub cycle: usize,
-    pub cpu_mode: CpuMode,
-    pub rdy: bool,
-    pub halt_scheduled: bool,
+    last_bus_op: BusOpKind,
+    rdy_line: bool,
+    pub(crate) stalled_this_tick: bool,
 
     pub register_a: u8,
     pub register_x: u8,
@@ -157,9 +162,9 @@ impl CPU {
         CPU {
             bus: None,
             cycle: 0,
-            cpu_mode: CpuMode::Read,
-            halt_scheduled: false,
-            rdy: true,
+            last_bus_op: BusOpKind::None,
+            rdy_line: false,
+            stalled_this_tick: false,
             register_a: 0,
             register_x: 0,
             register_y: 0,
@@ -184,8 +189,6 @@ impl CPU {
         self.cycle = 0;
         self.current_op = CpuCycleState::default();
         self.last_opcode_desc = "".to_string();
-        self.halt_scheduled = false;
-        self.rdy = true;
         self.register_a = 0;
         self.register_x = 0;
         self.register_y = 0;
@@ -207,12 +210,18 @@ impl CPU {
     }
 
     /// `bus_read` is safe because Bus owns CPU
-    pub fn bus_read(&self, addr: u16) -> u8 {
+    pub fn bus_read(&mut self, addr: u16) -> u8 {
+        if !self.rdy_line {
+            self.stalled_this_tick = true;
+            return 0; // ignore the read and rewind in tick()
+        }
+        self.last_bus_op = BusOpKind::Read;
         unsafe { (*self.bus.unwrap()).cpu_bus_read(addr) }
     }
 
     /// `bus_write` is safe because Bus owns CPU
-    pub fn bus_write(&self, addr: u16, data: u8) {
+    pub fn bus_write(&mut self, addr: u16, data: u8) {
+        self.last_bus_op = BusOpKind::Write;
         unsafe {
             (*self.bus.unwrap()).cpu_bus_write(addr, data);
         }

@@ -17,8 +17,8 @@ pub struct NesBus {
 
     pub nmi_scheduled: Option<u8>,
 
-    pub oam_dma_addr: u8,
-
+    pub oam_dma_request: Option<u8>,
+    // pub oam_dma_addr: u8,
     pub last_mapper_write_cycle: Option<usize>,
 
     // Some games expect an "open-bus":
@@ -40,7 +40,8 @@ impl NesBus {
 
             nmi_scheduled: None,
 
-            oam_dma_addr: 0,
+            // oam_dma_addr: 0,
+            oam_dma_request: None,
 
             last_mapper_write_cycle: None,
 
@@ -62,7 +63,8 @@ impl NesBus {
     pub fn reset_components(&mut self) {
         self.cpu_ram = [0; CPU_RAM_SIZE];
         self.nmi_scheduled = None;
-        self.oam_dma_addr = 0;
+        // self.oam_dma_addr = 0;
+        self.oam_dma_request = None;
         self.last_cpu_read = 0;
         self.joypads = [Joypad::new(), Joypad::new()];
 
@@ -149,8 +151,7 @@ impl CpuBusInterface for NesBus {
                 }
             }
             0x4014 => {
-                self.cpu.halt_scheduled = true;
-                self.oam_dma_addr = value;
+                self.oam_dma_request = Some(value);
             }
             0x4016 => {
                 // Used to reset strobing via bit 0
@@ -189,10 +190,6 @@ impl CpuBusInterface for NesBus {
     fn irq_line(&mut self) -> bool {
         let cart_irq = self.cart.as_ref().map(|c| c.irq_pending()).unwrap_or(false);
         let apu_irq = self.apu.irq_line();
-
-        // if cart_irq || apu_irq {
-        //     println!("{}", format!("cart_irq = {cart_irq}, apu_irq = {apu_irq}"));
-        // }
         cart_irq || apu_irq
     }
 }

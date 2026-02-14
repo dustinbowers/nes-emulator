@@ -1,5 +1,5 @@
-use crate::nes::apu::units::dmc_output::DmcOutput;
 use super::units::sequence_timer::SequenceTimer;
+use crate::nes::apu::units::dmc_output::DmcOutput;
 
 const RATE_TABLE: [u16; 16] = [
     428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
@@ -89,7 +89,6 @@ impl DmcChannel {
         if self.enabled && !enabled {
             self.bytes_remaining = 0;
         }
-
         // If the DMC bit is set, the DMC sample will be restarted only if its bytes
         // remaining is 0. If there are bits remaining in the 1-byte sample buffer,
         // these will finish playing before the next sample is fetched.
@@ -110,9 +109,7 @@ impl DmcChannel {
         let need_byte = self.output.clock();
 
         // If sample buffer is empty with more remaining, fetch a byte via DMA
-        if self.enabled
-            && self.sample_buffer.is_some()
-            && self.bytes_remaining > 0 {
+        if self.enabled && self.sample_buffer.is_some() && self.bytes_remaining > 0 {
             // TODO: DMA read from current address
             let byte = 0; // todo
 

@@ -7,10 +7,15 @@ pub mod cpu;
 pub mod ppu;
 pub mod tracer;
 
+pub mod dmc_dma;
+mod oam_dma;
 #[cfg(feature = "testing-utils")]
 pub mod test_utils;
 
 // use super::trace;
+use crate::nes::cpu::CpuMode;
+use crate::nes::dmc_dma::DmcDma;
+use crate::nes::oam_dma::{OamDma, OamDmaOp};
 use crate::trace;
 use bus::nes_bus::NesBus;
 use cartridge::Cartridge;
@@ -39,15 +44,22 @@ pub enum RunState {
 // No other thread ever accesses NES or its internal raw pointers.
 unsafe impl Send for NES {}
 
+pub enum BusOwner {
+    Cpu,
+    Dmc,
+    Oam,
+}
+
 pub struct NES {
     pub run_state: RunState,
     pub bus: &'static mut NesBus,
     master_clock: u64,
-    dma_mode: DmaMode,
+    cpu_cycle_parity: bool,
 
-    pub oam_transfer_cycles: usize,
+    dmc_dma: DmcDma,
+    oam_dma: OamDma,
+    oam_byte: u8,
 
-    // pub cycle_acc: f64,
     pub ppu_remainder: u64,
     pub last_apu_sample_raw: f32,
 }
@@ -65,8 +77,13 @@ impl NES {
             run_state: RunState::Running,
             bus,
             master_clock: 0,
-            dma_mode: DmaMode::None,
-            oam_transfer_cycles: 0,
+
+            cpu_cycle_parity: false,
+            dmc_dma: DmcDma::new(),
+            oam_dma: OamDma::new(),
+            oam_byte: 0,
+
+            // oam_transfer_cycles: 0,
 
             // cycle_acc: 0.0,
             ppu_remainder: 0,
@@ -102,50 +119,51 @@ impl NES {
     /// - Second value is `true` if a new frame is ready to be rendered, and `false` otherwise
     pub fn tick(&mut self) -> (bool, bool) {
         // CPU runs at 1/3 PPU speed
-        let mut cpu_tick = false;
+        let mut cpu_ticked = false;
         if self.master_clock.is_multiple_of(3) {
-            match self.dma_mode {
-                DmaMode::None => {
-                    if self.bus.cpu.rdy {
-                        self.bus.cpu.tick();
-                        cpu_tick = true;
-                    } else {
-                        // Start OAM DMA
-                        self.dma_mode = DmaMode::Oam;
-                        self.oam_transfer_cycles = OAM_DMA_START_CYCLES; // counts 0..511 for 256 bytes
-                    }
-                }
-                DmaMode::Oam => {
-                    // DMA transfers one byte per 2 CPU cycles
-                    if self.oam_transfer_cycles < OAM_DMA_DONE_CYCLES {
-                        if self.oam_transfer_cycles.is_multiple_of(2) {
-                            let byte_index = self.oam_transfer_cycles / 2;
+            // Handle OAM request
+            if let Some(page) = self.bus.oam_dma_request.take() {
+                self.oam_dma.start(page, self.cpu_cycle_parity);
+            }
 
-                            // Read from CPU memory
-                            let hi: u16 = (self.bus.oam_dma_addr as u16) << 8;
-                            let addr = hi + byte_index as u16;
-                            let value = self.bus.cpu_bus_read(addr);
+            // TODO: Dmc
 
-                            self.bus.ppu.write_to_oam_data(value);
+            let dmc_pending = self.dmc_dma.wants_bus();
+            let oam_pending = self.oam_dma.active();
+            let dma_pending = dmc_pending || oam_pending;
+
+            // Tick CPU
+            let rdy_line = !dma_pending;
+            let (stalled, _istr_done, _is_breaking) = self.bus.cpu.tick(rdy_line);
+            cpu_ticked = !stalled;
+
+            if stalled {
+                if dmc_pending {
+                    // TODO
+                } else if oam_pending {
+                    let oam_op = self.oam_dma.step();
+                    match oam_op {
+                        OamDmaOp::Dummy => {}
+                        OamDmaOp::Read(addr) => {
+                            self.oam_byte = self.bus.cpu_bus_read(addr);
                         }
-                        self.oam_transfer_cycles += 1;
-                    } else {
-                        // DMA complete
-                        self.dma_mode = DmaMode::None;
-                        self.bus.cpu.rdy = true; // Carry on with regular CPU cycles
+                        OamDmaOp::Write => {
+                            self.bus.ppu.write_to_oam_data(self.oam_byte);
+                        }
                     }
                 }
             }
 
             // APU is clocked at CPU speed
             self.bus.apu.clock();
+            self.cpu_cycle_parity = !self.cpu_cycle_parity;
         }
 
         // Tick PPU
         let frame_ready = self.bus.ppu.tick();
 
-        self.master_clock += 1;
-        (cpu_tick, frame_ready)
+        self.master_clock = (self.master_clock + 1) % 3_000_000;
+        (cpu_ticked, frame_ready)
     }
 
     pub fn get_frame_buffer(&self) -> &[u8; 256 * 240] {
