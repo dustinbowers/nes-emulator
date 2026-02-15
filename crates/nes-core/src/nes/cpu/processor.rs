@@ -7,7 +7,7 @@ impl CPU {
     #[allow(dead_code)]
     pub fn run(&mut self) {
         loop {
-            let (_stalled, _instr_done, is_breaking) = self.tick(true);
+            let (_instr_done, is_breaking) = self.tick(true);
             if is_breaking {
                 break;
             }
@@ -18,18 +18,27 @@ impl CPU {
         self.program_counter = self.program_counter.wrapping_add(1);
     }
 
-    pub(super) fn read_program_counter(&mut self) -> u8 {
-        self.bus_read(self.program_counter)
+    // pub(super) fn read_program_counter(&mut self) -> u8 {
+    //     self.bus_read(self.program_counter)
+    // }
+    pub(super) fn try_read_program_counter(&mut self) -> Option<u8> {
+        self.try_bus_read(self.program_counter)
     }
 
-    pub(super) fn consume_program_counter(&mut self) -> u8 {
-        let byte = self.read_program_counter();
-        if self.stalled_this_tick {
-            return 0;
-        }
+    pub(super) fn try_consume_program_counter(&mut self) -> Option<u8> {
+        let byte = self.try_read_program_counter()?;
         self.advance_program_counter();
-        byte
+        Some(byte)
     }
+
+    // pub(super) fn consume_program_counter(&mut self) -> u8 {
+    //     let byte = self.read_program_counter();
+    //     if self.stalled_this_tick {
+    //         return 0;
+    //     }
+    //     self.advance_program_counter();
+    //     byte
+    // }
 
     /// Runs one CPU cycle
     ///
@@ -39,27 +48,27 @@ impl CPU {
     /// - The first element is `true` if the CPU stalled during the tick
     /// - The second element is `true` if CPU this cycle completed an instruction
     /// - The third element is `true` if CPU is breaking (due to JAM/KIL instruction)
-    pub fn tick(&mut self, rdy_line: bool) -> (bool, bool, bool) {
-        self.rdy_line = rdy_line;
-        self.stalled_this_tick = false;
-
-        // snapshot to revert to if CPU stalls on read
-        let saved_pc = self.program_counter;
-        let saved_op = self.current_op.clone();
-        let saved_active_interrupt = self.active_interrupt;
-
-        let (done, is_breaking) = self.tick_inner();
-
-        // rollback last tick when rdy_line is low and CPU hits a read cycle
-        if self.stalled_this_tick {
-            self.program_counter = saved_pc;
-            self.current_op = saved_op;
-            self.active_interrupt = saved_active_interrupt;
-            return (true, false, false);
-        }
-
-        (false, done, is_breaking)
-    }
+    // pub fn tick(&mut self, rdy_line: bool) -> (bool, bool, bool) {
+    //     self.rdy_line = rdy_line;
+    //     self.stalled_this_tick = false;
+    //
+    //     // snapshot to revert to if CPU stalls on read
+    //     let saved_pc = self.program_counter;
+    //     let saved_op = self.current_op.clone();
+    //     let saved_active_interrupt = self.active_interrupt;
+    //
+    //     let (done, is_breaking) = self.tick_inner();
+    //
+    //     // rollback last tick when rdy_line is low and CPU hits a read cycle
+    //     if self.stalled_this_tick {
+    //         self.program_counter = saved_pc;
+    //         self.current_op = saved_op;
+    //         self.active_interrupt = saved_active_interrupt;
+    //         return (true, false, false);
+    //     }
+    //
+    //     (false, done, is_breaking)
+    // }
 
     /// Runs one CPU cycle
     ///
@@ -68,7 +77,10 @@ impl CPU {
     /// A tuple `(bool, bool)`:
     /// * The first element is true if current instruction is complete
     /// * The second element is true if CPU is breaking (due to JAM/KIL instruction)
-    fn tick_inner(&mut self) -> (bool, bool) {
+    pub fn tick(&mut self, rdy_line: bool) -> (bool, bool) {
+        self.rdy_line = rdy_line;
+        self.stalled_this_tick = false;
+
         self.cycle = (self.cycle + 1) % 3_000_000;
 
         // Load next opcode if empty
@@ -114,7 +126,10 @@ impl CPU {
 
             // Load next opcode
             let opcodes: &HashMap<u8, &'static Opcode> = &opcodes::OPCODES_MAP;
-            let code = self.consume_program_counter();
+            let code = match self.try_consume_program_counter() {
+                Some(v) => v,
+                None => return (false, false),
+            };
 
             let opcode = match opcodes.get(&code).copied() {
                 Some(op) => op,

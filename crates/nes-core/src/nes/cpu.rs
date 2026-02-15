@@ -134,7 +134,7 @@ struct CpuCycleState {
 pub struct CPU {
     pub bus: Option<*mut dyn CpuBusInterface>,
     pub cycle: usize,
-    last_bus_op: BusOpKind,
+    // last_bus_op: BusOpKind,
     rdy_line: bool,
     pub(crate) stalled_this_tick: bool,
 
@@ -162,7 +162,7 @@ impl CPU {
         CPU {
             bus: None,
             cycle: 0,
-            last_bus_op: BusOpKind::None,
+            // last_bus_op: BusOpKind::None,
             rdy_line: false,
             stalled_this_tick: false,
             register_a: 0,
@@ -183,8 +183,9 @@ impl CPU {
     }
 
     pub fn reset(&mut self) {
-        let pcl = self.bus_read(0xFFFC) as u16;
-        let pch = self.bus_read(0xFFFD) as u16;
+        self.rdy_line = true;
+        let pcl = self.try_bus_read(0xFFFC).unwrap() as u16;
+        let pch = self.try_bus_read(0xFFFD).unwrap() as u16;
         self.program_counter = (pch << 8) | pcl;
         self.cycle = 0;
         self.current_op = CpuCycleState::default();
@@ -203,25 +204,37 @@ impl CPU {
 
     /// `connect_bus` MUST be called after constructing CPU
     pub fn connect_bus(&mut self, bus: *mut dyn CpuBusInterface) {
+        self.rdy_line = true;
         self.bus = Some(bus);
-        let pcl = self.bus_read(0xFFFC) as u16;
-        let pch = self.bus_read(0xFFFD) as u16;
+        let pcl = self.try_bus_read(0xFFFC).unwrap() as u16;
+        let pch = self.try_bus_read(0xFFFD).unwrap() as u16;
         self.program_counter = (pch << 8) | pcl;
     }
 
     /// `bus_read` is safe because Bus owns CPU
-    pub fn bus_read(&mut self, addr: u16) -> u8 {
+    // pub fn bus_read(&mut self, addr: u16) -> u8 {
+    //     if !self.rdy_line {
+    //         self.stalled_this_tick = true;
+    //         return 0; // ignore the read and rewind in tick()
+    //     }
+    //     self.last_bus_op = BusOpKind::Read;
+    //     unsafe { (*self.bus.unwrap()).cpu_bus_read(addr) }
+    // }
+
+    pub fn try_bus_read(&mut self, addr: u16) -> Option<u8> {
         if !self.rdy_line {
             self.stalled_this_tick = true;
-            return 0; // ignore the read and rewind in tick()
+            return None;
         }
-        self.last_bus_op = BusOpKind::Read;
-        unsafe { (*self.bus.unwrap()).cpu_bus_read(addr) }
+        unsafe {
+            let byte = (*self.bus.unwrap()).cpu_bus_read(addr);
+            Some(byte)
+        }
     }
 
     /// `bus_write` is safe because Bus owns CPU
     pub fn bus_write(&mut self, addr: u16, data: u8) {
-        self.last_bus_op = BusOpKind::Write;
+        // self.last_bus_op = BusOpKind::Write;
         unsafe {
             (*self.bus.unwrap()).cpu_bus_write(addr, data);
         }

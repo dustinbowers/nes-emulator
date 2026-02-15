@@ -137,10 +137,10 @@ impl NES {
             let rdy_line = !dma_active_now;
 
             // Tick CPU
-            let (stalled, _, _) = self.bus.cpu.tick(rdy_line);
-            cpu_ticked = !stalled;
+            let (_, _) = self.bus.cpu.tick(rdy_line);
+            cpu_ticked = !self.bus.cpu.stalled_this_tick;
 
-            if stalled {
+            if self.bus.cpu.stalled_this_tick {
                 if self.dmc_dma.active() {
                     if let Some(addr) = self.dmc_dma.step() {
                         let byte = self.bus.apu_bus_read(addr);
