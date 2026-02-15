@@ -94,7 +94,7 @@ impl DmcChannel {
         // these will finish playing before the next sample is fetched.
         else if !self.enabled && enabled {
             if self.bytes_remaining == 0 {
-                // TODO: queue restart when current output finishes
+                self.start();
             }
         }
         self.enabled = enabled;
@@ -104,41 +104,47 @@ impl DmcChannel {
         self.bytes_remaining > 0
     }
 
-    pub fn clock(&mut self) {
-        let advance_output = self.seq_timer.clock();
-        let need_byte = self.output.clock();
+    pub fn clear_irq(&mut self) {
+        self.irq_pending = false;
+    }
+    pub fn irq_pending(&self) -> bool {
+        self.irq_pending
+    }
 
-        // If sample buffer is empty with more remaining, fetch a byte via DMA
-        if self.enabled && self.sample_buffer.is_some() && self.bytes_remaining > 0 {
-            // TODO: DMA read from current address
-            let byte = 0; // todo
+    pub fn wants_bus(&self) -> bool {
+        self.enabled && self.sample_buffer.is_none() && self.bytes_remaining > 0
+    }
 
-            self.sample_buffer = Some(byte);
+    pub fn dma_addr(&self) -> u16 {
+        self.current_address
+    }
 
-            self.current_address = if self.current_address == 0xFFFF {
-                0x8000
-            } else {
-                self.current_address + 1
-            };
+    pub fn supply_dma_byte(&mut self, byte: u8) {
+        self.sample_buffer = Some(byte);
 
-            self.bytes_remaining -= 1;
+        self.current_address = if self.current_address == 0xFFFF {
+            0x8000
+        } else {
+            self.current_address.wrapping_add(1)
+        };
 
-            if self.bytes_remaining == 0 {
-                if self.loop_flag {
-                    self.current_address = self.sample_address;
-                    self.bytes_remaining = self.sample_length;
-                } else if self.irq_enabled {
-                    self.irq_pending = true;
-                }
+        self.bytes_remaining = self.bytes_remaining.saturating_sub(1);
+
+        if self.bytes_remaining == 0 {
+            if self.loop_flag {
+                self.current_address = self.sample_address;
+                self.bytes_remaining = self.sample_length;
+            } else if self.irq_enabled {
+                self.irq_pending = true;
             }
         }
+    }
 
-        // tick timer
-        let advance_timer = self.seq_timer.clock();
-        if advance_timer {
+    pub fn clock(&mut self) {
+        if self.seq_timer.clock() {
             self.seq_timer.reset();
-            let shift_empty = self.output.clock();
 
+            let shift_empty = self.output.clock();
             if shift_empty {
                 if let Some(byte) = self.sample_buffer.take() {
                     self.output.load_shift_register(byte);

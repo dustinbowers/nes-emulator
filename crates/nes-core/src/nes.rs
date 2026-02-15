@@ -12,6 +12,7 @@ mod oam_dma;
 #[cfg(feature = "testing-utils")]
 pub mod test_utils;
 
+use crate::nes::apu::ApuBusInterface;
 use crate::nes::dmc_dma::DmcDma;
 use crate::nes::oam_dma::{OamDma, OamDmaOp};
 use crate::trace;
@@ -120,22 +121,32 @@ impl NES {
             if let Some(page) = self.bus.oam_dma_request.take() {
                 self.oam_dma.start(page, self.cpu_cycle_parity);
             }
+            if self.bus.apu.dmc.wants_bus() {
+                let addr = self.bus.apu.dmc.dma_addr();
+                self.dmc_dma.request(addr);
+            }
+            let dmc_active = self.dmc_dma.active();
+            let oam_active = self.oam_dma.active();
+            let dma_active = dmc_active || oam_active;
 
-            // TODO: Dmc
+            if !dmc_active && self.dmc_dma.pending() {
+                self.dmc_dma.begin();
+            }
 
-            let dmc_pending = self.dmc_dma.wants_bus();
-            let oam_pending = self.oam_dma.active();
-            let dma_pending = dmc_pending || oam_pending;
+            let dma_active_now = self.dmc_dma.active() || oam_active;
+            let rdy_line = !dma_active_now;
 
             // Tick CPU
-            let rdy_line = !dma_pending;
-            let (stalled, _istr_done, _is_breaking) = self.bus.cpu.tick(rdy_line);
+            let (stalled, _, _) = self.bus.cpu.tick(rdy_line);
             cpu_ticked = !stalled;
 
             if stalled {
-                if dmc_pending {
-                    // TODO
-                } else if oam_pending {
+                if self.dmc_dma.active() {
+                    if let Some(addr) = self.dmc_dma.step() {
+                        let byte = self.bus.apu_bus_read(addr);
+                        self.bus.apu.dmc.supply_dma_byte(byte);
+                    }
+                } else if oam_active {
                     let oam_op = self.oam_dma.step();
                     match oam_op {
                         OamDmaOp::Dummy => {}
@@ -151,6 +162,7 @@ impl NES {
 
             // APU is clocked at CPU speed
             self.bus.apu.clock();
+
             self.cpu_cycle_parity = !self.cpu_cycle_parity;
         }
 

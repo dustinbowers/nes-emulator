@@ -228,8 +228,23 @@ impl PpuBusInterface for NesBus {
 
 impl ApuBusInterface for NesBus {
     fn apu_bus_read(&mut self, addr: u16) -> u8 {
-        println!("ApuBusInterface::read({:?})", addr);
-        0
+        match addr {
+            0x8000..=0xFFFF => {
+                if let Some(cart) = &mut self.cart {
+                    let (byte, open_bus) = cart.cpu_read(addr);
+                    byte
+                } else {
+                    0 // open bus-ish
+                }
+            }
+
+            // If you want to be extra defensive in release builds:
+            _ => {
+                // Returning open bus is better than triggering IO side effects.
+                // But honestly, consider logging/panicking because this is a real bug.
+                0
+            }
+        }
     }
 }
 

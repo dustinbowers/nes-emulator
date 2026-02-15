@@ -248,7 +248,6 @@ impl APU {
     }
 
     pub fn read(&mut self, addr: u16) -> u8 {
-        println!("APU::read({:04X})", addr);
         match addr {
             0x4015 => {
                 // Status Register
@@ -268,7 +267,7 @@ impl APU {
                 self.status_register
                     .set(ApuStatusRegister::NOISE_CHANNEL, self.noise.length_active());
                 self.status_register
-                    .set(ApuStatusRegister::DMC_CHANNEL, self.dmc.is_enabled());
+                    .set(ApuStatusRegister::DMC_CHANNEL, self.dmc.irq_pending());
                 let output = self.status_register.bits();
 
                 // Reading status register clears the frame interrupt flag (but not the DMC interrupt flag).
@@ -341,8 +340,9 @@ impl APU {
                 self.dmc.set_enabled(enable_dmc);
 
                 // Writing to this register clears the DMC interrupt flag
-                self.status_register
-                    .remove(ApuStatusRegister::DMC_INTERRUPT);
+                // self.status_register
+                //     .remove(ApuStatusRegister::DMC_INTERRUPT);
+                self.dmc.clear_irq();
             }
             0x4017 => {
                 // Frame Counter
@@ -539,7 +539,11 @@ impl APU {
         } else {
             self.noise.sample() as f32
         };
-        let dmc = if self.mute_dmc { 0.0 } else { 0.0 }; // TODO
+        let dmc = if self.mute_dmc {
+            0.0
+        } else {
+            self.dmc.sample() as f32
+        };
 
         let mut sample;
         #[cfg(feature = "linear-apu-approximation")]
@@ -610,9 +614,10 @@ impl APU {
             .contains(ApuStatusRegister::FRAME_INTERRUPT)
             && !self.frame_irq_disable;
 
-        let dmc_interrupt = self
-            .status_register
-            .contains(ApuStatusRegister::DMC_INTERRUPT);
+        // let dmc_interrupt = self
+        //     .status_register
+        //     .contains(ApuStatusRegister::DMC_INTERRUPT);
+        let dmc_interrupt = self.dmc.irq_pending();
 
         frame_interrupt || dmc_interrupt
     }

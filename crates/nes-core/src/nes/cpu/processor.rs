@@ -24,10 +24,21 @@ impl CPU {
 
     pub(super) fn consume_program_counter(&mut self) -> u8 {
         let byte = self.read_program_counter();
+        if self.stalled_this_tick {
+            return 0;
+        }
         self.advance_program_counter();
         byte
     }
 
+    /// Runs one CPU cycle
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(bool, bool, bool)`:
+    /// - The first element is `true` if the CPU stalled during the tick
+    /// - The second element is `true` if CPU this cycle completed an instruction
+    /// - The third element is `true` if CPU is breaking (due to JAM/KIL instruction)
     pub fn tick(&mut self, rdy_line: bool) -> (bool, bool, bool) {
         self.rdy_line = rdy_line;
         self.stalled_this_tick = false;
