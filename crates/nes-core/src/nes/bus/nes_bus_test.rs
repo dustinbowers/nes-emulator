@@ -162,10 +162,10 @@ mod test {
         bus.cpu.bus_write(0x2006, low);
 
         // First read returns buffer contents (invalid)
-        let dummy = bus.cpu.bus_read(0x2007);
+        let dummy = bus.cpu.try_bus_read(0x2007).unwrap();
 
         // Second read returns actual value at 0x2400 (0xDE)
-        let value = bus.cpu.bus_read(0x2007);
+        let value = bus.cpu.try_bus_read(0x2007).unwrap();
 
         assert_ne!(
             dummy, 0xDE,
@@ -213,7 +213,7 @@ mod test {
         }
 
         // Execute instructions until JAM
-        while !bus.cpu.tick().1 {}
+        while !bus.cpu.tick(true).1 {}
 
         let addr = 0x2345;
         let mirror = bus.ppu.mirror_ram_addr(addr) as usize;
@@ -257,7 +257,7 @@ mod test {
         bus.ppu.run_until_vblank();
 
         // Execute instructions until JAM
-        while !bus.cpu.tick().1 {}
+        while !bus.cpu.tick(true).1 {}
 
         // Verify palette_table was written to
         let palette_base = 0x3F00;

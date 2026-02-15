@@ -101,6 +101,8 @@ impl EmuRuntime {
         let frames = data.len() / channels;
         // Only update APU SR when it changes
         if self.last_sample_rate != Some(sample_rate) {
+            // let msg = format!("update sample rate {} -> {}", self.last_sample_rate.unwrap_or(0), sample_rate) ;
+            // self.event_tx.send(EmuEvent::Log(msg.into())).ok();
             self.nes.bus.apu.set_sample_rate(sample_rate as f64);
             self.last_sample_rate = Some(sample_rate);
         }

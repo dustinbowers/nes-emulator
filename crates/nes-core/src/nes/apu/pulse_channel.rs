@@ -14,7 +14,7 @@ const DUTY_TABLE: [[u8; 8]; 4] = [
 
 pub struct PulseChannel {
     seq_timer: SequenceTimer,
-    length_counter: LengthCounter,
+    pub length_counter: LengthCounter,
     envelope: Envelope,
     sweep: Sweep,
 

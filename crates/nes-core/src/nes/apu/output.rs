@@ -1,3 +1,5 @@
+use crate::nes::apu::blip_buf;
+
 pub struct ApuOutput {
     blip: blip_buf::BlipBuf,
     cpu_hz: f64,

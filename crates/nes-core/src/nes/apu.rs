@@ -9,6 +9,7 @@ use std::cmp::PartialEq;
 use thiserror::Error;
 use triangle_channel::TriangleChannel;
 
+mod blip_buf;
 mod dmc_channel;
 mod filter;
 mod noise_channel;
@@ -151,6 +152,8 @@ impl Default for APU {
     }
 }
 
+const BLIP_BUF_MAX_SAMPLES: usize = 4096 * 2;
+
 impl APU {
     pub fn new() -> APU {
         APU {
@@ -158,7 +161,7 @@ impl APU {
             cpu_phase: ApuPhase::new(),
             seq_phase: ApuPhase::new(),
 
-            output: ApuOutput::new(CPU_HZ_NTSC, 44_100, 4096),
+            output: ApuOutput::new(CPU_HZ_NTSC, 44_100, BLIP_BUF_MAX_SAMPLES),
             last_dac: 0,
             // current_sample_raw: 0.0,
 
@@ -637,5 +640,44 @@ impl APU {
     /// CPU cycles needed to generate `N` more samples at current rates
     pub fn clocks_needed(&self, sample_count: u32) -> u32 {
         self.output.clocks_needed(sample_count)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn apu_length_table_pulse1() {
+        // Standard APU length table (index = bits 7..3 of $4003)
+        const LENGTH_TABLE: [u8; 32] = [
+            10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20,
+            96, 22, 192, 24, 72, 26, 16, 28, 32, 30,
+        ];
+
+        let mut apu = APU::new();
+
+        // when pulse1 is disabled, writing $4003 shouldn't load length
+        apu.write(0x4015, 0x00);
+        apu.write(0x4003, 0b0000_0000); // index 0
+        assert_eq!(apu.pulse1.length_counter.output(), 0);
+
+        // 2) Enable pulse1
+        apu.write(0x4015, ApuStatusRegister::PULSE_CHANNEL_1.bits());
+
+        // test all length indices
+        for (idx, &expected) in LENGTH_TABLE.iter().enumerate() {
+            // bits 7..3 hold the length index
+            let value = ((idx as u8) << 3) & 0xF8;
+            apu.write(0x4003, value);
+
+            assert_eq!(
+                apu.pulse1.length_counter.output(),
+                expected,
+                "length mismatch at index {} (write value {:02X})",
+                idx,
+                value
+            );
+        }
     }
 }

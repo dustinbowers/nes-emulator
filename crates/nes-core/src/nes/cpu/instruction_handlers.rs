@@ -1003,8 +1003,7 @@ impl CPU {
             AddressingMode::Immediate => {
                 if self.current_op.micro_cycle == 0 {
                     self.current_op.tmp_data = self.try_consume_program_counter()?;
-                    self.current_op.addr_result =
-                        AddrResult::ReadyImmediate
+                    self.current_op.addr_result = AddrResult::ReadyImmediate
                 }
             }
             AddressingMode::ZeroPage => {
@@ -1177,7 +1176,7 @@ impl CPU {
                 // Note: Branch opcodes exclusively use this address mode
                 if self.current_op.micro_cycle == 0 {
                     self.current_op.tmp_data = self.try_consume_program_counter()?;
-                    self.current_op.addr_result = AddrResult::Ready(self.current_op.tmp_addr);
+                    self.current_op.addr_result = AddrResult::ReadyImmediate;
                 }
             }
             _ => unreachable!("unsupported addressing mode"),
@@ -1304,28 +1303,18 @@ impl CPU {
                 false
             }
             ExecPhase::Read => {
-                // dummy read stack
-                let stack_addr = self.stack_pointer.wrapping_add(1);
-                if self
-                    .try_bus_read(CPU_STACK_BASE.wrapping_add(stack_addr as u16))
-                    .is_none()
-                {
-                    return false;
-                }
+                let v = match self.stack_pop() {
+                    Some(v) => v,
+                    None => return false, // stalled
+                };
+                // Latch popped value for the instruction to use later
+                self.current_op.tmp_data = v;
 
                 self.current_op.micro_cycle += 1;
                 self.current_op.exec_phase = ExecPhase::Write;
                 false
             }
             ExecPhase::Write => {
-                let v = match self.stack_pop() {
-                    Some(v) => v,
-                    None => return false, // stalled
-                };
-
-                // Latch popped value for the instruction to use later
-                self.current_op.tmp_data = v;
-
                 op(self);
 
                 self.current_op.micro_cycle += 1;
@@ -1403,7 +1392,7 @@ impl CPU {
         };
         match addr_result {
             AddrResult::InProgress => false,
-            AddrResult::Ready(_) => {
+            AddrResult::Ready(_) | AddrResult::ReadyImmediate => {
                 match self.current_op.exec_phase {
                     ExecPhase::Idle => {
                         if condition(self) {
@@ -1423,6 +1412,9 @@ impl CPU {
                         let new_pc = old_pc.wrapping_add(offset as u16);
                         self.set_program_counter(new_pc);
 
+                        // latch the wrong address for later
+                        self.current_op.tmp_addr = (old_pc & 0xFF00) | (new_pc & 0x00FF);
+
                         let page_crossed = (old_pc & 0xFF00) != (new_pc & 0xFF00);
                         if page_crossed {
                             self.current_op.page_crossed = page_crossed;
@@ -1434,6 +1426,12 @@ impl CPU {
                         }
                     }
                     ExecPhase::Write => {
+                        // This page-crossed interim step is actually a dummy read
+                        // from the wrong page
+                        if self.try_bus_read(self.current_op.tmp_addr).is_none() {
+                            return false; // stall
+                        }
+
                         self.current_op.exec_phase = ExecPhase::Done;
                         true
                     }
@@ -1441,7 +1439,6 @@ impl CPU {
                     _ => unreachable!(),
                 }
             }
-            _ => unreachable!(),
         }
     }
 
