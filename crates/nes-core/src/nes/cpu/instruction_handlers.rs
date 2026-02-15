@@ -474,11 +474,11 @@ impl CPU {
 
     /// Jump to subroutine
     pub(super) fn jsr(&mut self) -> bool {
-        let addressing_mode = match self.try_tick_addressing_mode() {
+        let addr_result = match self.try_tick_addressing_mode() {
             Some(mode) => mode,
             None => return false,
         };
-        match addressing_mode {
+        match addr_result {
             AddrResult::InProgress => false,
             AddrResult::Ready(addr) => {
                 match self.current_op.exec_phase {
@@ -1004,7 +1004,6 @@ impl CPU {
                 if self.current_op.micro_cycle == 0 {
                     self.current_op.tmp_data = self.try_consume_program_counter()?;
                     self.current_op.addr_result =
-                        // AddrResult::ReadyImmediate(self.current_op.tmp_data);
                         AddrResult::ReadyImmediate
                 }
             }
@@ -1191,11 +1190,11 @@ impl CPU {
     where
         F: Fn(&mut CPU),
     {
-        let addressing_mode = match self.try_tick_addressing_mode() {
+        let addr_result = match self.try_tick_addressing_mode() {
             Some(mode) => mode,
             None => return false,
         };
-        match addressing_mode {
+        match addr_result {
             AddrResult::InProgress => false,
             AddrResult::Ready(addr) => match self.current_op.exec_phase {
                 ExecPhase::Idle => {
@@ -1225,11 +1224,11 @@ impl CPU {
     where
         F: Fn(&mut CPU),
     {
-        let addressing_mode = match self.try_tick_addressing_mode() {
+        let addr_result = match self.try_tick_addressing_mode() {
             Some(mode) => mode,
             None => return false,
         };
-        match addressing_mode {
+        match addr_result {
             AddrResult::InProgress => false,
             AddrResult::Ready(addr) => match self.current_op.exec_phase {
                 ExecPhase::Idle => {
@@ -1252,11 +1251,11 @@ impl CPU {
     where
         F: Fn(&mut CPU),
     {
-        let addressing_mode = match self.try_tick_addressing_mode() {
+        let addr_result = match self.try_tick_addressing_mode() {
             Some(mode) => mode,
             None => return false,
         };
-        match addressing_mode {
+        match addr_result {
             AddrResult::InProgress => false,
             AddrResult::Ready(addr) => {
                 match self.current_op.exec_phase {
@@ -1375,11 +1374,11 @@ impl CPU {
     where
         F: Fn(&mut CPU),
     {
-        let addressing_mode = match self.try_tick_addressing_mode() {
+        let addr_result = match self.try_tick_addressing_mode() {
             Some(mode) => mode,
             None => return false,
         };
-        match addressing_mode {
+        match addr_result {
             AddrResult::InProgress => false,
             AddrResult::Ready(_) => {
                 op(self);
@@ -1398,11 +1397,11 @@ impl CPU {
     where
         F: Fn(&mut CPU) -> bool,
     {
-        let addressing_mode = match self.try_tick_addressing_mode() {
+        let addr_result = match self.try_tick_addressing_mode() {
             Some(mode) => mode,
             None => return false,
         };
-        match addressing_mode {
+        match addr_result {
             AddrResult::InProgress => false,
             AddrResult::Ready(_) => {
                 match self.current_op.exec_phase {
