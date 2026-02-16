@@ -2,6 +2,7 @@ use crate::nes::CPU_HZ_NTSC;
 use crate::nes::apu::filter::OnePole;
 use crate::nes::apu::output::ApuOutput;
 use crate::nes::apu::status_register::ApuStatusRegister;
+use crate::trace;
 use dmc_channel::DmcChannel;
 use noise_channel::NoiseChannel;
 use pulse_channel::PulseChannel;
@@ -253,6 +254,9 @@ impl APU {
     pub fn read(&mut self, addr: u16) -> u8 {
         match addr {
             0x4015 => {
+                {
+                    trace!("[APU] read({:04X})", addr);
+                }
                 // Status Register
                 // Collect channel statuses
                 self.status_register.set(
@@ -270,9 +274,12 @@ impl APU {
                 self.status_register
                     .set(ApuStatusRegister::NOISE_CHANNEL, self.noise.length_active());
                 self.status_register
-                    .set(ApuStatusRegister::DMC_CHANNEL, self.dmc.irq_pending());
-                let output = self.status_register.bits();
+                    .set(ApuStatusRegister::DMC_CHANNEL, self.dmc.is_enabled());
 
+                self.status_register
+                    .set(ApuStatusRegister::DMC_INTERRUPT, self.dmc.irq_pending());
+
+                let output = self.status_register.bits();
                 // Reading status register clears the frame interrupt flag (but not the DMC interrupt flag).
                 // Quirk: If an interrupt flag was set at the same moment of the read, it will read back as 1, but it will not be cleared.
                 if !self.frame_irq_rising {
@@ -340,7 +347,8 @@ impl APU {
                 self.pulse2.set_enabled(enable_pulse2);
                 self.triangle.set_enabled(enable_triangle);
                 self.noise.set_enabled(enable_noise);
-                self.dmc.set_enabled(enable_dmc);
+                self.dmc.write_4015(value);
+                // self.dmc.set_enabled(enable_dmc);
 
                 // Writing to this register clears the DMC interrupt flag
                 // self.status_register

@@ -36,6 +36,11 @@ impl CPU {
     /// * The first element is true if current instruction is complete
     /// * The second element is true if CPU is breaking (due to JAM/KIL instruction)
     pub fn tick(&mut self, rdy_line: bool) -> (bool, bool) {
+        if !rdy_line && self.stalled_this_tick {
+            // early out until rdy_line goes high again
+            return (false, false);
+        }
+
         self.rdy_line = rdy_line;
         self.stalled_this_tick = false;
 
@@ -59,7 +64,7 @@ impl CPU {
                     #[cfg(feature = "tracing")]
                     {
                         let (scanline, dot) = unsafe { (*self.bus.unwrap()).ppu_timing() };
-                        trace_cpu_event!("[NMI SET] sl={} dot={}", scanline, dot);
+                        trace!("[NMI SET] sl={} dot={}", scanline, dot);
                     }
                 }
             }

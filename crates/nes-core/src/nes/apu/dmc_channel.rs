@@ -52,11 +52,17 @@ impl DmcChannel {
               bit 6    -L--.---- Loop flag
               bits 3-0 ----.RRRR Rate index
         */
-        self.irq_enabled = value & 0b1000_0000 != 0;
-        self.loop_flag = value & 0b0100_0000 != 0;
+        let new_irq_enabled = value & 0x80 != 0;
+        if !new_irq_enabled {
+            self.irq_pending = false;
+        }
+        self.irq_enabled = new_irq_enabled;
 
-        let rate_index = value & 0b0000_1111;
-        self.seq_timer.set_reload(RATE_TABLE[rate_index as usize]);
+        self.loop_flag = value & 0x40 != 0;
+        let rate_index = (value & 0x0F) as usize;
+        let period = RATE_TABLE[rate_index];
+
+        self.seq_timer.set_reload(period - 1);
     }
 
     pub fn write_4011(&mut self, value: u8) {
@@ -81,6 +87,29 @@ impl DmcChannel {
     pub fn start(&mut self) {
         self.current_address = self.sample_address;
         self.bytes_remaining = self.sample_length;
+    }
+
+    pub fn write_4015(&mut self, value: u8) {
+        // All writes clear DMC interrupt
+        self.irq_pending = false;
+
+        let enable = (value & 0x10) != 0;
+
+        if !enable {
+            self.bytes_remaining = 0;
+            self.enabled = false;
+            return;
+        }
+
+        self.enabled = true;
+
+        // Restart if bytes_remaining is zero
+        if self.bytes_remaining == 0 {
+            self.current_address = self.sample_address;
+            self.bytes_remaining = self.sample_length;
+            // sample_buffer and shift register remain intact
+            // so that it can finish playing before looping
+        }
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {

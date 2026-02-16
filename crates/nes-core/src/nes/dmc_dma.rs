@@ -1,3 +1,4 @@
+
 pub struct DmcDma {
     // request address latched from the DMC channel
     req_addr: Option<u16>,

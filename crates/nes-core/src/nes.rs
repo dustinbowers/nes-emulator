@@ -94,8 +94,24 @@ impl NES {
         nes
     }
 
+    pub fn reset(&mut self) {
+        self.run_state = RunState::Running;
+        self.master_clock = 0;
+        self.cpu_cycle_parity = false;
+        self.oam_dma = OamDma::new();
+        self.dmc_dma = DmcDma::new();
+        self.oam_byte = 0;
+        self.ppu_remainder = 0;
+        self.last_apu_sample_raw = 0.0;
+
+        self.bus.reset_components();
+    }
+
     pub fn insert_cartridge(&mut self, cartridge: Box<dyn Cartridge>) {
         self.bus.insert_cartridge(cartridge);
+
+        // Note: reset() has to be called *after* a new cartridge is inserted
+        self.reset();
     }
 
     pub fn parse_rom_bytes(rom_bytes: &Vec<u8>) -> Result<Box<dyn Cartridge>, RomError> {
@@ -121,24 +137,24 @@ impl NES {
             if let Some(page) = self.bus.oam_dma_request.take() {
                 self.oam_dma.start(page, self.cpu_cycle_parity);
             }
-            if self.bus.apu.dmc.wants_bus() {
-                let addr = self.bus.apu.dmc.dma_addr();
-                self.dmc_dma.request(addr);
-            }
-            let dmc_active = self.dmc_dma.active();
-            let oam_active = self.oam_dma.active();
-            let dma_active = dmc_active || oam_active;
 
-            if !dmc_active && self.dmc_dma.pending() {
-                self.dmc_dma.begin();
-            }
-
-            let dma_active_now = self.dmc_dma.active() || oam_active;
+            let dma_active_now =
+                self.oam_dma.active() || self.dmc_dma.active() || self.dmc_dma.pending();
             let rdy_line = !dma_active_now;
 
             // Tick CPU
             let (_, _) = self.bus.cpu.tick(rdy_line);
             cpu_ticked = !self.bus.cpu.stalled_this_tick;
+
+            // cpu tick may have triggered a dmc dma request
+            if self.bus.apu.dmc.wants_bus() {
+                let addr = self.bus.apu.dmc.dma_addr();
+                self.dmc_dma.request(addr);
+            }
+
+            if !rdy_line && !self.dmc_dma.active() && self.dmc_dma.pending() {
+                self.dmc_dma.begin();
+            }
 
             if self.bus.cpu.stalled_this_tick {
                 if self.dmc_dma.active() {
@@ -146,7 +162,7 @@ impl NES {
                         let byte = self.bus.apu_bus_read(addr);
                         self.bus.apu.dmc.supply_dma_byte(byte);
                     }
-                } else if oam_active {
+                } else if self.oam_dma.active() {
                     let oam_op = self.oam_dma.step();
                     match oam_op {
                         OamDmaOp::Dummy => {}
@@ -162,6 +178,12 @@ impl NES {
 
             // APU is clocked at CPU speed
             self.bus.apu.clock();
+
+            // Apu clock may have triggered dmc dma request
+            if self.bus.apu.dmc.wants_bus() {
+                let addr = self.bus.apu.dmc.dma_addr();
+                self.dmc_dma.request(addr);
+            }
 
             self.cpu_cycle_parity = !self.cpu_cycle_parity;
         }

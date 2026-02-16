@@ -23,7 +23,7 @@ bitflags! {
         const DMC_CHANNEL =      0b0001_0000;
         // open bit 5            0b0010_0000;
         const FRAME_INTERRUPT =  0b0100_0000;
-        // const DMC_INTERRUPT =    0b1000_0000; // Handled in DmcChannel
+        const DMC_INTERRUPT =    0b1000_0000;
     }
 }
 

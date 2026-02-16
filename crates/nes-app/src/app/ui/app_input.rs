@@ -4,6 +4,8 @@ use crate::app::ui::views::UiView;
 use crate::emu::commands::AudioChannel;
 use crate::emu::host::EmuHost;
 use nes_core::prelude::JoypadButton;
+use nes_core::trace_dump;
+use std::process;
 
 pub fn update_controller_state(ctx: &egui::Context, emu: &EmuHost) {
     let p1_key_map: &[(egui::Key, JoypadButton)] = &[
@@ -71,6 +73,11 @@ pub fn handle_hotkeys(egui_ctx: &egui::Context, ui_ctx: &mut UiCtx, view: &UiVie
             ui_ctx
                 .actions
                 .push(Action::ToggleAudioChannel(AudioChannel::DMC));
+        }
+
+        if input.key_pressed(egui::Key::T) {
+            trace_dump!();
+            process::exit(0);
         }
     }
 }
