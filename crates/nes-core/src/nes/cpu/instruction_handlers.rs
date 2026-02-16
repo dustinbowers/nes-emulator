@@ -532,7 +532,7 @@ impl CPU {
                 false
             }
             1 => {
-                let lo = match self.stack_pop() {
+                let lo = match self.try_stack_pop() {
                     Some(v) => v,
                     None => return false, // stall
                 };
@@ -541,7 +541,7 @@ impl CPU {
                 false
             }
             2 => {
-                let hi = match self.stack_pop() {
+                let hi = match self.try_stack_pop() {
                     Some(v) => v,
                     None => return false, // stall
                 };
@@ -581,7 +581,7 @@ impl CPU {
             }
             1 => {
                 // Restore status flags
-                let status = match self.stack_pop() {
+                let status = match self.try_stack_pop() {
                     Some(v) => v,
                     None => return false, // stall: retry cycle 1
                 };
@@ -595,7 +595,7 @@ impl CPU {
                 false
             }
             2 => {
-                let lo = match self.stack_pop() {
+                let lo = match self.try_stack_pop() {
                     Some(v) => v,
                     None => return false,
                 };
@@ -605,7 +605,7 @@ impl CPU {
                 false
             }
             3 => {
-                let hi = match self.stack_pop() {
+                let hi = match self.try_stack_pop() {
                     Some(v) => v,
                     None => return false,
                 };
@@ -939,7 +939,7 @@ impl CPU {
         self.stack_pointer = self.stack_pointer.wrapping_sub(1);
     }
 
-    fn stack_pop(&mut self) -> Option<u8> {
+    fn try_stack_pop(&mut self) -> Option<u8> {
         let next_sp = self.stack_pointer.wrapping_add(1);
         let addr = CPU_STACK_BASE.wrapping_add(next_sp as u16);
         let byte = self.try_bus_read(addr)?;
@@ -1303,7 +1303,7 @@ impl CPU {
                 false
             }
             ExecPhase::Read => {
-                let v = match self.stack_pop() {
+                let v = match self.try_stack_pop() {
                     Some(v) => v,
                     None => return false, // stalled
                 };
