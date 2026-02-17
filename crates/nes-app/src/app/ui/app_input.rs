@@ -75,6 +75,7 @@ pub fn handle_hotkeys(egui_ctx: &egui::Context, ui_ctx: &mut UiCtx, view: &UiVie
                 .push(Action::ToggleAudioChannel(AudioChannel::DMC));
         }
 
+        #[cfg(feature="tracing")]
         if input.key_pressed(egui::Key::T) {
             trace_dump!();
             process::exit(0);

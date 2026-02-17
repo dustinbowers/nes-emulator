@@ -43,12 +43,6 @@ pub enum RunState {
 // No other thread ever accesses NES or its internal raw pointers.
 unsafe impl Send for NES {}
 
-pub enum BusOwner {
-    Cpu,
-    Dmc,
-    Oam,
-}
-
 pub struct NES {
     pub run_state: RunState,
     pub bus: &'static mut NesBus,
