@@ -26,7 +26,7 @@ impl SimpleBus {
     }
 
     pub fn tick(&mut self) -> (bool, bool) {
-        let (is_done, is_breaking) = self.cpu.tick();
+        let (is_done, is_breaking) = self.cpu.tick(true);
         self.cycles += 1;
         (is_done, is_breaking)
     }

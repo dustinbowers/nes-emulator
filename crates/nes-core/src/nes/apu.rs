@@ -2,6 +2,7 @@ use crate::nes::CPU_HZ_NTSC;
 use crate::nes::apu::filter::OnePole;
 use crate::nes::apu::output::ApuOutput;
 use crate::nes::apu::status_register::ApuStatusRegister;
+use crate::trace;
 use dmc_channel::DmcChannel;
 use noise_channel::NoiseChannel;
 use pulse_channel::PulseChannel;
@@ -9,6 +10,7 @@ use std::cmp::PartialEq;
 use thiserror::Error;
 use triangle_channel::TriangleChannel;
 
+mod blip_buf;
 mod dmc_channel;
 mod filter;
 mod noise_channel;
@@ -137,9 +139,10 @@ pub struct APU {
     frame_irq_reassert: u8,
 
     sample_rate: f64,
-    high_pass_90: OnePole,
-    high_pass_440: OnePole,
-    low_pass_14k: OnePole,
+    low_pass_0: OnePole,
+    high_pass_0: OnePole,
+    high_pass_1: OnePole,
+    high_pass_2: OnePole,
 
     pub error: Option<ApuError>,
 }
@@ -150,6 +153,8 @@ impl Default for APU {
     }
 }
 
+const BLIP_BUF_MAX_SAMPLES: usize = 4096 * 2;
+
 impl APU {
     pub fn new() -> APU {
         APU {
@@ -157,7 +162,7 @@ impl APU {
             cpu_phase: ApuPhase::new(),
             seq_phase: ApuPhase::new(),
 
-            output: ApuOutput::new(CPU_HZ_NTSC, 44_100, 4096),
+            output: ApuOutput::new(CPU_HZ_NTSC, 44_100, BLIP_BUF_MAX_SAMPLES),
             last_dac: 0,
             // current_sample_raw: 0.0,
 
@@ -189,9 +194,11 @@ impl APU {
             frame_irq_reassert: 0,
 
             sample_rate: 44100.0, // A safe default
-            high_pass_90: OnePole::default(),
-            high_pass_440: OnePole::default(),
-            low_pass_14k: OnePole::default(),
+
+            low_pass_0: OnePole::default(),
+            high_pass_0: OnePole::default(),
+            high_pass_1: OnePole::default(),
+            high_pass_2: OnePole::default(),
 
             error: None,
         }
@@ -236,17 +243,20 @@ impl APU {
         self.frame_irq_reassert = 0;
 
         // self.sample_rate = 0.0; // Preserve through resets
-        self.high_pass_90 = OnePole::default();
-        self.high_pass_440 = OnePole::default();
-        self.low_pass_14k = OnePole::default();
+        self.low_pass_0 = OnePole::default();
+        self.high_pass_0 = OnePole::default();
+        self.high_pass_1 = OnePole::default();
+        self.high_pass_2 = OnePole::default();
 
         self.error = None;
     }
 
     pub fn read(&mut self, addr: u16) -> u8 {
-        println!("APU::read({:04X})", addr);
         match addr {
             0x4015 => {
+                {
+                    trace!("[APU] read({:04X})", addr);
+                }
                 // Status Register
                 // Collect channel statuses
                 self.status_register.set(
@@ -265,10 +275,13 @@ impl APU {
                     .set(ApuStatusRegister::NOISE_CHANNEL, self.noise.length_active());
                 self.status_register
                     .set(ApuStatusRegister::DMC_CHANNEL, self.dmc.is_enabled());
-                let output = self.status_register.bits();
 
+                self.status_register
+                    .set(ApuStatusRegister::DMC_INTERRUPT, self.dmc.irq_pending());
+
+                let output = self.status_register.bits();
                 // Reading status register clears the frame interrupt flag (but not the DMC interrupt flag).
-                // Quirk: If an interrupt flag was set at the same moment of the read, it will read back as 1 but it will not be cleared.
+                // Quirk: If an interrupt flag was set at the same moment of the read, it will read back as 1, but it will not be cleared.
                 if !self.frame_irq_rising {
                     self.status_register
                         .remove(ApuStatusRegister::FRAME_INTERRUPT);
@@ -334,11 +347,13 @@ impl APU {
                 self.pulse2.set_enabled(enable_pulse2);
                 self.triangle.set_enabled(enable_triangle);
                 self.noise.set_enabled(enable_noise);
-                self.dmc.set_enabled(enable_dmc);
+                self.dmc.write_4015(value);
+                // self.dmc.set_enabled(enable_dmc);
 
                 // Writing to this register clears the DMC interrupt flag
-                self.status_register
-                    .remove(ApuStatusRegister::DMC_INTERRUPT);
+                // self.status_register
+                //     .remove(ApuStatusRegister::DMC_INTERRUPT);
+                self.dmc.clear_irq();
             }
             0x4017 => {
                 // Frame Counter
@@ -483,7 +498,8 @@ impl APU {
         self.pulse1.clock(&frame_clock, apu_tick);
         self.pulse2.clock(&frame_clock, apu_tick);
         self.noise.clock(&frame_clock, apu_tick);
-        self.triangle.clock(&frame_clock, true);
+        self.triangle.clock(&frame_clock);
+        self.dmc.clock();
 
         // Handle consecutive IRQ reassert quirk
         if self.frame_irq_disable {
@@ -513,7 +529,7 @@ impl APU {
         self.output.step_cpu_cycle();
     }
 
-    fn sample(&self) -> f32 {
+    fn sample(&mut self) -> f32 {
         let pulse1 = if self.mute_pulse1 {
             0.0
         } else {
@@ -534,7 +550,11 @@ impl APU {
         } else {
             self.noise.sample() as f32
         };
-        let dmc = if self.mute_dmc { 0.0 } else { 0.0 }; // TODO
+        let dmc = if self.mute_dmc {
+            0.0
+        } else {
+            self.dmc.sample() as f32
+        };
 
         let mut sample;
         #[cfg(feature = "linear-apu-approximation")]
@@ -569,22 +589,32 @@ impl APU {
         sample
     }
 
-    // #[inline(always)]
-    // pub fn get_last_sample(&self) -> f32 {
-    //     self.current_sample_raw
-    // }
-
     pub fn filter_raw_sample(&mut self, raw_sample: f32) -> f32 {
+        // L. Spiro's recommended set of filters
+        let freq_lp0 = 17_000.0;
+        let freq_hp0 = 285.17092929859564;
+        let freq_hp1 = 85.509330674952423;
+        let freq_hp2 = 7.3617262313390981;
+
+        // Per NesDev wiki:
+        // let freq_lp0 = 14_000.0;
+        // let freq_hp0 = 90.0;
+        // let freq_hp1 = 440.0;
+        // // let freq_hp2 = 440.0; // unused
+
         let mut sample = raw_sample;
         sample = self
-            .high_pass_90
-            .high_pass(sample, 90.0, self.sample_rate as f32);
+            .high_pass_0
+            .high_pass(sample, freq_hp0, self.sample_rate as f32);
         sample = self
-            .high_pass_440
-            .high_pass(sample, 440.0, self.sample_rate as f32);
+            .high_pass_1
+            .high_pass(sample, freq_hp1, self.sample_rate as f32);
         sample = self
-            .low_pass_14k
-            .low_pass(sample, 14_000.0, self.sample_rate as f32);
+            .high_pass_2
+            .high_pass(sample, freq_hp2, self.sample_rate as f32);
+        sample = self
+            .low_pass_0
+            .low_pass(sample, freq_lp0, self.sample_rate as f32);
         sample
     }
 
@@ -595,9 +625,10 @@ impl APU {
             .contains(ApuStatusRegister::FRAME_INTERRUPT)
             && !self.frame_irq_disable;
 
-        let dmc_interrupt = self
-            .status_register
-            .contains(ApuStatusRegister::DMC_INTERRUPT);
+        // let dmc_interrupt = self
+        //     .status_register
+        //     .contains(ApuStatusRegister::DMC_INTERRUPT);
+        let dmc_interrupt = self.dmc.irq_pending();
 
         frame_interrupt || dmc_interrupt
     }
@@ -617,5 +648,44 @@ impl APU {
     /// CPU cycles needed to generate `N` more samples at current rates
     pub fn clocks_needed(&self, sample_count: u32) -> u32 {
         self.output.clocks_needed(sample_count)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn apu_length_table_pulse1() {
+        // Standard APU length table (index = bits 7..3 of $4003)
+        const LENGTH_TABLE: [u8; 32] = [
+            10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20,
+            96, 22, 192, 24, 72, 26, 16, 28, 32, 30,
+        ];
+
+        let mut apu = APU::new();
+
+        // when pulse1 is disabled, writing $4003 shouldn't load length
+        apu.write(0x4015, 0x00);
+        apu.write(0x4003, 0b0000_0000); // index 0
+        assert_eq!(apu.pulse1.length_counter.output(), 0);
+
+        // 2) Enable pulse1
+        apu.write(0x4015, ApuStatusRegister::PULSE_CHANNEL_1.bits());
+
+        // test all length indices
+        for (idx, &expected) in LENGTH_TABLE.iter().enumerate() {
+            // bits 7..3 hold the length index
+            let value = ((idx as u8) << 3) & 0xF8;
+            apu.write(0x4003, value);
+
+            assert_eq!(
+                apu.pulse1.length_counter.output(),
+                expected,
+                "length mismatch at index {} (write value {:02X})",
+                idx,
+                value
+            );
+        }
     }
 }

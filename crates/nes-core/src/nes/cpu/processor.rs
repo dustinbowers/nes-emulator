@@ -1,39 +1,31 @@
 use super::super::trace;
 use super::opcodes::Opcode;
-use super::{CPU, CpuCycleState, CpuError, CpuMode, Flags, interrupts, opcodes};
-use crate::trace_cpu_event;
+use super::{CPU, CpuCycleState, CpuError, Flags, interrupts, opcodes};
 use std::collections::HashMap;
 
 impl CPU {
     #[allow(dead_code)]
     pub fn run(&mut self) {
         loop {
-            let (_, should_break) = self.tick();
-            if should_break {
+            let (_instr_done, is_breaking) = self.tick(true);
+            if is_breaking {
                 break;
             }
         }
-    }
-
-    fn toggle_mode(&mut self) {
-        self.cpu_mode = match &self.cpu_mode {
-            CpuMode::Read => CpuMode::Write,
-            CpuMode::Write => CpuMode::Read,
-        };
     }
 
     pub(super) fn advance_program_counter(&mut self) {
         self.program_counter = self.program_counter.wrapping_add(1);
     }
 
-    pub(super) fn read_program_counter(&self) -> u8 {
-        self.bus_read(self.program_counter)
+    pub(super) fn try_read_program_counter(&mut self) -> Option<u8> {
+        self.try_bus_read(self.program_counter)
     }
 
-    pub(super) fn consume_program_counter(&mut self) -> u8 {
-        let byte = self.read_program_counter();
+    pub(super) fn try_consume_program_counter(&mut self) -> Option<u8> {
+        let byte = self.try_read_program_counter()?;
         self.advance_program_counter();
-        byte
+        Some(byte)
     }
 
     /// Runs one CPU cycle
@@ -43,30 +35,19 @@ impl CPU {
     /// A tuple `(bool, bool)`:
     /// * The first element is true if current instruction is complete
     /// * The second element is true if CPU is breaking (due to JAM/KIL instruction)
-    pub fn tick(&mut self) -> (bool, bool) {
-        self.cycle += 1;
-        if self.cycle >= 3_000_000 {
-            self.cycle -= 3_000_000; // Prevent overflow
+    pub fn tick(&mut self, rdy_line: bool) -> (bool, bool) {
+        if !rdy_line && self.stalled_this_tick {
+            // early out until rdy_line goes high again
+            return (false, false);
         }
+
+        self.rdy_line = rdy_line;
+        self.stalled_this_tick = false;
+
+        self.cycle = (self.cycle + 1) % 3_000_000;
 
         // Load next opcode if empty
         if self.current_op.opcode.is_none() {
-            // DMAs schedule halts, which triggers a set of events:
-            // - CPU waits for "Read" state
-            // - CPU halts for 1 cycle to enter DMA mode
-            if self.halt_scheduled {
-                match self.cpu_mode {
-                    CpuMode::Read => {
-                        self.rdy = false; // This pauses CPU execution while DMA runs
-                        self.halt_scheduled = false;
-                    }
-                    CpuMode::Write => {
-                        self.toggle_mode();
-                    }
-                }
-                return (false, false);
-            }
-
             // We're at instruction boundary with no active interrupts, so check for pending NMI
             if self.active_interrupt.is_none() {
                 let curr_nmi_line = self.nmi_line();
@@ -83,7 +64,7 @@ impl CPU {
                     #[cfg(feature = "tracing")]
                     {
                         let (scanline, dot) = unsafe { (*self.bus.unwrap()).ppu_timing() };
-                        trace_cpu_event!("[NMI SET] sl={} dot={}", scanline, dot);
+                        trace!("[NMI SET] sl={} dot={}", scanline, dot);
                     }
                 }
             }
@@ -108,7 +89,10 @@ impl CPU {
 
             // Load next opcode
             let opcodes: &HashMap<u8, &'static Opcode> = &opcodes::OPCODES_MAP;
-            let code = self.consume_program_counter();
+            let code = match self.try_consume_program_counter() {
+                Some(v) => v,
+                None => return (false, false),
+            };
 
             let opcode = match opcodes.get(&code).copied() {
                 Some(op) => op,
@@ -151,8 +135,4 @@ impl CPU {
 
         (done, false)
     }
-
-    // fn start_interrupt(&mut self, interrupt: Interrupt) {
-    //     self.current_op.interrupt = Some(interrupt);
-    // }
 }

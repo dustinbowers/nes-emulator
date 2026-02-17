@@ -17,12 +17,9 @@ pub struct NesBus {
 
     pub nmi_scheduled: Option<u8>,
 
-    pub oam_dma_addr: u8,
-
+    pub oam_dma_request: Option<u8>,
     pub last_mapper_write_cycle: Option<usize>,
 
-    // Some games expect an "open-bus":
-    // i.e. invalid reads return last-read byte
     pub last_cpu_read: u8,
     pub last_ppu_read: u8,
 
@@ -40,7 +37,7 @@ impl NesBus {
 
             nmi_scheduled: None,
 
-            oam_dma_addr: 0,
+            oam_dma_request: None,
 
             last_mapper_write_cycle: None,
 
@@ -62,7 +59,7 @@ impl NesBus {
     pub fn reset_components(&mut self) {
         self.cpu_ram = [0; CPU_RAM_SIZE];
         self.nmi_scheduled = None;
-        self.oam_dma_addr = 0;
+        self.oam_dma_request = None;
         self.last_cpu_read = 0;
         self.joypads = [Joypad::new(), Joypad::new()];
 
@@ -80,7 +77,6 @@ impl NesBus {
 
     pub fn insert_cartridge(&mut self, cart: Box<dyn Cartridge>) {
         self.cart = Some(cart);
-        self.reset_components();
     }
 }
 
@@ -96,10 +92,6 @@ impl CpuBusInterface for NesBus {
                 // PPU Registers mirrored every 8 bytes
                 self.ppu.read_register(addr)
             }
-            // 0x4000..=0x4013 => {
-            //     // panic!("reading apu register: {:04X}", addr);
-            //
-            // }
             0x4015 => self.apu.read(addr),
             0x4014 => {
                 // Open bus
@@ -149,8 +141,7 @@ impl CpuBusInterface for NesBus {
                 }
             }
             0x4014 => {
-                self.cpu.halt_scheduled = true;
-                self.oam_dma_addr = value;
+                self.oam_dma_request = Some(value);
             }
             0x4016 => {
                 // Used to reset strobing via bit 0
@@ -189,10 +180,6 @@ impl CpuBusInterface for NesBus {
     fn irq_line(&mut self) -> bool {
         let cart_irq = self.cart.as_ref().map(|c| c.irq_pending()).unwrap_or(false);
         let apu_irq = self.apu.irq_line();
-
-        // if cart_irq || apu_irq {
-        //     println!("{}", format!("cart_irq = {cart_irq}, apu_irq = {apu_irq}"));
-        // }
         cart_irq || apu_irq
     }
 }
@@ -231,8 +218,17 @@ impl PpuBusInterface for NesBus {
 
 impl ApuBusInterface for NesBus {
     fn apu_bus_read(&mut self, addr: u16) -> u8 {
-        println!("ApuBusInterface::read({:?})", addr);
-        0
+        match addr {
+            0x8000..=0xFFFF => {
+                if let Some(cart) = &mut self.cart {
+                    let (byte, open_bus) = cart.cpu_read(addr);
+                    byte
+                } else {
+                    0 // open bus-ish
+                }
+            }
+            _ => 0,
+        }
     }
 }
 
