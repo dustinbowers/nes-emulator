@@ -173,12 +173,12 @@ The script automatically adds the buffer frames to each test's duration to accou
   - ✅ Detect sprite-overflow
 - ✅ Encapsulate mapper logic behind Cartridge trait
 - ✅ Implement cycle-accurate DMA transfer through Bus
-- ⬜ Implement APU
+- ✅ Implement APU
   - ✅ Pulse Channels
   - ✅ Noise Channel
   - ✅ Triangle Channel
-  - ⬜ DMC DMA
-  - ⬜ DPCM Channel
+  - ✅ DMC DMA
+  - ✅ DPCM Channel
 - ⬜ Implement mappers
   - ✅ iNES 1.0 Mapper 000 - NROM
   - ✅ iNES 1.0 Mapper 001 - MMC1
@@ -187,7 +187,7 @@ The script automatically adds the buffer frames to each test's duration to accou
   - ✅ iNES 1.0 Mapper 004 - MMC3
   - ⬜ iNES 1.0 Mapper 005 - MMC5
   - ⬜ ...plus more...
-- ⬜ Fix CPU<->PPU timing/sync bugs 
+- ⬜ Fix subtle CPU<->PPU timing/sync edge cases 
 
 
 ## Resources
