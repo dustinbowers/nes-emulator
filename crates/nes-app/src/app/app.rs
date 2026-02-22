@@ -14,21 +14,26 @@ use crate::shared::frame_buffer::{SharedFrame, SharedFrameHandle};
 use anyhow::Context;
 use eframe::epaint::TextureHandle;
 use nes_core::prelude::Rom;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use crate::app::ui::post_fx::PostFx;
 
 pub struct UiCtx<'a> {
     pub frame: &'a SharedFrameHandle,
-    pub texture: &'a mut Option<TextureHandle>,
+    pub post_fx: Arc<Mutex<PostFx>>,
+    // pub texture: &'a mut Option<TextureHandle>,
     pub actions: &'a mut Vec<Action>,
     pub started: bool,
     pub paused: bool,
+    pub time_s: f32,
 }
 
 pub struct App<E: AppEventSource> {
     pub(crate) events: E,
     emu_host: Option<EmuHost>,
     pub(crate) frame: SharedFrameHandle,
-    pub(crate) texture: Option<TextureHandle>,
+
+    pub(crate) post_fx: Arc<Mutex<PostFx>>,
+    // pub(crate) texture: Option<TextureHandle>,
     log_callback: Option<Box<dyn Fn(String) + 'static>>,
 
     // UI
@@ -38,12 +43,17 @@ pub struct App<E: AppEventSource> {
 }
 
 impl<E: AppEventSource> App<E> {
-    pub fn new(events: E) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, events: E) -> Self {
+        let gl = cc.gl.as_ref().expect("glow backend required cc.gl").clone();
+        let post_fx = Arc::new(Mutex::new(unsafe { PostFx::new(gl) }));
+
         Self {
             events,
             emu_host: None,
             frame: Arc::new(SharedFrame::new()),
-            texture: None,
+            post_fx,
+            // texture: None,
+
 
             log_callback: None,
             view: UiView::Waiting(WaitingView::new()),
@@ -162,14 +172,17 @@ impl<E: AppEventSource> eframe::App for App<E> {
         }
 
         let mut actions = Vec::<Action>::new();
+        let time_s = ctx.input(|i| i.time as f32);
         {
             // Build context
             let mut ui_ctx = UiCtx {
                 frame: &self.frame,
-                texture: &mut self.texture,
+                // texture: &mut self.texture,
+                post_fx: self.post_fx.clone(),
                 actions: &mut actions,
                 started: self.started,
                 paused: self.paused,
+                time_s,
             };
 
             // Handle Hotkeys
