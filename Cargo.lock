@@ -1216,6 +1216,7 @@ name = "nes-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "cpal",
  "crossbeam-channel",
  "eframe",

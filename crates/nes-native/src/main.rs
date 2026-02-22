@@ -41,8 +41,8 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "NES Emulator",
         options,
-        Box::new(move |_cc| {
-            let app = App::new(events)
+        Box::new(move |cc| {
+            let app = App::new(cc, events)
                 .with_logger(|msg| println!("{msg}"))
                 .with_initial_events(initial_events);
             Ok(Box::new(app))
