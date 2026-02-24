@@ -184,7 +184,7 @@ fn run_opcode_test(bus: &mut SimpleBus, test: &OpcodeTest) {
         end.p
     );
     for (address, value) in end.ram.iter() {
-        let got = bus.cpu.bus_read(*address);
+        let got = bus.cpu.try_bus_read(*address).unwrap();
         let want = *value;
         assert_eq!(
             got, want,
