@@ -12,9 +12,9 @@ https://dustinbowers.com/demos/nes-emulator
 
 ## Features
 
-- 6502 CPU emulation with memory-cycle-accurate timing
+- 6502 CPU emulation with cycle-accurate timing
 - Dot-based microcoded PPU implementation
-- Limited APU support (DMC coming soon!)
+- APU support across all 5 channels
 - Small collection of supported mappers (currently NROM, MMC1, MMC3, UxROM, CNROM)
 - Native desktop application
 - WebAssembly browser version
