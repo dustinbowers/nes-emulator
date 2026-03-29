@@ -4,6 +4,10 @@ A Nintendo Entertainment System (NES) emulator written in Rust, supporting both 
 
 > **Note**: This project is currently under active development. (There's still quite a few timing bugs to squash)
 
+## Screenshots
+
+<img src="/imgs/SMB3_03-28-26.png" width="40%" /> <img src="/imgs/AccuracyCoin_03-28-26.png" width="40%" />
+
 ## Live Demo
 
 A Live Demo of the current progress is available here (Note there's limited mapper support):  
@@ -19,6 +23,7 @@ https://dustinbowers.com/demos/nes-emulator
 - Native desktop application
 - WebAssembly browser version
 - Test suite for CPU opcodes (single-step tests) and `nes-test-roms`
+
 
 ## Project Structure
 
@@ -187,7 +192,7 @@ The script automatically adds the buffer frames to each test's duration to accou
   - ✅ iNES 1.0 Mapper 004 - MMC3
   - ⬜ iNES 1.0 Mapper 005 - MMC5
   - ⬜ ...plus more...
-- ⬜ Fix subtle CPU<->PPU timing/sync edge cases 
+- ⬜ Pass more AccuracyCoin tests
 
 
 ## Resources
