@@ -2,8 +2,6 @@
 
 A Nintendo Entertainment System (NES) emulator written in Rust, supporting both native and WebAssembly targets.
 
-> **Note**: This project is currently under active development. (There's still quite a few timing bugs to squash)
-
 ## Screenshots
 
 <img src="/imgs/SMB3_03-28-26.png" width="40%" /> <img src="/imgs/AccuracyCoin_03-28-26.png" width="40%" />
